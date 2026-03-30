@@ -1,4 +1,17 @@
-FROM node:20-bookworm
+FROM node:20-bookworm AS frontend
+
+WORKDIR /app
+
+COPY frontend/package*.json /app/
+RUN npm install
+
+COPY frontend /app
+
+EXPOSE 5173
+
+CMD ["npm", "run", "dev", "--", "--host", "0.0.0.0"]
+
+FROM node:20-bookworm AS backend
 
 WORKDIR /app
 

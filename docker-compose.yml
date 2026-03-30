@@ -1,8 +1,9 @@
 services:
   frontend:
     build:
-      context: ./frontend
+      context: .
       dockerfile: Dockerfile
+      target: frontend
     container_name: district_intel_frontend
     depends_on:
       - backend
@@ -33,6 +34,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+      target: backend
     container_name: district_intel_backend
     depends_on:
       - db
