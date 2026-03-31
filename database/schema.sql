@@ -162,6 +162,23 @@ CREATE TABLE IF NOT EXISTS analysis_results (
     calculated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
+-- Application users for backend authentication and role-based access
+CREATE TABLE IF NOT EXISTS users (
+    id SERIAL PRIMARY KEY,
+    username VARCHAR(100) NOT NULL UNIQUE,
+    email VARCHAR(255) NOT NULL UNIQUE,
+    password_hash TEXT NOT NULL,
+    full_name VARCHAR(255),
+    role VARCHAR(50) NOT NULL DEFAULT 'user' CHECK (role IN ('super_admin', 'admin', 'analyst', 'user')),
+    is_active BOOLEAN NOT NULL DEFAULT TRUE,
+    last_login_at TIMESTAMP,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_users_role ON users(role);
+CREATE INDEX IF NOT EXISTS idx_users_is_active ON users(is_active);
+
 -- ETL Logging
 CREATE TABLE IF NOT EXISTS data_load_log (
     id SERIAL PRIMARY KEY,

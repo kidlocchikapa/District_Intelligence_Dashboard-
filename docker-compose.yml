@@ -4,7 +4,7 @@ services:
       context: .
       dockerfile: Dockerfile
       target: frontend
-    container_name: district_intel_frontend
+    container_name: district_intelligence_frontend
     depends_on:
       - backend
     environment:
@@ -35,7 +35,7 @@ services:
       context: .
       dockerfile: Dockerfile
       target: backend
-    container_name: district_intel_backend
+    container_name: district_intelligence_backend
     depends_on:
       - db
     ports:
@@ -88,7 +88,7 @@ services:
 
   db:
     image: postgis/postgis:15-3.3
-    container_name: district_intel_db
+    container_name: district_intelligence_db
     environment:
       POSTGRES_USER: ${DB_USER}
       POSTGRES_PASSWORD: ${DB_PASSWORD}

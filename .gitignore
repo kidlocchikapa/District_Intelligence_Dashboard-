@@ -4,8 +4,10 @@ uploads/
 __pycache__/
 *.pyc
 etl/venv/
+etl/.venv/
 
 node_modules/
 dist/
 
 .DS_Store
+.codex
