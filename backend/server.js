@@ -14,6 +14,14 @@ app.use(cors());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
+// Import Routes
+const authRoutes = require('./routes/auth');
+const dataManagerRoutes = require('./routes/dataManager');
+
+// Register Routes
+app.use('/api/auth', authRoutes);
+app.use('/api/data', dataManagerRoutes);
+
 // Basic Routes
 app.get('/', (req, res) => {
     res.json({ message: 'District Intelligence API v1' });

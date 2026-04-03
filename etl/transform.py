@@ -30,13 +30,18 @@ class DataHarmonizer:
         # 3. Create 'geom' if latitude and longitude exist but no geometry is present
         # This occurs if the source was a CSV, not a GeoJSON
         if not isinstance(df, gpd.GeoDataFrame) and 'latitude' in df.columns and 'longitude' in df.columns:
-            logger.info("Converting tabular data to spatial GeoDataFrame using latitude and longitude.")
+            logger.info("Converting tabular data to spatial GeoDataFrame using latitude and longitude. Missing coordinates will be preserved as non-spatial.")
             df['latitude'] = pd.to_numeric(df['latitude'], errors='coerce')
             df['longitude'] = pd.to_numeric(df['longitude'], errors='coerce')
-            # Drop rows with invalid coordinates
-            df = df.dropna(subset=['latitude', 'longitude'])
             
-            geometry = [Point(xy) for xy in zip(df['longitude'], df['latitude'])]
+            # Use Shapely Point if coords exist, else None
+            geometry = []
+            for lat, lon in zip(df['latitude'], df['longitude']):
+                if pd.isna(lat) or pd.isna(lon):
+                    geometry.append(None)
+                else:
+                    geometry.append(Point(lon, lat))
+            
             df = gpd.GeoDataFrame(df, geometry=geometry, crs="EPSG:4326")
             
             # Since our database column is 'geom', let's set it as the active geometry and rename
