@@ -2,10 +2,26 @@ const { Pool } = require("pg");
 const path = require("path");
 require("dotenv").config({ path: path.resolve(__dirname, "../.env") });
 
+function normalizeConnectionString(connectionString) {
+  try {
+    const url = new URL(connectionString);
+    const sslMode = url.searchParams.get("sslmode");
+
+    // Keep the current strict TLS behavior explicit to avoid pg warning noise.
+    if (["prefer", "require", "verify-ca"].includes(sslMode)) {
+      url.searchParams.set("sslmode", "verify-full");
+    }
+
+    return url.toString();
+  } catch {
+    return connectionString;
+  }
+}
+
 // Build the connection string based on environment variables
 function buildConnectionString() {
   if (process.env.DATABASE_URL) {
-    return process.env.DATABASE_URL;
+    return normalizeConnectionString(process.env.DATABASE_URL);
   }
 
   // Fallback to individual environment variables if DATABASE_URL is not set
@@ -19,7 +35,7 @@ function buildConnectionString() {
     return null;
   }
 
-  return `postgresql://${user}:${password}@${host}:${port}/${name}`;
+  return normalizeConnectionString(`postgresql://${user}:${password}@${host}:${port}/${name}`);
 }
 
 const connectionString = buildConnectionString();
