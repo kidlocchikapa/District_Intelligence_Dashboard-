@@ -4,17 +4,10 @@ require("dotenv").config({ path: path.resolve(__dirname, "../.env") });
 
 function normalizeConnectionString(connectionString) {
   try {
-    const url = new URL(connectionString);
-    const sslMode = url.searchParams.get("sslmode");
-
-    // Keep the current strict TLS behavior explicit to avoid pg warning noise.
-    if (["prefer", "require", "verify-ca"].includes(sslMode)) {
-      url.searchParams.set("sslmode", "verify-full");
-    }
-
+    const url = new URL(connectionString.trim());
     return url.toString();
   } catch {
-    return connectionString;
+    return connectionString.trim();
   }
 }
 
