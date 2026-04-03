@@ -15,7 +15,7 @@ DB_NAME = os.getenv("DB_NAME", "district_dashboard_db")
 DATABASE_URI = f"postgresql://{DB_USER}:{DB_PASSWORD}@{DB_HOST}:{DB_PORT}/{DB_NAME}"
 
 # Data Directories
-RAW_DATA_DIR = os.getenv("RAW_DATA_DIR", "../sample_data")
+RAW_DATA_DIR = os.getenv("RAW_DATA_DIR", "/app/sample_data")
 
 # Generic Column Mappings (Source Column -> Target DB Column)
 # Adjust these mappings based on actual files
