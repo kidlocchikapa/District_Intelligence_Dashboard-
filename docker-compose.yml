@@ -42,14 +42,14 @@ services:
       - "5000:5000"
     environment:
       PORT: 5000
-      JWT_SECRET: ${JWT_SECRET}
+      JWT_SECRET: ${JWT_SECRET:-secret}
       ETL_PYTHON_PATH: python3
-      DB_USER: ${DB_USER}
-      DB_PASSWORD: ${DB_PASSWORD}
+      DB_USER: ${DB_USER:-postgres}
+      DB_PASSWORD: ${DB_PASSWORD:-postgres}
       DB_PORT: 5432
-      DB_NAME: ${DB_NAME}
+      DB_NAME: ${DB_NAME:-district_dashboard_db}
       DB_HOST: db
-      DATABASE_URL: postgresql://${DB_USER}:${DB_PASSWORD}@db:5432/${DB_NAME}
+      DATABASE_URL: postgresql://${DB_USER:-postgres}:${DB_PASSWORD:-postgres}@db:5432/${DB_NAME:-district_dashboard_db}
       NODE_ENV: development
     volumes:
       - ./.env:/app/.env:ro
@@ -90,9 +90,9 @@ services:
     image: postgis/postgis:15-3.3
     container_name: district_intelligence_db
     environment:
-      POSTGRES_USER: ${DB_USER}
-      POSTGRES_PASSWORD: ${DB_PASSWORD}
-      POSTGRES_DB: ${DB_NAME}
+      POSTGRES_USER: ${DB_USER:-postgres}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-postgres}
+      POSTGRES_DB: ${DB_NAME:-district_dashboard_db}
     ports:
       - "5433:5432"
     volumes:
