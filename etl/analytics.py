@@ -131,3 +131,150 @@ def compute_nearest_facility_distance(admin_units_gdf, facilities_gdf, analysis_
         )
 
     return pd.DataFrame(records)
+
+# Calculate the percentage of each administrative unit's area that is covered by facilities within a specified distance and return a DataFrame with the results
+def compute_service_coverage(admin_units_gdf, facilities_gdf, analysis_type, metric_name, coverage_distance_km=5.0):
+    admin_proj = admin_units_gdf.to_crs('EPSG:3857')
+    facilities_proj = facilities_gdf.to_crs('EPSG:3857')
+
+    if facilities_proj.empty:
+        raise ValueError(f'No facilities available for {analysis_type}')
+
+    buffer_union = unary_union(facilities_proj.buffer(coverage_distance_km * 1000).tolist())
+    records = []
+    admin_geom_col = admin_proj.geometry.name
+
+    for _, row in admin_proj.iterrows():
+        row_geom = row.get(admin_geom_col)
+        area = row_geom.area if row_geom is not None else 0
+        covered = row_geom.intersection(buffer_union).area if row_geom is not None and not row_geom.is_empty else 0
+        coverage_pct = (covered / area * 100) if area else 0
+        records.append(
+            analysis_record(
+                analysis_type=analysis_type,
+                admin_row=row,
+                metric_name=metric_name,
+                metric_value=float(coverage_pct),
+                metric_unit='percent',
+                metadata={'coverage_distance_km': coverage_distance_km},
+            )
+        )
+
+    return pd.DataFrame(records)
+
+#Calculate the population served by health facilities within a specified adminstrative unit
+def compute_health_population_served(admin_units_gdf, health_gdf, raster_path, coverage_distance_km=5.0):
+    if health_gdf.empty:
+        raise ValueError('No health facilities available for health_population_served')
+    if not raster_path:
+        raise ValueError('A WorldPop raster path is required for health_population_served')
+
+    admin_proj = admin_units_gdf.to_crs('EPSG:3857')
+    health_proj = health_gdf.to_crs('EPSG:3857')
+    buffer_union = unary_union(health_proj.buffer(coverage_distance_km * 1000).tolist())
+
+    served_polygons = []
+    served_indices = []
+    served_admin_rows = []
+    admin_geom_col = admin_proj.geometry.name
+
+    for _, admin_row in admin_proj.iterrows():
+        admin_geom = admin_row.get(admin_geom_col)
+        served_geom = admin_geom.intersection(buffer_union) if admin_geom is not None and not admin_geom.is_empty else None
+        if served_geom is None or served_geom.is_empty:
+            continue
+        served_indices.append(admin_row['id'])
+        served_admin_rows.append(admin_row)
+        served_polygons.append(served_geom)
+
+    served_lookup = {}
+    if served_polygons:
+        served_gdf = gpd.GeoDataFrame(
+            {'admin_unit_id': served_indices},
+            geometry=served_polygons,
+            crs='EPSG:3857',
+        ).to_crs('EPSG:4326')
+        served_stats = get_zonal_stats(raster_path, served_gdf, stat='sum')
+        served_lookup = {admin_id: float(value) for admin_id, value in zip(served_indices, served_stats)}
+
+    records = []
+    for _, admin_row in admin_proj.iterrows():
+        population_total = float(admin_row.get('population_total') or 0)
+        served_population = served_lookup.get(admin_row['id'], 0.0)
+        unserved_population = max(population_total - served_population, 0.0)
+        served_pct = (served_population * 100 / population_total) if population_total else 0.0
+        unserved_pct = max(100.0 - served_pct, 0.0) if population_total else 0.0
+
+        metrics = {
+            'health_population_served_total': (served_population, 'people'),
+            'health_population_served_pct': (served_pct, 'percent'),
+            'health_population_unserved_total': (unserved_population, 'people'),
+            'health_population_unserved_pct': (unserved_pct, 'percent'),
+        }
+
+        for metric_name, (metric_value, metric_unit) in metrics.items():
+            records.append(
+                analysis_record(
+                    analysis_type='health_population_served',
+                    admin_row=admin_row,
+                    metric_name=metric_name,
+                    metric_value=float(metric_value),
+                    metric_unit=metric_unit,
+                    metadata={'coverage_distance_km': coverage_distance_km},
+                )
+            )
+
+    return pd.DataFrame(records)
+
+#Calculate health facility counts, bed counts, patient visits, and related metrics for each administrative unit and return a DataFrame with the results
+def compute_health_summary(admin_units_gdf, health_gdf, admin_level=None):
+    if health_gdf.empty:
+        raise ValueError('No health facilities available for health_summary')
+
+    admin_units = admin_units_gdf.copy()
+    admin_proj = admin_units.to_crs('EPSG:3857')
+    health_proj = health_gdf.to_crs('EPSG:3857').rename(columns={'id': 'facility_id'})
+    admin_geom_col = admin_proj.geometry.name
+    admin_join = admin_proj[['id', admin_geom_col]].rename(columns={'id': 'admin_unit_id'})
+
+    spatial_matches = gpd.sjoin(
+        health_proj,
+        admin_join,
+        how='left',
+        predicate='intersects',
+    ).drop_duplicates(subset='facility_id')
+
+    grouped = spatial_matches.groupby('admin_unit_id', dropna=True).agg(
+        facility_count=('facility_id', 'count'),
+        beds_count_total=('beds_count', 'sum'),
+        patient_visits_total=('patient_visits_total', 'sum'),
+    )
+
+    records = []
+    for _, admin_row in admin_units.iterrows():
+        metrics = grouped.loc[admin_row['id']] if admin_row['id'] in grouped.index else None
+        facility_count = float(metrics['facility_count']) if metrics is not None and pd.notna(metrics['facility_count']) else 0.0
+        beds_count_total = float(metrics['beds_count_total']) if metrics is not None and pd.notna(metrics['beds_count_total']) else 0.0
+        patient_visits_total = float(metrics['patient_visits_total']) if metrics is not None and pd.notna(metrics['patient_visits_total']) else 0.0
+        population_total = float(admin_row.get('population_total') or 0)
+
+        metric_set = {
+            'health_facility_count': (facility_count, 'count'),
+            'beds_count_total': (beds_count_total, 'beds'),
+            'patient_visits_total': (patient_visits_total, 'visits'),
+            'health_facilities_per_1000_population': ((facility_count * 1000 / population_total) if population_total else 0.0, 'per_1000_people'),
+            'beds_per_1000_population': ((beds_count_total * 1000 / population_total) if population_total else 0.0, 'per_1000_people'),
+        }
+
+        for metric_name, (metric_value, metric_unit) in metric_set.items():
+            records.append(
+                analysis_record(
+                    analysis_type='health_summary',
+                    admin_row=admin_row,
+                    metric_name=metric_name,
+                    metric_value=float(metric_value),
+                    metric_unit=metric_unit,
+                )
+            )
+
+    return pd.DataFrame(records)
