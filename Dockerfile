@@ -33,7 +33,6 @@ COPY backend /app/backend
 COPY etl /app/etl
 COPY database /app/database
 COPY sample_data /app/sample_data
-COPY .env /app/.env
 
 RUN mkdir -p /app/uploads
 

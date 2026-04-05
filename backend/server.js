@@ -1,6 +1,7 @@
 const express = require('express')
 const cors = require('cors')
 const path = require('path')
+const authRoutes = require('./routes/auth')
 
 
 require('dotenv').config({ path: path.resolve(__dirname, '../.env') });
@@ -26,6 +27,8 @@ app.use('/api/data', dataManagerRoutes);
 app.get('/', (req, res) => {
     res.json({ message: 'District Intelligence API v1' });
 });
+
+app.use('/api/v1/auth', authRoutes);
 
 app.listen(port, () => {
   console.log(`Server running on port ${port}`);

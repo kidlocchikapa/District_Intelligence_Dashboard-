@@ -1,63 +1,149 @@
-import datetime
-import logging
-from sqlalchemy import create_engine
+##import libaries
+import json
+import os
+from datetime import datetime
+
+import pandas as pd
+from dotenv import load_dotenv
+from sqlalchemy import create_engine, text
 from sqlalchemy.orm import sessionmaker
-from sqlalchemy.exc import SQLAlchemyError
-from pipeline_config import DATABASE_URI
 
-# Set up logging
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
-logger = logging.getLogger(__name__)
+#Loaad environment variables from .env file
+load_dotenv(os.path.join(os.path.dirname(__file__), '../.env'))
 
+# build database url from environment variables, prioritizing DATABASE_URL if set, otherwise constructing from individual components
+def build_database_url():
+    explicit_url = os.getenv('DATABASE_URL')
+    if explicit_url:
+        return explicit_url
+
+    db_user = os.getenv('DB_USER')
+    db_password = os.getenv('DB_PASSWORD')
+    db_name = os.getenv('DB_NAME')
+    db_host = os.getenv('DB_HOST', 'localhost')
+    db_port = os.getenv('DB_PORT', '5432')
+
+    if db_user and db_password and db_name:
+        return f'postgresql://{db_user}:{db_password}@{db_host}:{db_port}/{db_name}'
+
+    return None
+
+
+DB_URL = build_database_url()
+
+# Database utility functions
 def get_engine():
-    """Returns a SQLAlchemy engine."""
-    try:
-        engine = create_engine(DATABASE_URI)
-        return engine
-    except Exception as e:
-        logger.error(f"Failed to create database engine: {e}")
-        raise
+    if not DB_URL:
+        raise ValueError('Database configuration missing. Set DATABASE_URL or DB_USER/DB_PASSWORD/DB_HOST/DB_PORT/DB_NAME.')
+    return create_engine(DB_URL)
 
+# Create a new SQLAlchemy session
 def get_session():
-    """Returns a SQLAlchemy session."""
     engine = get_engine()
-    SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
-    return SessionLocal()
+    session_factory = sessionmaker(bind=engine)
+    return session_factory()
 
-def log_etl_run(session, source_filename, source_type, dataset_type, table_name, 
-                rows_read=0, rows_loaded=0, rows_flagged=0, status="Success", error_message=None):
-    """Logs the ETL loading event into the data_load_log table."""
-    try:
-        # Build the exact SQL query avoiding full ORM models for simplicity
-        sql = """
-            INSERT INTO data_load_log (
-                source_filename, source_type, dataset_type, table_name,
-                rows_read, rows_loaded, rows_flagged, status, error_message,
-                completed_at
-            ) VALUES (
-                :source_filename, :source_type, :dataset_type, :table_name,
-                :rows_read, :rows_loaded, :rows_flagged, :status, :error_message,
-                :completed_at
-            )
+# Check if a table exists in the database
+def table_exists(session, table_name):
+    query = text(
         """
-        params = {
-            "source_filename": source_filename,
-            "source_type": source_type,
-            "dataset_type": dataset_type,
-            "table_name": table_name,
-            "rows_read": rows_read,
-            "rows_loaded": rows_loaded,
-            "rows_flagged": rows_flagged,
-            "status": status,
-            "error_message": error_message,
-            "completed_at": datetime.datetime.now()
-        }
-        
-        # Execute parameterized query
-        from sqlalchemy import text
-        session.execute(text(sql), params)
+        SELECT EXISTS (
+            SELECT 1
+            FROM information_schema.tables
+            WHERE table_schema = 'public' AND table_name = :table_name
+        )
+        """
+    )
+    return bool(session.execute(query, {'table_name': table_name}).scalar())
+
+# Read data from a specified table into a pandas DataFrame
+def read_table(session, table_name, columns='*'):
+    if not table_exists(session, table_name):
+        return pd.DataFrame()
+
+    query = text(f'SELECT {columns} FROM {table_name}')
+    return pd.read_sql(query, session.bind)
+
+#serialize metadata for logging, ensuring it's in a consistent format (dict or JSON string)
+def serialize_metadata(metadata):
+    if metadata is None:
+        return {}
+    if isinstance(metadata, dict):
+        return metadata
+    return {'value': metadata}
+
+#Log ETL run details to the data_load_log table, including metadata and error information if applicable
+def log_etl_run(
+    session,
+    filename,
+    source_type,
+    dataset_type,
+    table_name,
+    rows_read,
+    rows_processed,
+    rows_loaded,
+    rows_flagged,
+    status,
+    error=None,
+    metadata=None,
+    started_at=None,
+    completed_at=None,
+):
+    payload = {
+        'filename': filename,
+        'source_type': source_type,
+        'dataset_type': dataset_type,
+        'table_name': table_name,
+        'rows_read': rows_read,
+        'rows_processed': rows_processed,
+        'rows_loaded': rows_loaded,
+        'rows_flagged': rows_flagged,
+        'status': status,
+        'error_message': error,
+        'started_at': started_at or datetime.utcnow(),
+        'completed_at': completed_at or datetime.utcnow(),
+        'run_metadata': json.dumps(serialize_metadata(metadata)),
+    }
+
+    try:
+        sql = text(
+            """
+            INSERT INTO data_load_log (
+                source_filename,
+                source_type,
+                dataset_type,
+                table_name,
+                rows_read,
+                rows_processed,
+                rows_loaded,
+                rows_flagged,
+                status,
+                error_message,
+                started_at,
+                completed_at,
+                run_metadata
+            )
+            VALUES (
+                :filename,
+                :source_type,
+                :dataset_type,
+                :table_name,
+                :rows_read,
+                :rows_processed,
+                :rows_loaded,
+                :rows_flagged,
+                :status,
+                :error_message,
+                :started_at,
+                :completed_at,
+                CAST(:run_metadata AS jsonb)
+            )
+            """
+        )
+        session.execute(sql, payload)
         session.commit()
-    except Exception as e:
-        logger.error(f"Failed to write ETL log: {e}")
+    except Exception as exc:
+        print(f'Failed to log ETL run: {exc}')
         session.rollback()
+
 

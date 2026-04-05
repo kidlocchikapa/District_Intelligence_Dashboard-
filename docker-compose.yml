@@ -4,7 +4,7 @@ services:
       context: .
       dockerfile: Dockerfile
       target: frontend
-    container_name: district_intelligence_frontend
+    container_name: district_intelligent_frontend
     depends_on:
       - backend
     environment:
@@ -35,26 +35,24 @@ services:
       context: .
       dockerfile: Dockerfile
       target: backend
-    container_name: district_intelligence_backend
-    depends_on:
-      - db
+    container_name: district_intelligent_backend
     ports:
       - "5000:5000"
     environment:
-      PORT: 5000
-      JWT_SECRET: ${JWT_SECRET:-secret}
+      PORT: ${PORT:-5000}
       ETL_PYTHON_PATH: python3
-      DB_USER: ${DB_USER:-postgres}
-      DB_PASSWORD: ${DB_PASSWORD:-postgres}
-      DB_PORT: 5432
-      DB_NAME: ${DB_NAME:-district_dashboard_db}
-      DB_HOST: db
-      DATABASE_URL: postgresql://${DB_USER:-postgres}:${DB_PASSWORD:-postgres}@db:5432/${DB_NAME:-district_dashboard_db}
       NODE_ENV: development
+      DATABASE_URL: ${DATABASE_URL:-}
+      DB_HOST: db
+      DB_PORT: ${DB_PORT:-5432}
+      DB_NAME: ${DB_NAME:-district_intelligence}
+      DB_USER: ${DB_USER:-district_user}
+      DB_PASSWORD: ${DB_PASSWORD:-district_password}
+      JWT_SECRET: ${JWT_SECRET:-dev-only-change-me}
+      JWT_EXPIRES_IN: ${JWT_EXPIRES_IN:-1d}
+      BCRYPT_ROUNDS: ${BCRYPT_ROUNDS:-12}
     volumes:
-      - ./.env:/app/.env:ro
       - ./uploads:/app/uploads
-      - backend_node_modules:/app/backend/node_modules
     command: ["sh", "-c", "cd /app/backend && npm run dev"]
     develop:
       watch:
@@ -88,11 +86,11 @@ services:
 
   db:
     image: postgis/postgis:15-3.3
-    container_name: district_intelligence_db
+    container_name: district_intelligent_db
     environment:
-      POSTGRES_USER: ${DB_USER:-postgres}
-      POSTGRES_PASSWORD: ${DB_PASSWORD:-postgres}
-      POSTGRES_DB: ${DB_NAME:-district_dashboard_db}
+      POSTGRES_USER: ${DB_USER:-district_user}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-district_password}
+      POSTGRES_DB: ${DB_NAME:-district_intelligence}
     ports:
       - "5433:5432"
     volumes:
@@ -102,4 +100,3 @@ services:
 volumes:
   pgdata:
   frontend_node_modules:
-  backend_node_modules:
