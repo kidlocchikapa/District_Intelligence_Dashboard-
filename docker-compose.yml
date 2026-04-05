@@ -4,11 +4,7 @@ services:
       context: .
       dockerfile: Dockerfile
       target: frontend
-<<<<<<< HEAD
-    container_name: district_intelligence_frontend
-=======
     container_name: district_intelligent_frontend
->>>>>>> worldpopIntegration
     depends_on:
       - backend
     environment:
@@ -39,13 +35,7 @@ services:
       context: .
       dockerfile: Dockerfile
       target: backend
-<<<<<<< HEAD
-    container_name: district_intelligence_backend
-    depends_on:
-      - db
-=======
     container_name: district_intelligent_backend
->>>>>>> worldpopIntegration
     ports:
       - "5000:5000"
     environment:
@@ -94,11 +84,7 @@ services:
 
   db:
     image: postgis/postgis:15-3.3
-<<<<<<< HEAD
-    container_name: district_intelligence_db
-=======
     container_name: district_intelligent_db
->>>>>>> worldpopIntegration
     environment:
       POSTGRES_USER: ${DB_USER}
       POSTGRES_PASSWORD: ${DB_PASSWORD}
