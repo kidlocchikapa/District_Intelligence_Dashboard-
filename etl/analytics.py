@@ -1,0 +1,94 @@
+#import necessary libraries for geospatial analysis and database interaction
+import geopandas as gpd
+import pandas as pd
+from shapely.ops import unary_union
+from sqlalchemy import text
+
+from worldpop import get_zonal_stats
+
+# Define the types of analyses that can be performed
+ANALYSIS_TYPES = {
+    'disaster_vulnerability',
+    'education_summary',
+    'health_summary',
+    'health_population_served',
+    'nearest_school_distance',
+    'nearest_health_distance',
+    'school_service_coverage',
+    'health_service_coverage',
+}
+
+# Fetch administrative units with optional filtering by admin level (e.g., 'ward', 'district')
+def fetch_admin_units_for_analysis(session, admin_level=None):
+    query = """
+        SELECT id, code, name, type, geom, area_sq_km, population_total
+        FROM administrative_units
+        WHERE geom IS NOT NULL
+    """
+    params = {}
+    if admin_level:
+        query += " AND LOWER(type) = LOWER(:admin_level)"
+        params['admin_level'] = admin_level
+
+    return gpd.read_postgis(text(query), session.bind, geom_col='geom', params=params)
+
+# Fetch facilities (education or health) with relevant attributes for analysis
+def fetch_facilities(session, table_name):
+    if table_name == 'education_facilities':
+        query = """
+            SELECT school_id AS id, name, ward_id, district_id, student_enrollment_total, teacher_count, geom
+            FROM education_facilities
+            WHERE geom IS NOT NULL
+        """
+    elif table_name == 'health_facilities':
+        query = """
+            SELECT id, name, ward_id, district_id, beds_count, patient_visits_total, geom
+            FROM health_facilities
+            WHERE geom IS NOT NULL
+        """
+    else:
+        query = f"""
+            SELECT id, name, geom
+            FROM {table_name}
+            WHERE geom IS NOT NULL
+        """
+
+    return gpd.read_postgis(text(query), session.bind, geom_col='geom')
+
+# Fetch indicator values for a specific dataset type and indicator name, with optional filtering by geographic level
+def fetch_indicator_lookup(session, dataset_type, indicator_name, geographic_level=None):
+    query = """
+        SELECT DISTINCT ON (COALESCE(geographic_code, geographic_name))
+            geographic_code,
+            geographic_name,
+            indicator_value
+        FROM unified_indicators
+        WHERE dataset_type = :dataset_type
+          AND indicator_name = :indicator_name
+    """
+    params = {
+        'dataset_type': dataset_type,
+        'indicator_name': indicator_name,
+    }
+    if geographic_level:
+        query += " AND LOWER(geographic_level) = LOWER(:geographic_level)"
+        params['geographic_level'] = geographic_level
+
+    query += """
+        ORDER BY COALESCE(geographic_code, geographic_name), calculated_at DESC, id DESC
+    """
+
+    rows = session.execute(text(query), params).mappings().all()
+    return {
+        'by_code': {
+            row['geographic_code']: float(row['indicator_value'])
+            for row in rows
+            if row['geographic_code']
+        },
+        'by_name': {
+            str(row['geographic_name']).strip().lower(): float(row['indicator_value'])
+            for row in rows
+            if row['geographic_name']
+        },
+    }
+
