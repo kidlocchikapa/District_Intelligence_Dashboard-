@@ -92,3 +92,42 @@ def fetch_indicator_lookup(session, dataset_type, indicator_name, geographic_lev
         },
     }
 
+# Ensure that the geometries used for analysis are representative points (centroids) of the administrative units
+def ensure_analysis_geometries(admin_units_gdf):
+    working = admin_units_gdf.copy()
+    working['centroid'] = working.geometry.representative_point()
+    return working
+
+
+# Helper function to extract geometry from a row, whether it's a Series or an object with a geometry attribute
+def get_row_geometry(row):
+    if isinstance(row, pd.Series) and 'geometry' in row.index:
+        return row['geometry']
+    return getattr(row, 'geometry', None)
+
+#calculate the distance from each administrative unit to the nearest facility and return a DataFrame with the results
+def compute_nearest_facility_distance(admin_units_gdf, facilities_gdf, analysis_type, metric_name):
+    admin_units = ensure_analysis_geometries(admin_units_gdf)
+    admin_proj = admin_units.to_crs('EPSG:3857')
+    facilities_proj = facilities_gdf.to_crs('EPSG:3857')
+
+    if facilities_proj.empty:
+        raise ValueError(f'No facilities available for {analysis_type}')
+
+    facility_union = unary_union(facilities_proj.geometry.tolist())
+    records = []
+
+    for _, row in admin_proj.iterrows():
+        centroid = row['centroid']
+        distance_km = centroid.distance(facility_union) / 1000
+        records.append(
+            analysis_record(
+                analysis_type=analysis_type,
+                admin_row=row,
+                metric_name=metric_name,
+                metric_value=float(distance_km),
+                metric_unit='km',
+            )
+        )
+
+    return pd.DataFrame(records)
