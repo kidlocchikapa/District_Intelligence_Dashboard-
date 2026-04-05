@@ -39,17 +39,19 @@ services:
     ports:
       - "5000:5000"
     environment:
-      PORT: 5000
+      PORT: ${PORT:-5000}
       ETL_PYTHON_PATH: python3
       NODE_ENV: development
-      DATABASE_URL: ${DATABASE_URL}
+      DATABASE_URL: ${DATABASE_URL:-}
       DB_HOST: db
-      DB_PORT: 5432
-      DB_NAME: ${DB_NAME}
-      DB_USER: ${DB_USER}
-      DB_PASSWORD: ${DB_PASSWORD}
+      DB_PORT: ${DB_PORT:-5432}
+      DB_NAME: ${DB_NAME:-district_intelligence}
+      DB_USER: ${DB_USER:-district_user}
+      DB_PASSWORD: ${DB_PASSWORD:-district_password}
+      JWT_SECRET: ${JWT_SECRET:-dev-only-change-me}
+      JWT_EXPIRES_IN: ${JWT_EXPIRES_IN:-1d}
+      BCRYPT_ROUNDS: ${BCRYPT_ROUNDS:-12}
     volumes:
-      - ./.env:/app/.env:ro
       - ./uploads:/app/uploads
     command: ["sh", "-c", "cd /app/backend && npm run dev"]
     develop:
@@ -86,9 +88,9 @@ services:
     image: postgis/postgis:15-3.3
     container_name: district_intelligent_db
     environment:
-      POSTGRES_USER: ${DB_USER}
-      POSTGRES_PASSWORD: ${DB_PASSWORD}
-      POSTGRES_DB: ${DB_NAME}
+      POSTGRES_USER: ${DB_USER:-district_user}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-district_password}
+      POSTGRES_DB: ${DB_NAME:-district_intelligence}
     ports:
       - "5433:5432"
     volumes:

@@ -39,6 +39,15 @@ cd "District intelligence"
 
 ### 2) Build and start containers
 
+Optional but recommended for local overrides:
+
+```bash
+cp .env.example .env
+```
+
+The checked-in `.env.example` gives each developer their own local config file.
+The real `.env` is ignored by git and is no longer copied into the Docker image.
+
 ```bash
 docker compose up --build -d
 ```
@@ -128,4 +137,3 @@ docker compose exec backend python3 etl/main.py --type health --file sample_data
 - `database/schema.sql` PostGIS schema
 - `sample_data/` sample files for local ETL testing
 - `docker-compose.yml` local multi-service orchestration
-
