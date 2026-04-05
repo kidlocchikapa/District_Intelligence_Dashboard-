@@ -330,7 +330,8 @@ def process_worldpop_dataset(
         'indicators_loaded': indicators_loaded,
     }
 
-
+## Separate processing function for spatial analyses that can be run on demand
+#  with flexible parameters, including optional WorldPop raster input for population-served calculations
 def process_analysis_dataset(
     session,
     analysis_types=None,
@@ -395,7 +396,7 @@ def process_analysis_dataset(
         'indicators_loaded': 0,
     }
 
-
+## Helper function to parse API headers from command-line arguments in KEY=VALUE format
 def parse_headers(header_values):
     headers = {}
     for item in header_values or []:
@@ -405,7 +406,7 @@ def parse_headers(header_values):
         headers[key.strip()] = value.strip()
     return headers
 
-
+## Main entry point for the ETL pipeline, with command-line arguments to specify dataset type, source, and processing options
 def main():
     parser = argparse.ArgumentParser(description='District Intelligence ETL Pipeline')
     parser.add_argument('--type', required=True, choices=list(DATASET_CONFIG.keys()), help='Dataset type')

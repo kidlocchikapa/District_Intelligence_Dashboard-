@@ -8,10 +8,10 @@ from dotenv import load_dotenv
 from sqlalchemy import create_engine, text
 from sqlalchemy.orm import sessionmaker
 
-
+#Loaad environment variables from .env file
 load_dotenv(os.path.join(os.path.dirname(__file__), '../.env'))
 
-
+# build database url from environment variables, prioritizing DATABASE_URL if set, otherwise constructing from individual components
 def build_database_url():
     explicit_url = os.getenv('DATABASE_URL')
     if explicit_url:
@@ -31,18 +31,19 @@ def build_database_url():
 
 DB_URL = build_database_url()
 
+# Database utility functions
 def get_engine():
     if not DB_URL:
         raise ValueError('Database configuration missing. Set DATABASE_URL or DB_USER/DB_PASSWORD/DB_HOST/DB_PORT/DB_NAME.')
     return create_engine(DB_URL)
 
-
+# Create a new SQLAlchemy session
 def get_session():
     engine = get_engine()
     session_factory = sessionmaker(bind=engine)
     return session_factory()
 
-
+# Check if a table exists in the database
 def table_exists(session, table_name):
     query = text(
         """
@@ -55,6 +56,7 @@ def table_exists(session, table_name):
     )
     return bool(session.execute(query, {'table_name': table_name}).scalar())
 
+# Read data from a specified table into a pandas DataFrame
 def read_table(session, table_name, columns='*'):
     if not table_exists(session, table_name):
         return pd.DataFrame()
@@ -62,7 +64,7 @@ def read_table(session, table_name, columns='*'):
     query = text(f'SELECT {columns} FROM {table_name}')
     return pd.read_sql(query, session.bind)
 
-
+#serialize metadata for logging, ensuring it's in a consistent format (dict or JSON string)
 def serialize_metadata(metadata):
     if metadata is None:
         return {}
@@ -70,6 +72,7 @@ def serialize_metadata(metadata):
         return metadata
     return {'value': metadata}
 
+#Log ETL run details to the data_load_log table, including metadata and error information if applicable
 def log_etl_run(
     session,
     filename,
