@@ -2,10 +2,19 @@ const { Pool } = require("pg");
 const path = require("path");
 require("dotenv").config({ path: path.resolve(__dirname, "../.env") });
 
+function normalizeConnectionString(connectionString) {
+  try {
+    const url = new URL(connectionString.trim());
+    return url.toString();
+  } catch {
+    return connectionString.trim();
+  }
+}
+
 // Build the connection string based on environment variables
 function buildConnectionString() {
   if (process.env.DATABASE_URL) {
-    return process.env.DATABASE_URL;
+    return normalizeConnectionString(process.env.DATABASE_URL);
   }
 
   // Fallback to individual environment variables if DATABASE_URL is not set
@@ -19,7 +28,7 @@ function buildConnectionString() {
     return null;
   }
 
-  return `postgresql://${user}:${password}@${host}:${port}/${name}`;
+  return normalizeConnectionString(`postgresql://${user}:${password}@${host}:${port}/${name}`);
 }
 
 const connectionString = buildConnectionString();
