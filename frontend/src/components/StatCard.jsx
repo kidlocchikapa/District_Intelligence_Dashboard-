@@ -9,7 +9,7 @@ const toneClasses = {
 
 function StatCard({ label, value, tone = 'pine', suffix, helper, digits = 0 }) {
   return (
-    <div className="rounded-[1.75rem] border border-white/70 bg-white/90 p-5 shadow-panel">
+    <div className="rounded border border-white/70 bg-white/90 p-5 shadow-panel">
       <div className="text-xs uppercase tracking-[0.24em] text-slate/45">{label}</div>
       <div className={`mt-3 text-3xl font-semibold ${toneClasses[tone] || toneClasses.pine}`}>
         {formatNumber(value, digits)}

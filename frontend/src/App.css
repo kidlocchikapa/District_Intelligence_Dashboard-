@@ -1,5 +1,3 @@
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
-
 :root {
   --bg-color: #0f172a;
   --panel-bg: rgba(30, 41, 59, 0.7);
@@ -15,7 +13,6 @@
 body {
   margin: 0;
   padding: 0;
-  font-family: 'Inter', sans-serif;
   background-color: var(--bg-color);
   background-image: 
     radial-gradient(at 0% 0%, hsla(253,16%,7%,1) 0, transparent 50%), 
@@ -49,6 +46,7 @@ header h1 {
   font-weight: 600;
   background: -webkit-linear-gradient(0deg, #60a5fa, #a78bfa);
   -webkit-background-clip: text;
+  background-clip: text;
   -webkit-text-fill-color: transparent;
 }
 
@@ -216,9 +214,10 @@ main {
   background: var(--success);
   color: white;
   border: none;
-  padding: 0.5rem 1.5rem;
-  border-radius: 6px;
+  padding: 0.4rem 1.25rem;
+  border-radius: 8px;
   font-weight: 600;
+  font-size: 0.85rem;
   cursor: pointer;
   transition: filter 0.2s;
 }
@@ -260,4 +259,43 @@ main {
 
 @keyframes spin {
   to { transform: rotate(360deg); }
+}
+
+/* Skeleton Loading */
+.skeleton {
+  background: linear-gradient(
+    90deg,
+    #f0f0f0 25%,
+    #e0e0e0 50%,
+    #f0f0f0 75%
+  );
+  background-size: 200% 100%;
+  animation: skeleton-loading 1.5s infinite linear;
+  border-radius: 4px;
+}
+
+@keyframes skeleton-loading {
+  0% {
+    background-position: 200% 0;
+  }
+  100% {
+    background-position: -200% 0;
+  }
+}
+
+.skeleton-text {
+  height: 1rem;
+  width: 100%;
+  margin-bottom: 0.5rem;
+}
+
+.skeleton-title {
+  height: 1.5rem;
+  width: 60%;
+  margin-bottom: 1rem;
+}
+
+.skeleton-value {
+  height: 2.5rem;
+  width: 40%;
 }

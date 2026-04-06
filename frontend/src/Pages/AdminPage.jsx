@@ -179,7 +179,7 @@ function AdminPage() {
             key="ping"
             type="button"
             onClick={pingApi}
-            className="rounded-full bg-pine px-4 py-2 text-sm font-medium text-white transition hover:bg-moss"
+            className="rounded border border-pine bg-white text-pine hover:bg-pine hover:text-white px-3 py-1.5 text-xs font-bold transition-all shadow-sm active:scale-95"
           >
             Check API
           </button>,
@@ -192,7 +192,7 @@ function AdminPage() {
             <label className="block text-sm text-slate/70">
               Email
               <input
-                className="mt-2 w-full rounded-2xl border border-fog bg-sand/60 px-4 py-3 outline-none transition focus:border-moss"
+                className="mt-2 w-full rounded border border-fog bg-sand/60 px-4 py-3 outline-none transition focus:border-moss"
                 value={loginForm.email}
                 onChange={(event) => setLoginForm((state) => ({ ...state, email: event.target.value }))}
               />
@@ -201,17 +201,17 @@ function AdminPage() {
               Password
               <input
                 type="password"
-                className="mt-2 w-full rounded-2xl border border-fog bg-sand/60 px-4 py-3 outline-none transition focus:border-moss"
+                className="mt-2 w-full rounded border border-fog bg-sand/60 px-4 py-3 outline-none transition focus:border-moss"
                 value={loginForm.password}
                 onChange={(event) => setLoginForm((state) => ({ ...state, password: event.target.value }))}
               />
             </label>
-            <button className="rounded-full bg-ember px-4 py-2 text-sm font-medium text-white transition hover:opacity-90">
+            <button className="rounded bg-ember px-3 py-1.5 text-xs font-bold text-white transition-all shadow-sm hover:opacity-90 active:scale-95">
               {isAuthenticated ? 'Refresh session' : 'Login'}
             </button>
           </form>
 
-          <div className="mt-4 rounded-2xl bg-sand/70 p-4 text-sm leading-6 text-slate/65">
+          <div className="mt-4 rounded bg-sand/70 p-4 text-sm leading-6 text-slate/65">
             Demo credentials: <strong>admin@district.gov</strong> / <strong>password</strong>
           </div>
         </Panel>
@@ -219,17 +219,17 @@ function AdminPage() {
         <Panel title="Background activity" subtitle="Every upload or refresh runs in the background and writes its progress here.">
           <div className="grid gap-4 lg:grid-cols-[0.38fr_0.62fr]">
             <div className="space-y-3">
-              <div className="rounded-2xl bg-sand/70 p-4 text-sm leading-6 text-slate/65">
+              <div className="rounded bg-sand/70 p-4 text-sm leading-6 text-slate/65">
                 {status || 'No admin action has been triggered yet.'}
               </div>
 
-              <div className="rounded-[1.5rem] border border-fog bg-white p-3">
+              <div className="rounded border border-fog bg-white p-3">
                 <div className="flex items-center justify-between px-2 pb-2">
                   <h3 className="text-sm font-semibold text-slate">Recent jobs</h3>
                   <button
                     type="button"
                     onClick={loadJobs}
-                    className="rounded-full border border-fog px-3 py-1 text-xs font-medium text-slate/70 transition hover:border-moss hover:text-moss"
+                    className="rounded border border-fog px-3 py-1 text-xs font-medium text-slate/70 transition hover:border-moss hover:text-moss"
                   >
                     {isRefreshingJobs ? 'Refreshing...' : 'Refresh'}
                   </button>
@@ -241,7 +241,7 @@ function AdminPage() {
                         key={job.id}
                         type="button"
                         onClick={() => setSelectedJobId(job.id)}
-                        className={`w-full rounded-2xl border px-3 py-3 text-left transition ${
+                        className={`w-full rounded border px-3 py-3 text-left transition ${
                           selectedJob?.id === job.id
                             ? 'border-moss bg-moss/10'
                             : 'border-fog bg-sand/40 hover:border-moss/60'
@@ -263,7 +263,7 @@ function AdminPage() {
               </div>
             </div>
 
-            <div className="rounded-[1.6rem] border border-slate/15 bg-[#0b1220] shadow-[inset_0_0_0_1px_rgba(255,255,255,0.03)]">
+            <div className="rounded border border-slate/15 bg-[#0b1220] shadow-[inset_0_0_0_1px_rgba(255,255,255,0.03)]">
               <div className="flex items-center justify-between border-b border-white/10 px-5 py-3">
                 <div>
                   <div className="text-xs uppercase tracking-[0.26em] text-emerald-300/70">Pipeline console</div>
@@ -271,7 +271,7 @@ function AdminPage() {
                     {selectedJob?.label || 'Waiting for a background job'}
                   </div>
                 </div>
-                <div className="rounded-full border border-white/10 px-3 py-1 text-xs text-emerald-200/80">
+                <div className="rounded border border-white/10 px-3 py-1 text-xs text-emerald-200/80">
                   {formatJobStatus(selectedJob?.status)}
                 </div>
               </div>
@@ -323,7 +323,7 @@ function AdminPage() {
             <label className="text-sm text-slate/70">
               Dataset type
               <select
-                className="mt-2 w-full rounded-2xl border border-fog bg-sand/60 px-4 py-3"
+                className="mt-2 w-full rounded border border-fog bg-sand/60 px-4 py-3"
                 value={uploadFormState.type}
                 onChange={(event) => setUploadFormState((state) => ({ ...state, type: event.target.value }))}
               >
@@ -339,17 +339,17 @@ function AdminPage() {
               File
               <input
                 type="file"
-                className="mt-2 w-full rounded-2xl border border-fog bg-sand/60 px-4 py-3"
+                className="mt-2 w-full rounded border border-fog bg-sand/60 px-4 py-3"
                 onChange={(event) => setUploadFormState((state) => ({ ...state, file: event.target.files?.[0] || null }))}
               />
             </label>
 
-            <div className="rounded-2xl bg-sand/70 p-4 text-sm leading-6 text-slate/65">
+            <div className="rounded bg-sand/70 p-4 text-sm leading-6 text-slate/65">
               Upload CSV, Excel, GeoJSON, GeoPackage, or a zipped shapefile bundle. The pipeline will process it in the
               background and write progress to the console above.
             </div>
 
-            <button className="rounded-full bg-pine px-4 py-2 text-sm font-medium text-white transition hover:bg-moss">
+            <button className="rounded bg-pine px-3 py-1.5 text-xs font-bold text-white transition-all shadow-sm hover:bg-moss active:scale-95">
               Start upload
             </button>
           </form>
@@ -358,7 +358,7 @@ function AdminPage() {
         <Panel title="Refresh data in one click" subtitle="Use friendly background actions instead of ETL parameters.">
           <div className="grid gap-4 md:grid-cols-2">
             {Object.entries(taskDescriptions).map(([taskKey, task]) => (
-              <div key={taskKey} className="rounded-[1.6rem] border border-fog bg-white p-5 shadow-[0_14px_32px_rgba(15,23,42,0.05)]">
+              <div key={taskKey} className="rounded border border-fog bg-white p-5 shadow-[0_14px_32px_rgba(15,23,42,0.05)]">
                 <div className="text-xs uppercase tracking-[0.2em] text-ember/70">{task.badge}</div>
                 <h3 className="mt-2 text-lg font-semibold text-slate">{task.title}</h3>
                 <p className="mt-2 text-sm leading-6 text-slate/65">{task.description}</p>
@@ -366,7 +366,7 @@ function AdminPage() {
                   type="button"
                   onClick={() => runPresetTask(taskKey)}
                   disabled={!isAuthenticated}
-                  className="mt-4 rounded-full bg-ember px-4 py-2 text-sm font-medium text-white transition hover:opacity-90 disabled:cursor-not-allowed disabled:bg-slate/30"
+                  className="mt-4 rounded bg-ember px-3 py-1.5 text-xs font-bold text-white transition-all shadow-sm hover:opacity-90 active:scale-95 disabled:cursor-not-allowed disabled:bg-slate/30"
                 >
                   Run in background
                 </button>
