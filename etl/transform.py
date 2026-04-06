@@ -405,3 +405,41 @@ def normalize_health_dataset(df):
     working['services_offered'] = working['services_offered'].fillna(working.get('healthcare'))
     working['services_offered'] = working['services_offered'].fillna(working.get('healthcare:speciality'))
     return working
+
+def to_gdf(df, lon_col='longitude', lat_col='latitude', crs='EPSG:4326'):
+    working = df.copy()
+    valid_points = working[lon_col].notna() & working[lat_col].notna()
+    geometries = []
+    for _, row in working.iterrows():
+        if valid_points.loc[row.name]:
+            geometries.append(Point(row[lon_col], row[lat_col]))
+        else:
+            geometries.append(None)
+    return gpd.GeoDataFrame(working, crs=crs, geometry=geometries)
+
+
+def to_polygon_gdf(df, geometry_column='geometry', crs='EPSG:4326'):
+    working = df.copy()
+    return gpd.GeoDataFrame(working, crs=crs, geometry=geometry_column)
+
+def ensure_valid_multipolygon(geometry):
+    if geometry is None:
+        return None
+    fixed = make_valid(geometry)
+    if isinstance(fixed, Polygon):
+        return MultiPolygon([fixed])
+    if isinstance(fixed, MultiPolygon):
+        return fixed
+    if hasattr(fixed, 'geoms'):
+        polygons = [geom for geom in fixed.geoms if isinstance(geom, Polygon)]
+        if polygons:
+            return MultiPolygon(polygons)
+    return None
+def ensure_multipolygon(geometry):
+    if geometry is None:
+        return None
+    if isinstance(geometry, MultiPolygon):
+        return geometry
+    if isinstance(geometry, Polygon):
+        return MultiPolygon([geometry])
+    return geometry
