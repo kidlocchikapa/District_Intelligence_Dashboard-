@@ -38,6 +38,28 @@ function OverviewPage() {
     return Number(val).toLocaleString();
   };
 
+  const StatCardSkeleton = () => (
+    <div className="border border-gray-100 rounded p-6 shadow-md bg-white relative animate-pulse">
+      <div className="flex justify-between items-start mb-4">
+        <div className="h-4 w-32 bg-gray-200 rounded"></div>
+        <div className="h-5 w-5 bg-gray-100 rounded-full"></div>
+      </div>
+      <div className="h-8 w-24 bg-gray-200 rounded mt-2"></div>
+    </div>
+  );
+
+  const ChartSkeleton = () => (
+    <div className="h-full w-full flex flex-col gap-4 animate-pulse">
+      <div className="flex-1 bg-gray-50 rounded-lg relative overflow-hidden">
+        <div className="absolute inset-0 flex items-end justify-around px-4 pb-4">
+          {[...Array(8)].map((_, i) => (
+            <div key={i} className="w-8 bg-gray-200 rounded-t" style={{ height: `${Math.random() * 60 + 20}%` }}></div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+
   return (
     <div className="min-h-screen bg-white text-black font-sans pb-10">
       {/* Header Area */}
@@ -46,7 +68,9 @@ function OverviewPage() {
       </div>
 
       <div className="px-8 mt-8">
-        <p className="text-[14px] font-semibold text-gray-500 mb-6">Showing All districts Records</p>
+        <p className="text-[14px] font-semibold text-gray-500 mb-6">
+          {selectedDistrict ? `Showing ${selectedDistrict} Records` : 'Showing All districts Records'}
+        </p>
         
         {/* Actions Row */}
         <div className="flex gap-4 mb-8">
@@ -76,46 +100,58 @@ function OverviewPage() {
 
         {/* Stats Row */}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 mb-10">
-          {[
-            { label: 'Total Population', value: formatStat(summary.data?.total_estimated_population || 22000000), icon: Users },
-            { label: 'Schools', value: formatStat(summary.data?.total_schools || 220000), icon: School },
-            { label: 'Health Facilities', value: formatStat(summary.data?.total_health_facilities || 2000), icon: HeartPulse },
-            { label: 'Welfare Beneficiaries', value: formatStat(summary.data?.total_welfare_beneficiaries || 2000000), icon: Accessibility },
-          ].map((stat, i) => (
-            <div key={i} className="border border-gray-100 rounded p-6 shadow-md bg-white relative hover:shadow-lg transition-shadow">
-              <div className="flex justify-between items-start">
-                 <span className="text-[14px] text-gray-500 font-bold">{stat.label}</span>
-                 <stat.icon className="h-5 w-5 text-gray-300" />
+          {summary.loading ? (
+            [...Array(4)].map((_, i) => <StatCardSkeleton key={i} />)
+          ) : (
+            [
+              { label: 'Total Population', value: formatStat(summary.data?.total_estimated_population || 0), icon: Users },
+              { label: 'Schools', value: formatStat(summary.data?.total_schools || 0), icon: School },
+              { label: 'Health Facilities', value: formatStat(summary.data?.total_health_facilities || 0), icon: HeartPulse },
+              { label: 'Welfare Beneficiaries', value: formatStat(summary.data?.total_welfare_beneficiaries || 0), icon: Accessibility },
+            ].map((stat, i) => (
+              <div key={i} className="border border-gray-100 rounded p-6 shadow-md bg-white relative hover:shadow-lg transition-all group active:scale-95 cursor-default">
+                <div className="flex justify-between items-start">
+                   <span className="text-[14px] text-gray-500 font-bold group-hover:text-black transition-colors">{stat.label}</span>
+                   <stat.icon className="h-5 w-5 text-gray-300 group-hover:text-black transition-colors" />
+                </div>
+                <div className="mt-4 text-[32px] font-extrabold tracking-tight">
+                  {stat.value}
+                </div>
               </div>
-              <div className="mt-4 text-[32px] font-extrabold tracking-tight">
-                {stat.value}
-              </div>
-            </div>
-          ))}
+            ))
+          )}
         </div>
 
         {/* Middle Row (Map + Bar Chart) */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-10">
           
-          <div className="border border-gray-100 rounded p-8 shadow-sm bg-white flex flex-col">
+          <div className="border border-gray-100 rounded p-8 shadow-sm bg-white flex flex-col h-[480px]">
             <h3 className="text-[16px] font-extrabold mb-6">District Map Overview</h3>
-            <div className="w-full flex-1 aspect-[4/3] rounded overflow-hidden relative border border-gray-50 shadow-inner">
-               <MapPanel
-                geojson={densityMap.data}
-                metricName="population_density"
-                palette="heat"
-                showLegend={false}
-                showLabels={true}
-                heightClass="h-full w-full"
-              />
+            <div className="w-full flex-1 rounded overflow-hidden relative border border-gray-50 shadow-inner bg-gray-50">
+               {densityMap.loading ? (
+                  <div className="absolute inset-0 flex items-center justify-center">
+                    <div className="w-full h-full bg-gray-100 animate-pulse flex items-center justify-center">
+                       <span className="text-gray-400 font-bold tracking-widest uppercase">Initializing Map...</span>
+                    </div>
+                  </div>
+               ) : (
+                 <MapPanel
+                  geojson={densityMap.data}
+                  metricName="population_density"
+                  palette="heat"
+                  showLegend={false}
+                  showLabels={true}
+                  heightClass="h-full w-full"
+                />
+               )}
             </div>
           </div>
           
-          <div className="border border-gray-100 rounded p-8 shadow-sm bg-white flex flex-col">
+          <div className="border border-gray-100 rounded p-8 shadow-sm bg-white flex flex-col min-h-[400px]">
             <h3 className="text-[16px] font-extrabold mb-6">Population by district</h3>
-              <div className="h-[280px]">
+              <div className="flex-1">
                 {populationDistribution.loading ? (
-                   <div className="flex items-center justify-center h-full text-gray-400">Loading population data...</div>
+                   <ChartSkeleton />
                 ) : (
                   <ResponsiveContainer width="100%" height="100%">
                     <BarChart data={chartData} margin={{ top: 20, right: 30, left: 20, bottom: 50 }}>
@@ -134,7 +170,7 @@ function OverviewPage() {
                         axisLine={false} 
                         tickLine={false} 
                         tick={{ fill: '#64748b', fontSize: 11, fontWeight: 700 }}
-                        tickFormatter={(value) => `${value / 1000000}M`}
+                        tickFormatter={(value) => Number(value) >= 1000000 ? `${(value / 1000000).toFixed(1)}M` : value}
                       />
                       <Tooltip 
                         contentStyle={{ borderRadius: '4px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)', fontSize: '12px' }}
