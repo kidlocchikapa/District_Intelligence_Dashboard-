@@ -122,3 +122,21 @@ def infer_boundary_schema(df, matched_columns, original_columns=None):
             working['level'] = 'ADM1'
 
     return working, matched_columns
+
+def validate_schema(df, dataset_config):
+    matched_columns = df.attrs.get('matched_columns', set())
+    missing_columns = []
+
+    for column in dataset_config['required_columns']:
+        if column in matched_columns:
+            continue
+
+        if column in df.columns and df[column].notna().any():
+            continue
+
+        missing_columns.append(column)
+
+    if missing_columns:
+        raise ValueError(f'Missing required columns: {missing_columns}')
+
+    return df
