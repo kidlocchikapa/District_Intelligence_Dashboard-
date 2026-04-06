@@ -583,6 +583,92 @@ def transform_disaster_dataset(df):
 
     return working
 
+def derive_indicators(df, dataset_type, admin_units_df):
+    working = df.copy()
+    indicators = []
+
+    if admin_units_df is None or admin_units_df.empty:
+        return pd.DataFrame(indicators)
+
+    population_lookup = {'ward': {}, 'district': {}}
+    for _, row in admin_units_df.iterrows():
+        geo_name = normalize_text(row.get('name'))
+        geo_level = normalize_text(row.get('type'))
+        if pd.notna(geo_name):
+            population_lookup['ward' if geo_level == 'ward' else 'district'][geo_name] = {
+                'population_total': row.get('population_total') or 0,
+                'code': row.get('code'),
+            }
+
+    geographic_column, geographic_level = infer_geographic_level(working)
+    if not geographic_column:
+        return pd.DataFrame(indicators)
+
+    if dataset_type == 'education':
+        grouped = working.groupby(geographic_column, dropna=True).agg(
+            facilities=('name', 'count'),
+            student_enrollment_total=('student_enrollment_total', 'sum'),
+            teacher_count=('teacher_count', 'sum'),
+        )
+        for geographic_name, row in grouped.iterrows():
+            population = population_lookup[geographic_level].get(normalize_text(geographic_name), {}).get('population_total', 0) or 0
+            code = population_lookup[geographic_level].get(normalize_text(geographic_name), {}).get('code')
+            if population:
+                indicators.append(
+                    indicator_record(dataset_type, 'schools_per_1000_population', geographic_level, geographic_name, code, row['facilities'] * 1000 / population)
+                )
+            indicators.append(
+                indicator_record(dataset_type, 'student_enrollment_total', geographic_level, geographic_name, code, row['student_enrollment_total'] or 0)
+            )
+            if row['student_enrollment_total']:
+                indicators.append(
+                    indicator_record(dataset_type, 'teachers_per_100_students', geographic_level, geographic_name, code, row['teacher_count'] * 100 / row['student_enrollment_total'])
+                )
+
+    if dataset_type == 'health':
+        grouped = working.groupby(geographic_column, dropna=True).agg(
+            facilities=('name', 'count'),
+            beds_count=('beds_count', 'sum'),
+            patient_visits_total=('patient_visits_total', 'sum'),
+        )
+        for geographic_name, row in grouped.iterrows():
+            population = population_lookup[geographic_level].get(normalize_text(geographic_name), {}).get('population_total', 0) or 0
+            code = population_lookup[geographic_level].get(normalize_text(geographic_name), {}).get('code')
+            if population:
+                indicators.append(
+                    indicator_record(dataset_type, 'health_facilities_per_1000_population', geographic_level, geographic_name, code, row['facilities'] * 1000 / population)
+                )
+                indicators.append(
+                    indicator_record(dataset_type, 'beds_per_1000_population', geographic_level, geographic_name, code, row['beds_count'] * 1000 / population)
+                )
+            indicators.append(
+                indicator_record(dataset_type, 'patient_visits_total', geographic_level, geographic_name, code, row['patient_visits_total'] or 0)
+            )
+
+    if dataset_type == 'welfare':
+        grouped = working.groupby(geographic_column, dropna=True).agg(
+            beneficiary_count=('beneficiary_count', 'sum'),
+        )
+        for geographic_name, row in grouped.iterrows():
+            population = population_lookup[geographic_level].get(normalize_text(geographic_name), {}).get('population_total', 0) or 0
+            code = population_lookup[geographic_level].get(normalize_text(geographic_name), {}).get('code')
+            if population:
+                indicators.append(
+                    indicator_record(dataset_type, 'beneficiaries_per_1000_population', geographic_level, geographic_name, code, row['beneficiary_count'] * 1000 / population)
+                )
+
+    if dataset_type == 'disaster' and 'population_at_risk' in working.columns:
+        grouped = working.groupby(geographic_column, dropna=True).agg(
+            population_at_risk=('population_at_risk', 'sum'),
+        )
+        for geographic_name, row in grouped.iterrows():
+            code = population_lookup[geographic_level].get(normalize_text(geographic_name), {}).get('code')
+            indicators.append(
+                indicator_record(dataset_type, 'population_at_risk_total', geographic_level, geographic_name, code, row['population_at_risk'])
+            )
+
+    return pd.DataFrame(indicators)
+
 def infer_geographic_level(df):
     if 'ward_name' in df.columns and df['ward_name'].notna().any():
         return 'ward_name', 'ward'
