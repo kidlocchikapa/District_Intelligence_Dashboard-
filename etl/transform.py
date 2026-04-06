@@ -140,3 +140,77 @@ def validate_schema(df, dataset_config):
         raise ValueError(f'Missing required columns: {missing_columns}')
 
     return df
+
+def dms_to_decimal(value):
+    pattern = re.compile(
+        r'^\s*(?P<deg>-?\d+(?:\.\d+)?)'
+        r'(?:[^\dA-Za-z]+(?P<min>\d+(?:\.\d+)?))?'
+        r'(?:[^\dA-Za-z]+(?P<sec>\d+(?:\.\d+)?))?'
+        r'\s*(?P<hem>[NSEW])?\s*$',
+        re.IGNORECASE,
+    )
+    match = pattern.match(str(value))
+    if not match:
+        return None
+
+    degrees = float(match.group('deg'))
+    minutes = float(match.group('min') or 0)
+    seconds = float(match.group('sec') or 0)
+    hemisphere = (match.group('hem') or '').upper()
+
+    decimal = abs(degrees) + minutes / 60 + seconds / 3600
+    if degrees < 0 or hemisphere in {'S', 'W'}:
+        decimal *= -1
+    return decimal
+
+
+def parse_coordinate_value(value):
+    if value is None or pd.isna(value):
+        return None
+
+    if isinstance(value, (int, float)) and not math.isnan(value):
+        return float(value)
+
+    text = str(value).strip()
+    if not text:
+        return None
+
+    try:
+        return float(text)
+    except ValueError:
+        return dms_to_decimal(text)
+
+
+def parse_coordinates(df, lon_col='longitude', lat_col='latitude', compound_col='coordinates'):
+    working = df.copy()
+
+    if compound_col in working.columns:
+        extracted = working[compound_col].astype(str).str.extract(
+            r'(?P<latitude>-?\d+(?:\.\d+)?)\s*[,/]\s*(?P<longitude>-?\d+(?:\.\d+)?)'
+        )
+        working['latitude'] = working['latitude'].fillna(extracted['latitude']) if 'latitude' in working.columns else extracted['latitude']
+        working['longitude'] = working['longitude'].fillna(extracted['longitude']) if 'longitude' in working.columns else extracted['longitude']
+
+    if lon_col not in working.columns:
+        working[lon_col] = pd.NA
+    if lat_col not in working.columns:
+        working[lat_col] = pd.NA
+
+    if 'geometry' in working.columns:
+        point_geometries = working['geometry'].apply(
+            lambda geom: geom if isinstance(geom, Point) else None
+        )
+        working[lon_col] = working[lon_col].fillna(point_geometries.apply(lambda geom: geom.x if geom is not None else pd.NA))
+        working[lat_col] = working[lat_col].fillna(point_geometries.apply(lambda geom: geom.y if geom is not None else pd.NA))
+
+    working[lon_col] = working[lon_col].apply(parse_coordinate_value)
+    working[lat_col] = working[lat_col].apply(parse_coordinate_value)
+
+    valid_bounds = (
+        working[lon_col].between(-180, 180, inclusive='both')
+        & working[lat_col].between(-90, 90, inclusive='both')
+    )
+
+    working['coordinate_status'] = valid_bounds.map(lambda is_valid: 'valid' if is_valid else 'missing_or_invalid')
+    return working
+
