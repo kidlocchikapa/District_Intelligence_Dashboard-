@@ -1,7 +1,8 @@
 import { useState } from 'react';
-import { Menu, Download, Users } from 'lucide-react';
+import { Menu, Download, Users, School, HeartPulse, Accessibility } from 'lucide-react';
 import { useDashboardData } from '../hooks/useDashboardData';
 import { useDistrictOptions } from '../hooks/useDistrictOptions';
+import { useDistrict } from '../context/DistrictContext';
 import { buildDashboardPath } from '../lib/query';
 import MapPanel from '../components/MapPanel';
 import {
@@ -19,7 +20,7 @@ import {
 } from 'recharts';
 
 function OverviewPage() {
-  const [selectedDistrict, setSelectedDistrict] = useState('');
+  const { selectedDistrict, setSelectedDistrict } = useDistrict();
   const districts = useDistrictOptions();
   const summary = useDashboardData(buildDashboardPath('/dashboard/summary', { district: selectedDistrict }));
   const densityMap = useDashboardData(buildDashboardPath('/dashboard/admin-units', { type: 'District', district: selectedDistrict }));
@@ -57,7 +58,6 @@ function OverviewPage() {
     <div className="min-h-screen bg-white text-black font-sans pb-10">
       {/* Header Area */}
       <div className="flex items-center gap-4 px-8 py-8 border-b border-gray-200">
-        <Menu className="h-6 w-6 text-black cursor-pointer" />
         <h1 className="text-[28px] font-extrabold tracking-tight">OVERVIEW</h1>
       </div>
 
@@ -66,14 +66,14 @@ function OverviewPage() {
         
         {/* Actions Row */}
         <div className="flex gap-4 mb-8">
-          <button className="flex items-center gap-2 border border-gray-300 rounded-lg px-4 py-2 text-[14px] font-bold hover:bg-gray-50 transition-colors shadow-sm">
+          <button className="flex items-center gap-2 border border-gray-300 rounded px-3 py-1.5 text-[13px] font-bold hover:bg-gray-50 transition-all shadow-sm active:scale-95">
             <Download className="h-4 w-4" />
             Download CSV
           </button>
           
           <div className="relative">
             <select 
-              className="bg-black text-white rounded-lg px-6 py-2 text-[14px] font-bold appearance-none min-w-[160px] cursor-pointer hover:bg-black/90"
+              className="bg-black text-white rounded px-6 py-2 text-[14px] font-bold appearance-none min-w-[160px] cursor-pointer hover:bg-black/90"
               value={selectedDistrict}
               onChange={(e) => setSelectedDistrict(e.target.value)}
             >
@@ -93,15 +93,15 @@ function OverviewPage() {
         {/* Stats Row */}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 mb-10">
           {[
-            { label: 'Total Population', value: formatStat(summary.data?.total_estimated_population || 22000000) },
-            { label: 'Schools', value: formatStat(summary.data?.total_schools || 220000) },
-            { label: 'Health Facilities', value: formatStat(summary.data?.total_health_facilities || 2000) },
-            { label: 'Welfare Beneficiaries', value: formatStat(summary.data?.total_welfare_beneficiaries || 2000000) },
+            { label: 'Total Population', value: formatStat(summary.data?.total_estimated_population || 22000000), icon: Users },
+            { label: 'Schools', value: formatStat(summary.data?.total_schools || 220000), icon: School },
+            { label: 'Health Facilities', value: formatStat(summary.data?.total_health_facilities || 2000), icon: HeartPulse },
+            { label: 'Welfare Beneficiaries', value: formatStat(summary.data?.total_welfare_beneficiaries || 2000000), icon: Accessibility },
           ].map((stat, i) => (
-            <div key={i} className="border border-gray-100 rounded-xl p-6 shadow-md bg-white relative hover:shadow-lg transition-shadow">
+            <div key={i} className="border border-gray-100 rounded p-6 shadow-md bg-white relative hover:shadow-lg transition-shadow">
               <div className="flex justify-between items-start">
                  <span className="text-[14px] text-gray-500 font-bold">{stat.label}</span>
-                 <Users className="h-5 w-5 text-gray-300" />
+                 <stat.icon className="h-5 w-5 text-gray-300" />
               </div>
               <div className="mt-4 text-[32px] font-extrabold tracking-tight">
                 {stat.value}
@@ -113,9 +113,9 @@ function OverviewPage() {
         {/* Middle Row (Map + Bar Chart) */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-10">
           
-          <div className="border border-gray-100 rounded-2xl p-8 shadow-sm bg-white flex flex-col">
+          <div className="border border-gray-100 rounded p-8 shadow-sm bg-white flex flex-col">
             <h3 className="text-[16px] font-extrabold mb-6">District Map Overview</h3>
-            <div className="w-full flex-1 aspect-[4/3] rounded-2xl overflow-hidden relative border border-gray-50 shadow-inner">
+            <div className="w-full flex-1 aspect-[4/3] rounded overflow-hidden relative border border-gray-50 shadow-inner">
                <MapPanel
                 geojson={densityMap.data}
                 metricName="population_density"
@@ -127,7 +127,7 @@ function OverviewPage() {
             </div>
           </div>
           
-          <div className="border border-gray-100 rounded-2xl p-8 shadow-sm bg-white flex flex-col">
+          <div className="border border-gray-100 rounded p-8 shadow-sm bg-white flex flex-col">
             <h3 className="text-[16px] font-extrabold mb-6">Population by district</h3>
             <div className="w-full flex-1 aspect-[4/3]">
               <ResponsiveContainer width="100%" height="100%">
@@ -164,7 +164,7 @@ function OverviewPage() {
         </div>
 
         {/* Bottom Row (Pie Chart) */}
-        <div className="border border-gray-100 rounded-2xl p-10 shadow-sm bg-white">
+        <div className="border border-gray-100 rounded p-10 shadow-sm bg-white">
           <h3 className="text-[16px] font-extrabold mb-10">Social Welfare Program Distribution</h3>
           <div className="w-full flex flex-col md:flex-row items-center justify-start gap-16">
             <div className="h-[300px] w-full md:w-[400px]">
