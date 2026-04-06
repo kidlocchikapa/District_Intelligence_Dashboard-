@@ -1,121 +1,79 @@
-import { useState } from 'react'
-import reactLogo from './assets/react.svg'
-import viteLogo from './assets/vite.svg'
-import heroImg from './assets/hero.png'
-import './App.css'
+import { BarChart3, HeartPulse, Home, School, ShieldAlert, UploadCloud, Users2 } from 'lucide-react';
+import { NavLink, Route, Routes } from 'react-router-dom';
+import AdminPage from './pages/AdminPage';
+import DisasterPage from './pages/DisasterPage';
+import EducationPage from './pages/EducationPage';
+import HealthPage from './pages/HealthPage';
+import OverviewPage from './pages/OverviewPage';
+import WelfarePage from './pages/WelfarePage';
+
+const navigation = [
+  { to: '/', label: 'Overview', icon: Home },
+  { to: '/education', label: 'Education', icon: School },
+  { to: '/health', label: 'Health', icon: HeartPulse },
+  { to: '/disaster', label: 'Disaster', icon: ShieldAlert },
+  { to: '/welfare', label: 'Welfare', icon: Users2 },
+  { to: '/admin', label: 'Admin', icon: UploadCloud },
+];
 
 function App() {
-  const [count, setCount] = useState(0)
-
   return (
-    <>
-      <section id="center">
-        <div className="hero">
-          <img src={heroImg} className="base" width="170" height="179" alt="" />
-          <img src={reactLogo} className="framework" alt="React logo" />
-          <img src={viteLogo} className="vite" alt="Vite logo" />
-        </div>
-        <div>
-          <h1>Get started</h1>
-          <p>
-            Edit <code>src/App.jsx</code> and save to test <code>HMR</code>
-          </p>
-        </div>
-        <button
-          className="counter"
-          onClick={() => setCount((count) => count + 1)}
-        >
-          Count is {count}
-        </button>
-      </section>
+    <div className="min-h-screen bg-mesh">
+      <div className="mx-auto flex min-h-screen max-w-[1600px] flex-col lg:flex-row">
+        <aside className="border-b border-white/60 bg-pine px-5 py-7 text-sand lg:min-h-screen lg:w-64 lg:border-b-0 lg:border-r">
+          <div className="space-y-2">
+            <div className="inline-flex items-center gap-2 rounded-full bg-white/10 px-3 py-1 text-xs uppercase tracking-[0.28em] text-fog">
+              Malawi District Intelligence
+            </div>
+            <h1 className="font-serif text-2xl font-semibold leading-tight">
+              Spatial evidence for schools, health, disaster risk, and social welfare.
+            </h1>
+            <p className="text-sm leading-6 text-fog/90">
+              Explore choropleths, facility access, served population, and ETL operations from one control room.
+            </p>
+          </div>
 
-      <div className="ticks"></div>
+          <nav className="mt-8 grid gap-2">
+            {navigation.map(({ to, label, icon: Icon }) => (
+              <NavLink
+                key={to}
+                to={to}
+                className={({ isActive }) =>
+                  `flex items-center gap-3 rounded-2xl px-3 py-2.5 text-sm transition ${
+                    isActive ? 'bg-white text-pine shadow-panel' : 'text-fog hover:bg-white/10'
+                  }`
+                }
+              >
+                <Icon className="h-4 w-4" />
+                <span>{label}</span>
+              </NavLink>
+            ))}
+          </nav>
 
-      <section id="next-steps">
-        <div id="docs">
-          <svg className="icon" role="presentation" aria-hidden="true">
-            <use href="/icons.svg#documentation-icon"></use>
-          </svg>
-          <h2>Documentation</h2>
-          <p>Your questions, answered</p>
-          <ul>
-            <li>
-              <a href="https://vite.dev/" target="_blank">
-                <img className="logo" src={viteLogo} alt="" />
-                Explore Vite
-              </a>
-            </li>
-            <li>
-              <a href="https://react.dev/" target="_blank">
-                <img className="button-icon" src={reactLogo} alt="" />
-                Learn more
-              </a>
-            </li>
-          </ul>
-        </div>
-        <div id="social">
-          <svg className="icon" role="presentation" aria-hidden="true">
-            <use href="/icons.svg#social-icon"></use>
-          </svg>
-          <h2>Connect with us</h2>
-          <p>Join the Vite community</p>
-          <ul>
-            <li>
-              <a href="https://github.com/vitejs/vite" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#github-icon"></use>
-                </svg>
-                GitHub
-              </a>
-            </li>
-            <li>
-              <a href="https://chat.vite.dev/" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#discord-icon"></use>
-                </svg>
-                Discord
-              </a>
-            </li>
-            <li>
-              <a href="https://x.com/vite_js" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#x-icon"></use>
-                </svg>
-                X.com
-              </a>
-            </li>
-            <li>
-              <a href="https://bsky.app/profile/vite.dev" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#bluesky-icon"></use>
-                </svg>
-                Bluesky
-              </a>
-            </li>
-          </ul>
-        </div>
-      </section>
+          <div className="mt-8 rounded-3xl border border-white/10 bg-white/5 p-4 text-sm text-fog">
+            <div className="mb-2 flex items-center gap-2 font-semibold text-sand">
+              <BarChart3 className="h-4 w-4" />
+              Live analytics
+            </div>
+            <p className="leading-6">
+              Designed for district-level choropleths, facility access analysis, upload workflows, and KPI tracking.
+            </p>
+          </div>
+        </aside>
 
-      <div className="ticks"></div>
-      <section id="spacer"></section>
-    </>
-  )
+        <main className="flex-1 px-4 py-4 sm:px-6 lg:px-8 lg:py-8">
+          <Routes>
+            <Route path="/" element={<OverviewPage />} />
+            <Route path="/education" element={<EducationPage />} />
+            <Route path="/health" element={<HealthPage />} />
+            <Route path="/disaster" element={<DisasterPage />} />
+            <Route path="/welfare" element={<WelfarePage />} />
+            <Route path="/admin" element={<AdminPage />} />
+          </Routes>
+        </main>
+      </div>
+    </div>
+  );
 }
 
-export default App
+export default App;
