@@ -16,38 +16,22 @@ import {
   ResponsiveContainer,
   PieChart,
   Pie,
+  Rectangle,
   Cell
 } from 'recharts';
+
+const COLORS = ['#4A72E4', '#F4B41A', '#3BB182', '#6974D6'];
 
 function OverviewPage() {
   const { selectedDistrict, setSelectedDistrict } = useDistrict();
   const districts = useDistrictOptions();
   const summary = useDashboardData(buildDashboardPath('/dashboard/summary', { district: selectedDistrict }));
   const densityMap = useDashboardData(buildDashboardPath('/dashboard/admin-units', { type: 'District', district: selectedDistrict }));
-  const healthServed = useDashboardData(buildDashboardPath('/dashboard/health/served-population/geojson', { admin_type: 'District', district: selectedDistrict }));
+  const populationDistribution = useDashboardData('/dashboard/population-by-district');
+  const welfareDistribution = useDashboardData(buildDashboardPath('/dashboard/welfare-distribution', { district: selectedDistrict }));
 
-  // Mocked population data based on your specific screenshot's 22M Total Population
-  const chartData = [
-    { name: 'zomba', Moderate: 52, High: 45, Low: 85 },
-    { name: 'Lilongwe', Moderate: 85, High: 60, Low: 86 },
-    { name: 'Blantyre', Moderate: 75, High: 53, Low: 44 },
-    { name: 'salima', Moderate: 78, High: 42, Low: 38 },
-    { name: 'Chilazulu', Moderate: 52, High: 95, Low: 88 },
-    { name: 'Ntchisi', Moderate: 32, High: 15, Low: 68 },
-    { name: 'Phalombe', Moderate: 22, High: 92, Low: 18 },
-    { name: 'Mzuzu', Moderate: 44, High: 30, Low: 22 },
-    { name: 'Mzimba', Moderate: 18, High: 95, Low: 85 },
-    { name: 'Mulanje', Moderate: 80, High: 48, Low: 90 },
-    { name: 'Kasungu', Moderate: 60, High: 82, Low: 40 },
-    { name: 'Chitipa', Moderate: 88, High: 58, Low: 56 },
-  ];
-
-  const pieData = [
-    { name: 'Social Cash Transfer(SCTP)', value: 5400, color: '#4A72E4' },
-    { name: 'School meals Programme', value: 5645, color: '#F4B41A' },
-    { name: 'Public Works Programme', value: 3121, color: '#3BB182' },
-    { name: 'Village savings & Loans', value: 1200, color: '#6974D6' }
-  ];
+  const chartData = populationDistribution.data || [];
+  const pieData = welfareDistribution.data || [];
 
   const formatStat = (val) => {
     if (!val) return '0';
@@ -129,36 +113,44 @@ function OverviewPage() {
           
           <div className="border border-gray-100 rounded p-8 shadow-sm bg-white flex flex-col">
             <h3 className="text-[16px] font-extrabold mb-6">Population by district</h3>
-            <div className="w-full flex-1 aspect-[4/3]">
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={chartData} margin={{ top: 10, right: 0, left: -20, bottom: 40 }}>
-                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#E2E8F0" />
-                  <XAxis 
-                    dataKey="name" 
-                    angle={-45} 
-                    textAnchor="end" 
-                    tick={{ fontSize: 11, fill: '#64748B', fontWeight: 600 }} 
-                    axisLine={false} 
-                    tickLine={false} 
-                    interval={0}
-                  />
-                  <YAxis 
-                    tick={{ fontSize: 12, fill: '#64748B', fontWeight: 600 }} 
-                    axisLine={false} 
-                    tickLine={false} 
-                  />
-                  <Tooltip cursor={{ fill: '#F1F5F9' }} />
-                  <Legend 
-                    verticalAlign="bottom" 
-                    iconType="square" 
-                    wrapperStyle={{ paddingTop: '20px' }} 
-                  />
-                  <Bar dataKey="Moderate" fill="#9BA4EE" radius={[4, 4, 0, 0]} maxBarSize={15} />
-                  <Bar dataKey="High" fill="#FF8D85" radius={[4, 4, 0, 0]} maxBarSize={15} />
-                  <Bar dataKey="Low" fill="#58C8D6" radius={[4, 4, 0, 0]} maxBarSize={15} />
-                </BarChart>
-              </ResponsiveContainer>
-            </div>
+              <div className="h-[280px]">
+                {populationDistribution.loading ? (
+                   <div className="flex items-center justify-center h-full text-gray-400">Loading population data...</div>
+                ) : (
+                  <ResponsiveContainer width="100%" height="100%">
+                    <BarChart data={chartData} margin={{ top: 20, right: 30, left: 20, bottom: 50 }}>
+                      <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+                      <XAxis 
+                        dataKey="district" 
+                        axisLine={false} 
+                        tickLine={false} 
+                        tick={{ fill: '#64748b', fontSize: 11, fontWeight: 700 }}
+                        angle={-45}
+                        textAnchor="end"
+                        interval={0}
+                        height={60}
+                      />
+                      <YAxis 
+                        axisLine={false} 
+                        tickLine={false} 
+                        tick={{ fill: '#64748b', fontSize: 11, fontWeight: 700 }}
+                        tickFormatter={(value) => `${value / 1000000}M`}
+                      />
+                      <Tooltip 
+                        contentStyle={{ borderRadius: '4px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)', fontSize: '12px' }}
+                        cursor={{ fill: '#f8fafc' }}
+                      />
+                      <Bar 
+                        dataKey="population" 
+                        fill="#000" 
+                        radius={[2, 2, 0, 0]} 
+                        barSize={24}
+                        activeBar={<Rectangle fill="#3b82f6" />}
+                      />
+                    </BarChart>
+                  </ResponsiveContainer>
+                )}
+              </div>
           </div>
 
         </div>
@@ -167,32 +159,40 @@ function OverviewPage() {
         <div className="border border-gray-100 rounded p-10 shadow-sm bg-white">
           <h3 className="text-[16px] font-extrabold mb-10">Social Welfare Program Distribution</h3>
           <div className="w-full flex flex-col md:flex-row items-center justify-start gap-16">
-            <div className="h-[300px] w-full md:w-[400px]">
-              <ResponsiveContainer width="100%" height="100%">
-                <PieChart>
-                  <Pie
-                    data={pieData}
-                    cx="50%"
-                    cy="50%"
-                    outerRadius={130}
-                    innerRadius={0}
-                    dataKey="value"
-                    stroke="none"
-                  >
-                    {pieData.map((entry, index) => (
-                      <Cell key={`cell-${index}`} fill={entry.color} />
-                    ))}
-                  </Pie>
-                  <Tooltip />
-                </PieChart>
-              </ResponsiveContainer>
-            </div>
+              <div className="h-[280px] w-full md:w-[400px]">
+                {welfareDistribution.loading ? (
+                   <div className="flex items-center justify-center h-full text-gray-400">Loading welfare data...</div>
+                ) : pieData.length === 0 ? (
+                  <div className="flex items-center justify-center h-full text-gray-400">No data available</div>
+                ) : (
+                  <ResponsiveContainer width="100%" height="100%">
+                    <PieChart>
+                      <Pie
+                        data={pieData}
+                        cx="50%"
+                        cy="50%"
+                        innerRadius={60}
+                        outerRadius={80}
+                        paddingAngle={5}
+                        dataKey="value"
+                      >
+                        {pieData.map((entry, index) => (
+                          <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                        ))}
+                      </Pie>
+                      <Tooltip 
+                        contentStyle={{ borderRadius: '4px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)', fontSize: '12px' }}
+                      />
+                    </PieChart>
+                  </ResponsiveContainer>
+                )}
+              </div>
             
             {/* Custom Pie Legend */}
             <div className="flex flex-col gap-6">
               {pieData.map((entry, index) => (
                 <div key={index} className="flex items-center gap-4">
-                  <div className="w-5 h-5 rounded-full" style={{ backgroundColor: entry.color }} />
+                  <div className="w-5 h-5 rounded-full" style={{ backgroundColor: COLORS[index % COLORS.length] }} />
                   <span className="text-[16px] text-gray-700 font-semibold">{entry.name} :</span>
                   <span className="text-[16px] font-extrabold text-black">{entry.value.toLocaleString()}</span>
                 </div>
