@@ -583,6 +583,13 @@ def transform_disaster_dataset(df):
 
     return working
 
+def infer_geographic_level(df):
+    if 'ward_name' in df.columns and df['ward_name'].notna().any():
+        return 'ward_name', 'ward'
+    if 'district_name' in df.columns and df['district_name'].notna().any():
+        return 'district_name', 'district'
+    return None, None
+
 def ensure_multipolygon(geometry):
     if geometry is None:
         return None
