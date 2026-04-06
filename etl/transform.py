@@ -304,3 +304,51 @@ def standardize_geography(df, gazetteer_df):
         matched_rows.append(merged_row)
 
     return pd.DataFrame(matched_rows)
+
+def handle_missing_data(df, required_columns, strategy='flag'):
+    working = df.copy()
+    row_issues = []
+    keep_mask = []
+
+    for _, row in working.iterrows():
+        missing_fields = []
+        for column in required_columns:
+            value = row.get(column)
+            if pd.isna(value) or value == '':
+                missing_fields.append(column)
+
+        if row.get('coordinate_status') == 'missing_or_invalid':
+            missing_fields.extend(['longitude', 'latitude'])
+
+        row_issues.append(','.join(sorted(set(missing_fields))))
+
+        if strategy == 'exclude' and missing_fields:
+            keep_mask.append(False)
+        else:
+            keep_mask.append(True)
+
+    working['etl_missing_fields'] = row_issues
+    working['is_flagged'] = working['etl_missing_fields'].astype(str).str.len() > 0
+
+    if strategy == 'impute':
+        numeric_columns = working.select_dtypes(include=['number']).columns.tolist()
+        for column in numeric_columns:
+            if working[column].isna().any():
+                median = working[column].median()
+                if pd.notna(median):
+                    working[column] = working[column].fillna(median)
+
+    if strategy == 'exclude':
+        working = working.loc[keep_mask].reset_index(drop=True)
+
+    return working
+
+
+def add_harmonized_names(df):
+    working = df.copy()
+    for column in ['district_name', 'ward_name', 'village_name', 'name', 'program_name', 'event_type', 'risk_level', 'type']:
+        if column in working.columns:
+            working[column] = working[column].apply(
+                lambda value: value.title() if isinstance(value, str) and value == value.lower() else value
+            )
+    return working
