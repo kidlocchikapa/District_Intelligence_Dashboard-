@@ -477,7 +477,79 @@ def ensure_valid_multipolygon(geometry):
             return MultiPolygon(polygons)
     return None
 
+def transform_boundary_dataset(df):
+    if 'geometry' not in df.columns:
+        raise ValueError('Boundary dataset must include polygon geometry')
 
+    working = gpd.GeoDataFrame(df.copy(), geometry='geometry', crs=getattr(df, 'crs', None) or 'EPSG:4326')
+    if working.crs is None:
+        working = working.set_crs('EPSG:4326')
+    elif working.crs.to_string() != 'EPSG:4326':
+        working = working.to_crs('EPSG:4326')
+
+    working['type'] = working.apply(infer_boundary_type, axis=1)
+    valid_types = {'District', 'Ward', 'Village'}
+    invalid_types = working['type'].isin(valid_types) == False
+    if invalid_types.any():
+        bad_types = sorted(set(working.loc[invalid_types, 'type'].dropna().astype(str)))
+        raise ValueError(f'Unsupported administrative unit types: {bad_types}')
+
+    working['code'] = working['code'].apply(
+        lambda value: str(value).strip() if pd.notna(value) else pd.NA
+    )
+    working['code'] = working['code'].replace({
+        '': pd.NA,
+        'nan': pd.NA,
+        'NaN': pd.NA,
+        '<NA>': pd.NA,
+        'None': pd.NA,
+        'null': pd.NA,
+    })
+    working['parent_code'] = working['parent_code'].apply(lambda value: str(value).strip() if pd.notna(value) else pd.NA)
+    if 'name' not in working.columns:
+        working['name'] = pd.NA
+
+    if 'ward_name' in working.columns:
+        working['name'] = working['name'].fillna(working['ward_name'])
+    if 'district_name' in working.columns:
+        working['name'] = working['name'].fillna(working['district_name'])
+    working['name'] = working['name'].fillna(working['code'])
+    working['name'] = working['name'].apply(lambda value: value.title() if isinstance(value, str) else value)
+    working['geometry'] = working['geometry'].apply(ensure_valid_multipolygon)
+
+    if working['geometry'].isna().any():
+        raise ValueError('Boundary dataset contains invalid or non-polygon geometries')
+
+    if working['code'].isna().any():
+        raise ValueError(
+            'Boundary dataset contains rows with missing codes. '
+            'Map a unique boundary code field such as code, gid, adm2_pcode, or adm3_pcode.'
+        )
+
+    if working['code'].duplicated().any():
+        duplicates = working.loc[working['code'].duplicated(), 'code'].dropna().tolist()
+        raise ValueError(f'Duplicate administrative unit codes found: {duplicates}')
+
+    if working['name'].isna().any():
+        raise ValueError('Boundary dataset contains rows with missing names')
+
+    projected = working.to_crs('EPSG:3857')
+    working['area_sq_km'] = projected.geometry.area / 10**6
+    working['centroid'] = projected.geometry.centroid.to_crs('EPSG:4326')
+    working['simplified_geom'] = projected.geometry.simplify(30).to_crs('EPSG:4326').apply(ensure_valid_multipolygon)
+    working['population_total'] = 0
+    working['population_density'] = 0.0
+    working['metadata'] = working.apply(
+        lambda row: {
+            'parent_code': row.get('parent_code'),
+            'district_name': row.get('district_name'),
+            'ward_name': row.get('ward_name'),
+            'village_name': row.get('village_name'),
+        },
+        axis=1,
+    )
+
+    return working
 
 def ensure_multipolygon(geometry):
     if geometry is None:
