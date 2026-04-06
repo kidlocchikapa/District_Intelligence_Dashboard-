@@ -422,6 +422,47 @@ def to_polygon_gdf(df, geometry_column='geometry', crs='EPSG:4326'):
     working = df.copy()
     return gpd.GeoDataFrame(working, crs=crs, geometry=geometry_column)
 
+def normalize_admin_unit_type(value):
+    normalized = normalize_text(value)
+    mapping = {
+        'district': 'District',
+        'ward': 'Ward',
+        'village': 'Village',
+        'adm1': 'District',
+        'adm2': 'District',
+        'adm3': 'Ward',
+        'admin1': 'District',
+        'admin2': 'District',
+        'admin3': 'Ward',
+        'level1': 'District',
+        'level2': 'District',
+        'level3': 'Ward',
+    }
+    return mapping.get(normalized, value.title() if isinstance(value, str) else value)
+
+def infer_boundary_type(row):
+    direct_type = normalize_admin_unit_type(row.get('type'))
+    if isinstance(direct_type, str) and direct_type in {'District', 'Ward', 'Village'}:
+        return direct_type
+
+    level_type = normalize_admin_unit_type(row.get('level'))
+    if isinstance(level_type, str) and level_type in {'District', 'Ward', 'Village'}:
+        return level_type
+
+    district_name = row.get('district_name')
+    ward_name = row.get('ward_name')
+    parent_code = row.get('parent_code')
+    name = row.get('name')
+
+    if pd.notna(ward_name) and pd.notna(district_name):
+        if pd.notna(name) and str(name).strip().lower() == str(ward_name).strip().lower():
+            return 'Ward'
+
+    if pd.notna(parent_code):
+        return 'Ward'
+
+    return 'District'
+
 def ensure_valid_multipolygon(geometry):
     if geometry is None:
         return None
@@ -435,6 +476,9 @@ def ensure_valid_multipolygon(geometry):
         if polygons:
             return MultiPolygon(polygons)
     return None
+
+
+
 def ensure_multipolygon(geometry):
     if geometry is None:
         return None
