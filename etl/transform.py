@@ -601,6 +601,9 @@ def indicator_record(dataset_type, indicator_name, geographic_level, geographic_
         'metadata': {},
     }
 
+def spatial_join(points_gdf, polygons_gdf, join_type='left', op='within'):
+    return gpd.sjoin(points_gdf, polygons_gdf, how=join_type, predicate=op)
+
 def ensure_multipolygon(geometry):
     if geometry is None:
         return None
