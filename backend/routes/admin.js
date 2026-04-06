@@ -347,7 +347,7 @@ function createJob({ label, kind, meta = {} }) {
 
   appendJobLog(job, "Job created and waiting to start.");
   return job;
-};
+}
 
 // Appends a log entry to the job's logs, ensuring we don't exceed the maximum log count
 function appendJobLog(job, message, level = "info") {
@@ -376,7 +376,7 @@ function serializeJob(job) {
     logCount: job.logs.length,
     logs: job.logs,
   };
-};
+}
 
 // Runs a single stage of the workflow by spawning the ETL process and handling its output and completion
 function runProcessForJob(job, args, stageLabel) {
@@ -429,7 +429,7 @@ function runProcessForJob(job, args, stageLabel) {
       reject(new Error(`${stageLabel} exited with code ${code}`));
     });
   });
-};
+}
 
 // Runs the entire workflow for a job, executing each stage sequentially and updating job status accordingly
 async function runWorkflow(job, stages) {
@@ -463,4 +463,258 @@ function queueWorkflow(job, stages) {
       );
     });
   });
-};
+}
+
+// API endpoint to retrieve available task presets, returning their keys, labels, and descriptions for frontend display
+router.get("/task-presets", auth, (req, res) => {
+  const presets = Object.entries(presetTaskDefinitions).map(
+    ([key, definition]) => ({
+      key,
+      label: definition.label,
+      description: definition.description,
+    }),
+  );
+
+  return res.json({
+    status: "success",
+    data: {
+      presets,
+    },
+  });
+});
+
+//@Get endpoint
+//@desc Retrieves job details, either for a specific job if job_id is provided or a list of recent jobs if not
+router.get("/jobs", auth, (req, res) => {
+  const jobId = req.query.job_id;
+  if (jobId) {
+    const job = jobs.get(jobId);
+    if (!job) {
+      return res
+        .status(404)
+        .json({ status: "error", message: "Job not found" });
+    }
+
+    return res.json({
+      status: "success",
+      data: {
+        job: serializeJob(job),
+      },
+    });
+  }
+
+  return res.json({
+    status: "success",
+    data: {
+      jobs: recentJobIds
+        .map((id) => jobs.get(id))
+        .filter(Boolean)
+        .map((job) => serializeJob(job)),
+    },
+  });
+});
+
+/**
+ * POST /admin/upload
+ * Handles dataset uploads, creating a new job for the upload and queuing it for background processing
+ * Expects multipart/form-data with fields for dataset type, source type, and the file itself, along with optional parameters
+ */
+router.post("/upload", [auth, upload.single("file")], (req, res) => {
+  const {
+    type,
+    sourceType = "file",
+    gazetteerPath,
+    district,
+    missingDataStrategy = "flag",
+    worldpopYear = 2020,
+    worldpopDataset = "wpgppop",
+    worldpopApiKey,
+    schoolAgeMin = 5,
+    schoolAgeMax = 17,
+    childClassMax = 15,
+  } = req.body;
+  const file = req.file;
+
+  if (!type) {
+    return res
+      .status(400)
+      .json({ status: "error", message: "Dataset type is required" });
+  }
+
+  if (!file) {
+    return res
+      .status(400)
+      .json({ status: "error", message: "No file uploaded" });
+  }
+
+  const args = buildEtlArgs({
+    type,
+    sourceType: type === "worldpop" ? "worldpop" : sourceType,
+    filePath: path.resolve(file.path),
+    gazetteerPath,
+    district,
+    missingDataStrategy,
+    worldpopYear,
+    worldpopDataset,
+    worldpopApiKey,
+    schoolAgeMin,
+    schoolAgeMax,
+    childClassMax,
+  });
+
+  const job = createJob({
+    label: `Upload ${type} dataset`,
+    kind: "upload",
+    meta: {
+      datasetType: type,
+      filename: file.originalname,
+    },
+  });
+
+  queueWorkflow(job, [{ label: `Upload ${type} dataset`, args }]);
+
+  return res.json({
+    status: "success",
+    message: "Dataset upload queued and processing in the background.",
+    data: {
+      job_id: job.id,
+      label: job.label,
+    },
+  });
+});
+
+/**
+ * POST /admin/sync
+ * Initiates a background synchronization job to fetch and process data from an external API, creating a new job and queuing it for execution
+ * Expects JSON body with parameters for dataset type, API URL, headers, and other optional settings depending on the type of sync
+ */
+router.post("/sync", auth, (req, res) => {
+  const {
+    type,
+    apiUrl,
+    apiHeaders,
+    gazetteerPath,
+    missingDataStrategy = "flag",
+    district,
+    worldpopYear = 2020,
+    worldpopDataset = "wpgppop",
+    worldpopApiKey,
+    schoolAgeMin = 5,
+    schoolAgeMax = 17,
+    childClassMax = 15,
+    analysisTypes,
+    adminLevel,
+    coverageDistanceKm = 5,
+  } = req.body;
+
+  if (!type) {
+    return res.status(400).json({
+      status: "error",
+      message: "Dataset type is required for API sync",
+    });
+  }
+
+  if (!["worldpop", "analysis"].includes(type) && !apiUrl) {
+    return res.status(400).json({
+      status: "error",
+      message: "apiUrl is required for non-WorldPop API sync",
+    });
+  }
+
+  const args = buildEtlArgs({
+    type,
+    sourceType: type === "worldpop" ? "worldpop" : "api",
+    apiUrl,
+    apiHeaders,
+    gazetteerPath,
+    district,
+    missingDataStrategy,
+    worldpopYear,
+    worldpopDataset,
+    worldpopApiKey,
+    schoolAgeMin,
+    schoolAgeMax,
+    childClassMax,
+    analysisTypes,
+    adminLevel,
+    coverageDistanceKm,
+  });
+
+  const job = createJob({
+    label: `Run ${type} background sync`,
+    kind: "sync",
+    meta: {
+      datasetType: type,
+    },
+  });
+
+  queueWorkflow(job, [{ label: `Run ${type} sync`, args }]);
+
+  return res.json({
+    status: "success",
+    message: "Background sync queued successfully.",
+    data: {
+      job_id: job.id,
+      label: job.label,
+    },
+  });
+});
+
+/**
+ * POST /admin/run-task
+ * t
+ */
+router.post("/run-task", auth, (req, res) => {
+  const {
+    task,
+    apiUrl = "https://api.worldpop.org/v1/services/stats",
+    worldpopYear = 2020,
+    worldpopApiKey,
+    schoolAgeMin = 5,
+    schoolAgeMax = 17,
+    childClassMax = 15,
+    adminLevel = "District",
+    coverageDistanceKm = 5,
+  } = req.body;
+
+  const definition = presetTaskDefinitions[task];
+  if (!definition) {
+    return res.status(400).json({
+      status: "error",
+      message: "Unknown admin task preset",
+    });
+  }
+
+  const stages = definition.stages({
+    apiUrl,
+    worldpopYear,
+    worldpopApiKey,
+    schoolAgeMin,
+    schoolAgeMax,
+    childClassMax,
+    adminLevel,
+    coverageDistanceKm,
+  });
+
+  const job = createJob({
+    label: definition.label,
+    kind: "preset",
+    meta: {
+      task,
+    },
+  });
+
+  queueWorkflow(job, stages);
+
+  return res.json({
+    status: "success",
+    message: `${definition.label} has started in the background.`,
+    data: {
+      job_id: job.id,
+      label: job.label,
+      task,
+    },
+  });
+});
+
+module.exports = router;
