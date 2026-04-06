@@ -590,6 +590,17 @@ def infer_geographic_level(df):
         return 'district_name', 'district'
     return None, None
 
+def indicator_record(dataset_type, indicator_name, geographic_level, geographic_name, geographic_code, indicator_value):
+    return {
+        'dataset_type': dataset_type,
+        'indicator_name': indicator_name,
+        'geographic_level': geographic_level,
+        'geographic_name': geographic_name,
+        'geographic_code': geographic_code,
+        'indicator_value': float(indicator_value),
+        'metadata': {},
+    }
+
 def ensure_multipolygon(geometry):
     if geometry is None:
         return None
