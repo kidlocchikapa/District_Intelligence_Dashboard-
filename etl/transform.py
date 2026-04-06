@@ -214,3 +214,93 @@ def parse_coordinates(df, lon_col='longitude', lat_col='latitude', compound_col=
     working['coordinate_status'] = valid_bounds.map(lambda is_valid: 'valid' if is_valid else 'missing_or_invalid')
     return working
 
+def build_gazetteer_index(gazetteer_df):
+    if gazetteer_df.empty:
+        return {}
+
+    index = {'district_name': {}, 'ward_name': {}, 'village_name': {}}
+    for _, row in gazetteer_df.iterrows():
+        for column, normalized_column in [
+            ('district_name', 'normalized_district_name'),
+            ('ward_name', 'normalized_ward_name'),
+            ('village_name', 'normalized_village_name'),
+        ]:
+            normalized_value = row.get(normalized_column)
+            if pd.isna(normalized_value):
+                normalized_value = normalize_text(row.get(column))
+            if pd.notna(normalized_value):
+                index[column][normalized_value] = row.to_dict()
+
+    return index
+
+
+def match_geography(value, index):
+    normalized = normalize_text(value)
+    if pd.isna(normalized):
+        return None, 'missing'
+
+    if normalized in index:
+        return index[normalized], 'exact'
+
+    closest = get_close_matches(normalized, list(index.keys()), n=1, cutoff=0.85)
+    if closest:
+        return index[closest[0]], 'fuzzy'
+
+    return None, 'unmatched'
+
+
+def standardize_geography(df, gazetteer_df):
+    working = df.copy()
+    gazetteer_index = build_gazetteer_index(gazetteer_df)
+
+    for geo_column in GEOGRAPHIC_COLUMNS:
+        if geo_column not in working.columns:
+            working[geo_column] = pd.NA
+
+        working[f'input_{geo_column}'] = working[geo_column]
+        working[geo_column] = working[geo_column].apply(normalize_text)
+
+    working['geo_match_status'] = 'not_checked'
+    working['geo_code'] = pd.NA
+
+    if gazetteer_df.empty:
+        return working
+
+    matched_rows = []
+    for _, row in working.iterrows():
+        best_match = None
+        statuses = []
+
+        for geo_column in GEOGRAPHIC_COLUMNS:
+            matched, status = match_geography(row.get(geo_column), gazetteer_index.get(geo_column, {}))
+            statuses.append(status)
+            if matched and not best_match:
+                best_match = matched
+
+        merged_row = row.to_dict()
+        if best_match:
+            merged_row['district_name'] = (
+                best_match.get('normalized_district_name')
+                if pd.notna(best_match.get('normalized_district_name'))
+                else merged_row.get('district_name')
+            )
+            merged_row['ward_name'] = (
+                best_match.get('normalized_ward_name')
+                if pd.notna(best_match.get('normalized_ward_name'))
+                else merged_row.get('ward_name')
+            )
+            merged_row['village_name'] = (
+                best_match.get('normalized_village_name')
+                if pd.notna(best_match.get('normalized_village_name'))
+                else merged_row.get('village_name')
+            )
+            merged_row['geo_code'] = best_match.get('geo_code')
+            merged_row['geo_match_status'] = 'matched'
+            if 'fuzzy' in statuses:
+                merged_row['geo_match_status'] = 'fuzzy_matched'
+        else:
+            merged_row['geo_match_status'] = 'unmatched' if any(status == 'unmatched' for status in statuses) else 'missing'
+
+        matched_rows.append(merged_row)
+
+    return pd.DataFrame(matched_rows)
