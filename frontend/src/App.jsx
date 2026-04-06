@@ -1,67 +1,68 @@
-import { BarChart3, HeartPulse, Home, School, ShieldAlert, UploadCloud, Users2 } from 'lucide-react';
+import { BarChart3, HeartPulse, Home, School, ShieldAlert, UploadCloud, Users2, Building2 } from 'lucide-react';
 import { NavLink, Route, Routes } from 'react-router-dom';
-import AdminPage from './pages/AdminPage';
-import DisasterPage from './pages/DisasterPage';
-import EducationPage from './pages/EducationPage';
-import HealthPage from './pages/HealthPage';
-import OverviewPage from './pages/OverviewPage';
-import WelfarePage from './pages/WelfarePage';
+import AdminPage from './Pages/AdminPage'
+import DisasterPage from './Pages/DisasterPage';
+import EducationPage from './Pages/EducationPage';
+import HealthPage from './Pages/HealthPage';
+import OverviewPage from './Pages/OverviewPage';
+import WelfarePage from './Pages/WelfarePage';
 
 const navigation = [
   { to: '/', label: 'Overview', icon: Home },
   { to: '/education', label: 'Education', icon: School },
   { to: '/health', label: 'Health', icon: HeartPulse },
-  { to: '/disaster', label: 'Disaster', icon: ShieldAlert },
-  { to: '/welfare', label: 'Welfare', icon: Users2 },
-  { to: '/admin', label: 'Admin', icon: UploadCloud },
+  { to: '/welfare', label: 'Social Welfare', icon: Users2 },
+  { to: '/population', label: 'Population', icon: Users2 },
+  { to: '/disaster', label: 'Disaster Risk', icon: ShieldAlert },
 ];
 
 function App() {
   return (
-    <div className="min-h-screen bg-mesh">
-      <div className="mx-auto flex min-h-screen max-w-[1600px] flex-col lg:flex-row">
-        <aside className="border-b border-white/60 bg-pine px-5 py-7 text-sand lg:min-h-screen lg:w-64 lg:border-b-0 lg:border-r">
-          <div className="space-y-2">
-            <div className="inline-flex items-center gap-2 rounded-full bg-white/10 px-3 py-1 text-xs uppercase tracking-[0.28em] text-fog">
-              Malawi District Intelligence
-            </div>
-            <h1 className="font-serif text-2xl font-semibold leading-tight">
-              Spatial evidence for schools, health, disaster risk, and social welfare.
+    <div className="min-h-screen bg-[#F9FAFB]">
+      <div className="mx-auto flex min-h-screen w-full flex-col lg:flex-row">
+        <aside className="flex flex-col bg-[#F9FAFB] px-6 py-8 border-b border-gray-200 lg:min-h-screen lg:w-64 lg:border-b-0 lg:border-r flex-shrink-0">
+          
+          <div className="mb-10">
+            <h1 className="font-sans text-[26px] font-bold text-black tracking-tight leading-tight">
+              District Intel
             </h1>
-            <p className="text-sm leading-6 text-fog/90">
-              Explore choropleths, facility access, served population, and ETL operations from one control room.
+            <p className="mt-1 text-xs font-medium text-gray-400">
+              Current District
             </p>
           </div>
 
-          <nav className="mt-8 grid gap-2">
+          <div className="mb-4 px-2">
+            <h2 className="text-sm font-bold text-black">Departments</h2>
+          </div>
+
+          <nav className="flex-1 grid gap-1 mt-2">
             {navigation.map(({ to, label, icon: Icon }) => (
               <NavLink
                 key={to}
                 to={to}
                 className={({ isActive }) =>
-                  `flex items-center gap-3 rounded-2xl px-3 py-2.5 text-sm transition ${
-                    isActive ? 'bg-white text-pine shadow-panel' : 'text-fog hover:bg-white/10'
+                  `flex items-center gap-3 rounded-lg px-3 py-2.5 text-[15px] font-medium transition ${
+                    isActive 
+                      ? 'bg-gray-200/70 text-black' 
+                      : 'text-gray-800 hover:bg-gray-100'
                   }`
                 }
               >
-                <Icon className="h-4 w-4" />
+                <Icon className="h-5 w-5" />
                 <span>{label}</span>
               </NavLink>
             ))}
           </nav>
 
-          <div className="mt-8 rounded-3xl border border-white/10 bg-white/5 p-4 text-sm text-fog">
-            <div className="mb-2 flex items-center gap-2 font-semibold text-sand">
-              <BarChart3 className="h-4 w-4" />
-              Live analytics
-            </div>
-            <p className="leading-6">
-              Designed for district-level choropleths, facility access analysis, upload workflows, and KPI tracking.
-            </p>
+          <div className="mt-auto pt-8">
+            <button className="w-full rounded-md bg-black px-4 py-3 text-sm font-medium text-white transition hover:bg-gray-900 shadow-sm">
+              Sign In
+            </button>
           </div>
+
         </aside>
 
-        <main className="flex-1 px-4 py-4 sm:px-6 lg:px-8 lg:py-8">
+        <main className="flex-1 bg-white">
           <Routes>
             <Route path="/" element={<OverviewPage />} />
             <Route path="/education" element={<EducationPage />} />
