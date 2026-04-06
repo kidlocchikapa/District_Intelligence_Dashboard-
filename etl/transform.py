@@ -51,3 +51,74 @@ def standardize_schema(df, dataset_config):
 
     working.attrs['matched_columns'] = matched_columns
     return working
+
+def infer_boundary_schema(df, matched_columns, original_columns=None):
+    working = df.copy()
+    source_columns = set(working.columns)
+    original_columns = set(original_columns or set())
+    all_columns = source_columns | original_columns
+
+    def set_if_missing(column_name, candidate_columns):
+        if column_name in matched_columns:
+            return
+
+        for candidate in candidate_columns:
+            if candidate in source_columns:
+                working[column_name] = working[candidate]
+                matched_columns.add(column_name)
+                return
+
+        # After schema renaming, some signals are only available through their
+        # canonical columns, so fall back to those when the original aliases
+        # are no longer present in the current frame.
+        canonical_fallbacks = {
+            'code': ['code'],
+            'name': ['name'],
+            'district_name': ['district_name', 'name'],
+            'ward_name': ['ward_name', 'name'],
+            'parent_code': ['parent_code'],
+        }
+        for fallback in canonical_fallbacks.get(column_name, []):
+            if fallback in source_columns and working[fallback].notna().any():
+                if fallback != column_name:
+                    working[column_name] = working[fallback]
+                matched_columns.add(column_name)
+                return
+
+    set_if_missing('code', ['adm3_pcode', 'adm2_pcode', 'adm1_pcode'])
+    set_if_missing('name', ['adm3_name', 'adm3_ref_n', 'adm2_name', 'adm1_name'])
+    set_if_missing('district_name', ['adm2_name'])
+    set_if_missing('ward_name', ['adm3_name', 'adm3_ref_n'])
+
+    if 'parent_code' not in matched_columns:
+        if 'parent_code' in source_columns and working['parent_code'].notna().any():
+            matched_columns.add('parent_code')
+        elif 'adm2_pcode' in all_columns and ('adm3_pcode' in all_columns or 'adm3_name' in all_columns):
+            working['parent_code'] = working['adm2_pcode']
+            matched_columns.add('parent_code')
+        elif 'adm1_pcode' in all_columns and ('adm2_pcode' in all_columns or 'adm2_name' in all_columns):
+            working['parent_code'] = working['adm1_pcode']
+            matched_columns.add('parent_code')
+
+    if 'type' not in matched_columns:
+        if 'type' in source_columns and working['type'].notna().any():
+            matched_columns.add('type')
+        elif 'adm3_pcode' in all_columns or 'adm3_name' in all_columns or ('ward_name' in source_columns and working['ward_name'].notna().any()):
+            working['type'] = 'Ward'
+            matched_columns.add('type')
+        elif 'adm2_pcode' in all_columns or 'adm2_name' in all_columns or ('district_name' in source_columns and working['district_name'].notna().any()):
+            working['type'] = 'District'
+            matched_columns.add('type')
+        elif 'adm1_pcode' in all_columns or 'adm1_name' in all_columns:
+            working['type'] = 'District'
+            matched_columns.add('type')
+
+    if 'level' not in matched_columns:
+        if 'adm3_pcode' in all_columns or 'adm3_name' in all_columns:
+            working['level'] = 'ADM3'
+        elif 'adm2_pcode' in all_columns or 'adm2_name' in all_columns:
+            working['level'] = 'ADM2'
+        elif 'adm1_pcode' in all_columns or 'adm1_name' in all_columns:
+            working['level'] = 'ADM1'
+
+    return working, matched_columns
