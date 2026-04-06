@@ -352,3 +352,56 @@ def add_harmonized_names(df):
                 lambda value: value.title() if isinstance(value, str) and value == value.lower() else value
             )
     return working
+
+def _clean_text_or_na(value):
+    if value is None or pd.isna(value):
+        return pd.NA
+
+    text = ' '.join(str(value).strip().split())
+    return text if text else pd.NA
+
+
+def _derive_health_name(row):
+    for candidate in [row.get('name'), row.get('name:en'), row.get('name:ny')]:
+        cleaned = _clean_text_or_na(candidate)
+        if pd.notna(cleaned):
+            return cleaned
+
+    base_label = None
+    for candidate in [row.get('healthcare'), row.get('amenity'), row.get('type')]:
+        cleaned = _clean_text_or_na(candidate)
+        if pd.notna(cleaned):
+            base_label = str(cleaned).replace('_', ' ').title()
+            break
+
+    osm_id = row.get('osm_id')
+    if base_label and pd.notna(osm_id):
+        return f'{base_label} (OSM {int(osm_id)})'
+    if base_label:
+        return base_label
+    if pd.notna(osm_id):
+        return f'Health Facility (OSM {int(osm_id)})'
+    return pd.NA
+
+
+def normalize_health_dataset(df):
+    working = df.copy()
+
+    if 'name' not in working.columns:
+        working['name'] = pd.NA
+    if 'type' not in working.columns:
+        working['type'] = pd.NA
+    if 'services_offered' not in working.columns:
+        working['services_offered'] = pd.NA
+
+    working['name'] = working.apply(_derive_health_name, axis=1)
+
+    working['type'] = working['type'].fillna(working.get('healthcare'))
+    working['type'] = working['type'].fillna(working.get('amenity'))
+    working['type'] = working['type'].apply(
+        lambda value: str(value).replace('_', ' ').title() if pd.notna(value) else pd.NA
+    )
+
+    working['services_offered'] = working['services_offered'].fillna(working.get('healthcare'))
+    working['services_offered'] = working['services_offered'].fillna(working.get('healthcare:speciality'))
+    return working
