@@ -15,7 +15,7 @@ export default function Login({ onLogin }) {
 
     try {
       if (isRegistering) {
-        const res = await fetch('/api/auth/register', {
+        const res = await fetch('/api/v1/auth/register', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ username, password }),
@@ -26,10 +26,10 @@ export default function Login({ onLogin }) {
         setError("Registration successful! You can now sign in.");
         setIsRegistering(false);
       } else {
-        const res = await fetch('/api/auth/login', {
+        const res = await fetch('/api/v1/auth/login', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ username, password }),
+          body: JSON.stringify({ full_name,email, password }),
         });
         const data = await res.json();
         if (!res.ok) throw new Error(data.error || 'Failed to login');
@@ -51,17 +51,29 @@ export default function Login({ onLogin }) {
       
       <form onSubmit={handleSubmit}>
         <div className="form-group">
-          <label>Admin Username</label>
+          <label>Admin Fullname</label>
           <input 
             type="text" 
-            value={username} 
-            onChange={(e) => setUsername(e.target.value)} 
-            placeholder="e.g. admin"
+            value={full_name} 
+            onChange={(e) => setFull_name(e.target.value)} 
+            placeholder="e.g. John Doe"
             required
             autoComplete="username"
           />
         </div>
         
+        <div className="form-group">
+          <label>Email</label>
+          <input 
+            type="email" 
+            value={email} 
+            onChange={(e) => setEmail(e.target.value)} 
+            placeholder="e.g. john.doe@example.com"
+            required
+            autoComplete="email"
+          />
+        </div>
+
         <div className="form-group">
           <label>Password</label>
           <input 

@@ -21,8 +21,8 @@ const healthRoutes = require('./routes/health');
 const disasterRoutes = require('./routes/disaster');
 
 // Register Routes
-app.use('/api/auth', authRoutes);
-app.use('/api/data', dataManagerRoutes);
+app.use("/api/v1/auth", authRoutes);
+app.use('/api/v1/data', dataManagerRoutes);
 app.use('/api/v1/dashboard', dashboardRoutes);
 app.use('/api/v1/dashboard/education', educationRoutes);
 app.use('/api/v1/dashboard/health', healthRoutes);
@@ -33,7 +33,7 @@ app.get('/', (req, res) => {
     res.json({ message: 'District Intelligence API v1' });
 });
 
-app.use('/api/v1/auth', authRoutes);
+
 
 app.listen(port, () => {
   console.log(`Server running on port ${port}`);
