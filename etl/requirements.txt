@@ -1,0 +1,9 @@
+pandas
+geopandas
+rasterio
+SQLAlchemy
+GeoAlchemy2
+psycopg2-binary
+python-dotenv
+pytest
+openpyxl
