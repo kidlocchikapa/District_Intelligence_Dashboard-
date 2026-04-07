@@ -16,11 +16,17 @@ app.use(express.urlencoded({ extended: true }));
 const authRoutes = require('./routes/auth');
 const dataManagerRoutes = require('./routes/dataManager');
 const dashboardRoutes = require('./routes/dashboard');
+const educationRoutes = require('./routes/education');
+const healthRoutes = require('./routes/health');
+const disasterRoutes = require('./routes/disaster');
 
 // Register Routes
 app.use('/api/auth', authRoutes);
 app.use('/api/data', dataManagerRoutes);
 app.use('/api/v1/dashboard', dashboardRoutes);
+app.use('/api/v1/dashboard/education', educationRoutes);
+app.use('/api/v1/dashboard/health', healthRoutes);
+app.use('/api/v1/dashboard/disaster', disasterRoutes);
 
 // Basic Routes
 app.get('/', (req, res) => {
