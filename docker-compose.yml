@@ -1,0 +1,102 @@
+services:
+  frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: frontend
+    container_name: district_intelligent_frontend
+    depends_on:
+      - backend
+    environment:
+      VITE_PROXY_TARGET: http://backend:5000
+      CHOKIDAR_USEPOLLING: "true"
+      WATCHPACK_POLLING: "true"
+    ports:
+      - "5173:5173"
+    command: ["npm", "run", "dev", "--", "--host", "0.0.0.0"]
+    volumes:
+      - frontend_node_modules:/app/node_modules
+    develop:
+      watch:
+        - action: sync
+          path: ./frontend
+          target: /app
+          ignore:
+            - node_modules/
+            - dist/
+        - action: rebuild
+          path: ./frontend/package.json
+        - action: rebuild
+          path: ./frontend/package-lock.json
+    restart: unless-stopped
+
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: backend
+    container_name: district_intelligent_backend
+    ports:
+      - "5000:5000"
+    environment:
+      PORT: ${PORT:-5000}
+      ETL_PYTHON_PATH: python3
+      NODE_ENV: development
+      DATABASE_URL: ${DATABASE_URL:-}
+      DB_HOST: db
+      DB_PORT: ${DB_PORT:-5432}
+      DB_NAME: ${DB_NAME:-district_intelligence}
+      DB_USER: ${DB_USER:-district_user}
+      DB_PASSWORD: ${DB_PASSWORD:-district_password}
+      JWT_SECRET: ${JWT_SECRET:-dev-only-change-me}
+      JWT_EXPIRES_IN: ${JWT_EXPIRES_IN:-1d}
+      BCRYPT_ROUNDS: ${BCRYPT_ROUNDS:-12}
+    volumes:
+      - ./uploads:/app/uploads
+    command: ["sh", "-c", "cd /app/backend && npm run dev"]
+    develop:
+      watch:
+        - action: sync
+          path: ./backend
+          target: /app/backend
+          ignore:
+            - node_modules/
+        - action: sync
+          path: ./etl
+          target: /app/etl
+          ignore:
+            - venv/
+            - __pycache__/
+            - data/
+        - action: sync
+          path: ./database
+          target: /app/database
+        - action: sync
+          path: ./sample_data
+          target: /app/sample_data
+        - action: rebuild
+          path: ./backend/package.json
+        - action: rebuild
+          path: ./backend/package-lock.json
+        - action: rebuild
+          path: ./Dockerfile
+        - action: rebuild
+          path: ./etl/requirements.txt
+    restart: unless-stopped
+
+  db:
+    image: postgis/postgis:15-3.3
+    container_name: district_intelligent_db
+    environment:
+      POSTGRES_USER: ${DB_USER:-district_user}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-district_password}
+      POSTGRES_DB: ${DB_NAME:-district_intelligence}
+    ports:
+      - "5433:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    restart: unless-stopped
+
+volumes:
+  pgdata:
+  frontend_node_modules:
