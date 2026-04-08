@@ -1,4 +1,4 @@
-import { BarChart3, HeartPulse, Home, School, ShieldAlert, UploadCloud, Users2, Menu, ChevronLeft, ChevronRight, LogIn, GraduationCap, Activity, UserCheck, LayoutDashboard } from 'lucide-react';
+import { BarChart3, HeartPulse, Home, School, ShieldAlert, UploadCloud, Users2, Menu, ChevronLeft, ChevronRight, LogIn, GraduationCap, Activity, UserCheck, LayoutDashboard, Database } from 'lucide-react';
 import { useState, useEffect } from 'react';
 import { NavLink, Route, Routes, useNavigate } from 'react-router-dom';
 import Login from './Login';
@@ -21,17 +21,21 @@ const navigation = [
 
 function App() {
   const [isCollapsed, setIsCollapsed] = useState(false);
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
   const { selectedDistrict } = useDistrict();
   const navigate = useNavigate();
-  const isLoginPage = window.location.pathname === '/login';
+
+  const navItems = [
+    ...navigation,
+    ...(isAuthenticated ? [{ to: '/admin', label: 'Data Management', icon: Database }] : [])
+  ];
 
 
   return (
     <div className="min-h-screen bg-[#F9FAFB] font-sans">
       <div className="mx-auto flex min-h-screen w-full flex-col lg:flex-row">
         {/* Sidebar */}
-        {!isLoginPage && (
-          <aside 
+        <aside 
             className={`flex flex-col bg-[#F9FAFB] px-4 py-8 border-b border-gray-200 lg:min-h-screen transition-all duration-300 ease-in-out lg:border-b-0 lg:border-r flex-shrink-0 relative ${
               isCollapsed ? 'lg:w-20' : 'lg:w-64'
             }`}
@@ -70,7 +74,7 @@ function App() {
             )}
 
             <nav className={`flex-1 space-y-1 ${isCollapsed ? 'flex flex-col items-center' : ''}`}>
-              {navigation.map(({ to, label, icon: Icon }) => (
+              {navItems.map(({ to, label, icon: Icon }) => (
                 <NavLink
                   key={to}
                   to={to}
@@ -104,7 +108,6 @@ function App() {
             </div>
 
           </aside>
-        )}
 
         {/* Main Content Area */}
         <main className="flex-1 bg-white overflow-y-auto">
@@ -115,7 +118,15 @@ function App() {
             <Route path="/disaster" element={<DisasterPage />} />
             <Route path="/welfare" element={<WelfarePage />} />
             <Route path="/admin" element={<AdminPage />} />
-            <Route path="/login" element={<div className="flex items-center justify-center min-h-[calc(100vh-2rem)] bg-gray-50 p-6"><Login onLogin={(token) => { console.log('Logged in:', token); navigate('/admin'); }} /></div>} />
+            <Route path="/login" element={
+              <div className="flex items-center justify-center min-h-[calc(100vh-2rem)] bg-white p-6">
+                <Login onLogin={(token) => { 
+                  console.log('Logged in:', token); 
+                  setIsAuthenticated(true);
+                  navigate('/admin'); 
+                }} />
+              </div>
+            } />
           </Routes>
         </main>
       </div>
