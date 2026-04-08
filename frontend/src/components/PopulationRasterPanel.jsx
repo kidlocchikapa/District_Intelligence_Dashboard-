@@ -47,17 +47,26 @@ function PopulationRasterPanel({
     return <EmptyState title={title} description={error} />;
   }
 
+  const hasHeader = Boolean(title || subtitle);
+  const wrapperClassName = hasHeader
+    ? "flex h-full min-h-0 flex-col gap-4"
+    : "h-full";
+
   if (!metadata) {
     return (
-      <div className="space-y-4">
-        <div>
-          <h4 className="text-lg font-semibold text-slate">{title}</h4>
-          {subtitle ? (
-            <p className="mt-1 text-sm leading-6 text-slate/60">{subtitle}</p>
-          ) : null}
-        </div>
+      <div className={wrapperClassName}>
+        {hasHeader ? (
+          <div>
+            {title ? (
+              <h4 className="text-lg font-semibold text-slate">{title}</h4>
+            ) : null}
+            {subtitle ? (
+              <p className="mt-1 text-sm leading-6 text-slate/60">{subtitle}</p>
+            ) : null}
+          </div>
+        ) : null}
         <div
-          className={`relative ${heightClass} overflow-hidden rounded-[1.5rem] border border-fog bg-[#f8f8f3]`}
+          className={`relative ${heightClass} min-h-0 overflow-hidden rounded-[1.5rem] border border-fog bg-[#f8f8f3]`}
         >
           <div className="absolute inset-0 animate-pulse bg-gradient-to-br from-[#f7f7ef] via-white to-[#f0f8e9]" />
         </div>
@@ -72,15 +81,19 @@ function PopulationRasterPanel({
   const features = geojson?.features || [];
 
   return (
-    <div className="space-y-4">
-      <div>
-        <h4 className="text-lg font-semibold text-slate">{title}</h4>
-        {subtitle ? (
-          <p className="mt-1 text-sm leading-6 text-slate/60">{subtitle}</p>
-        ) : null}
-      </div>
+    <div className={wrapperClassName}>
+      {hasHeader ? (
+        <div>
+          {title ? (
+            <h4 className="text-lg font-semibold text-slate">{title}</h4>
+          ) : null}
+          {subtitle ? (
+            <p className="mt-1 text-sm leading-6 text-slate/60">{subtitle}</p>
+          ) : null}
+        </div>
+      ) : null}
       <div
-        className={`relative ${heightClass} overflow-hidden rounded-[1.5rem] border border-fog bg-[#f8f8f3]`}
+        className={`relative ${heightClass} min-h-0 overflow-hidden rounded-[1.5rem] border border-fog bg-[#f8f8f3]`}
       >
         <MapContainer
           bounds={bounds}

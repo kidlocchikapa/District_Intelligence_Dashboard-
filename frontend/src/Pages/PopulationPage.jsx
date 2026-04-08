@@ -3,6 +3,7 @@ import {
   Bar,
   BarChart,
   CartesianGrid,
+  Cell,
   Rectangle,
   ResponsiveContainer,
   Tooltip,
@@ -14,6 +15,31 @@ import { useDistrict } from "../context/DistrictContext";
 import { useDashboardData } from "../hooks/useDashboardData";
 import { useDistrictOptions } from "../hooks/useDistrictOptions";
 import { buildDashboardPath } from "../lib/query";
+
+function getPopulationBarColor(value, maxPopulation) {
+  if (!Number.isFinite(value) || maxPopulation <= 0) {
+    return "#cbd5e1";
+  }
+
+  const ratio = value / maxPopulation;
+
+  if (ratio >= 0.8) return "#dc2626";
+  if (ratio >= 0.55) return "#8b5e3c";
+  if (ratio >= 0.3) return "#2563eb";
+  return "#22c55e";
+}
+
+function formatDistrictAxisLabel(value) {
+  if (!value) {
+    return "";
+  }
+
+  if (value.length <= 8) {
+    return value;
+  }
+
+  return `${value.slice(0, 8)}…`;
+}
 
 function PopulationPage() {
   const { selectedDistrict, setSelectedDistrict } = useDistrict();
@@ -33,6 +59,10 @@ function PopulationPage() {
 
   const chartData = populationDistribution.data || [];
   const totalPopulation = Number(summary.data?.total_estimated_population || 0);
+  const maxPopulation = Math.max(
+    ...chartData.map((item) => Number(item.population) || 0),
+    0,
+  );
 
   return (
     <div className="min-h-screen bg-white text-black font-sans pb-10">
@@ -123,11 +153,11 @@ function PopulationPage() {
           <h3 className="mb-6 text-[16px] font-extrabold">
             Population by district
           </h3>
-          <div className="h-[360px]">
+          <div className="h-[420px]">
             <ResponsiveContainer width="100%" height="100%">
               <BarChart
                 data={chartData}
-                margin={{ top: 20, right: 30, left: 20, bottom: 50 }}
+                margin={{ top: 20, right: 20, left: 12, bottom: 92 }}
               >
                 <CartesianGrid
                   stroke="#f1f5f9"
@@ -137,12 +167,13 @@ function PopulationPage() {
                 <XAxis
                   dataKey="district"
                   axisLine={false}
-                  tick={{ fill: "#64748b", fontSize: 11, fontWeight: 700 }}
+                  tick={{ fill: "#64748b", fontSize: 9, fontWeight: 700 }}
+                  tickFormatter={formatDistrictAxisLabel}
                   tickLine={false}
-                  angle={-45}
+                  angle={-90}
                   textAnchor="end"
                   interval={0}
-                  height={60}
+                  height={112}
                 />
                 <YAxis
                   axisLine={false}
@@ -155,6 +186,8 @@ function PopulationPage() {
                   }
                 />
                 <Tooltip
+                  formatter={(value) => Number(value).toLocaleString()}
+                  labelFormatter={(label) => label}
                   contentStyle={{
                     borderRadius: "4px",
                     border: "none",
@@ -165,11 +198,20 @@ function PopulationPage() {
                 />
                 <Bar
                   dataKey="population"
-                  fill="#1f2937"
                   radius={[2, 2, 0, 0]}
-                  barSize={24}
-                  activeBar={<Rectangle fill="#2874d6" />}
-                />
+                  barSize={14}
+                  activeBar={<Rectangle fill="#7e22ce" />}
+                >
+                  {chartData.map((entry) => (
+                    <Cell
+                      key={`population-bar-${entry.district}`}
+                      fill={getPopulationBarColor(
+                        Number(entry.population),
+                        maxPopulation,
+                      )}
+                    />
+                  ))}
+                </Bar>
               </BarChart>
             </ResponsiveContainer>
           </div>
