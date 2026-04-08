@@ -29,7 +29,7 @@ export default function Login({ onLogin }) {
   };
 
   return (
-    <div className="login-full-page">
+    <div className="login-form-container">
       <div className="login-card">
         {/* Branding Header */}
         <div className="login-branding">

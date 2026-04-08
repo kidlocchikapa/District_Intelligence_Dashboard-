@@ -321,6 +321,25 @@ main {
   display: flex;
   flex-direction: column;
   align-items: center;
+  position: relative;
+}
+
+.login-return-link {
+  position: absolute;
+  top: -1.5rem;
+  left: 1rem;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  color: #6b7280;
+  font-size: 0.875rem;
+  text-decoration: none;
+  transition: color 0.2s;
+  font-weight: 500;
+}
+
+.login-return-link:hover {
+  color: #000000;
 }
 
 .login-branding {
