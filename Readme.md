@@ -1,139 +1,46 @@
-# District Intelligence
+# Getting Started with Create React App
 
-District Intelligence Dashboard is a geospatial data platform for district-level decision making.  
-It combines:
-- A React frontend dashboard (`frontend/`)
-- A Node.js API (`backend/`)
-- A Python ETL and analytics pipeline (`etl/`)
-- A PostGIS database (`db` service in Docker Compose)
+This project was bootstrapped with [Create React App](https://github.com/facebook/create-react-app).
 
-## How To Contribute
+## Available Scripts
 
-1. Create a branch from `main`.
-2. Make focused changes (one feature/fix per branch).
-3. Run the project locally with Docker and verify your change.
-4. Commit with clear messages.
+In the project directory, you can run:
 
-### Branch Naming (recommended)
-- `feature/<short-description>`
-- `fix/<short-description>`
-- `docs/<short-description>`
+### `npm start`
 
-### Commit Message Style (recommended)
-- `feat: add ward-level filter`
-- `fix: handle missing coordinates in ETL`
-- `docs: update container setup steps`
+Runs the app in the development mode.\
+Open [http://localhost:3000](http://localhost:3000) to view it in the browser.
 
-## Run With Containers
+The page will reload if you make edits.\
+You will also see any lint errors in the console.
 
-### Prerequisites
-- Docker
-- Docker Compose (v2+)
+### `npm test`
 
-### 1) Clone and enter the project
+Launches the test runner in the interactive watch mode.\
+See the section about [running tests](https://facebook.github.io/create-react-app/docs/running-tests) for more information.
 
-```bash
-git clone <your-repo-url>
-cd "District intelligence"
-```
+### `npm run build`
 
-### 2) Build and start containers
+Builds the app for production to the `build` folder.\
+It correctly bundles React in production mode and optimizes the build for the best performance.
 
-Optional but recommended for local overrides:
+The build is minified and the filenames include the hashes.\
+Your app is ready to be deployed!
 
-```bash
-cp .env.example .env
-```
+See the section about [deployment](https://facebook.github.io/create-react-app/docs/deployment) for more information.
 
-The checked-in `.env.example` gives each developer their own local config file.
-The real `.env` is ignored by git and is no longer copied into the Docker image.
+### `npm run eject`
 
-```bash
-docker compose up --build -d
-```
+**Note: this is a one-way operation. Once you `eject`, you can’t go back!**
 
-Services:
-- Frontend: `http://localhost:5173`
-- Backend API: `http://localhost:5000`
-- PostGIS DB: host `localhost`, port `5433`
+If you aren’t satisfied with the build tool and configuration choices, you can `eject` at any time. This command will remove the single build dependency from your project.
 
-### 3) Initialize database schema
+Instead, it will copy all the configuration files and the transitive dependencies (webpack, Babel, ESLint, etc) right into your project so you have full control over them. All of the commands except `eject` will still work, but they will point to the copied scripts so you can tweak them. At this point you’re on your own.
 
-```bash
-docker compose exec backend node backend/init-db.js
-```
+You don’t have to ever use `eject`. The curated feature set is suitable for small and middle deployments, and you shouldn’t feel obligated to use this feature. However we understand that this tool wouldn’t be useful if you couldn’t customize it when you are ready for it.
 
-### 4) View logs (optional)
+## Learn More
 
-```bash
-docker compose logs -f backend
-docker compose logs -f frontend
-docker compose logs -f db
-```
+You can learn more in the [Create React App documentation](https://facebook.github.io/create-react-app/docs/getting-started).
 
-### 5) Stop services
-
-```bash
-docker compose down
-```
-
-If you also want to remove volumes (including DB data):
-
-```bash
-docker compose down -v
-```
-
-## ETL Folder: Simple File Guide
-
-`etl/` contains the extraction, transformation, loading, WorldPop integration, and analytics logic.
-
-- `etl/main.py`  
-  Main ETL entrypoint (CLI). Handles dataset type selection (`education`, `health`, `welfare`, `disaster`, `boundaries`, `worldpop`, `analysis`) and orchestrates end-to-end runs.
-
-- `etl/ingest.py`  
-  Reads input data from files or APIs. Supports CSV/Excel/JSON/GeoJSON/GPKG/SHP/ZIP, normalizes columns, and cleans missing values.
-
-- `etl/transform.py`  
-  Standardizes schemas, parses coordinates, harmonizes geography names, handles missing data strategies, builds geometries, validates boundaries/disaster polygons, and derives indicators.
-
-- `etl/load.py`  
-  Loads transformed data into PostGIS tables, converts geometries to database format, writes derived indicators, and handles helper tasks like parent boundary linking.
-
-- `etl/worldpop.py`  
-  Integrates WorldPop datasets (raster + API stats), calculates zonal population metrics, and generates population-related indicators including age/sex breakdowns.
-
-- `etl/analytics.py`  
-  Runs spatial analyses (coverage, nearest facility distance, disaster vulnerability, education/health summary metrics) and prepares outputs for `analysis_results`.
-
-- `etl/db_utils.py`  
-  Database session/engine helpers and ETL run logging into `data_load_log`.
-
-- `etl/pipeline_config.py`  
-  Central config for each dataset type: canonical column mappings, required fields, numeric coercion fields, target load columns, and indicator rules.
-
-- `etl/requirements.txt`  
-  Python dependencies required by the ETL pipeline.
-
-## Useful ETL Commands
-
-Run these from the project root while containers are up:
-
-```bash
-# Load boundaries first (recommended)
-docker compose exec backend python3 etl/main.py --type boundaries --file sample_data/admin_units_sample.geojson
-
-# Load education sample
-docker compose exec backend python3 etl/main.py --type education --file sample_data/education_sample.csv
-
-# Load health sample
-docker compose exec backend python3 etl/main.py --type health --file sample_data/health_sample.csv
-```
-
-## Project Structure
-
-- `frontend/` React + Vite dashboard
-- `backend/` Express API routes and server logic
-- `etl/` Python ETL, WorldPop, and spatial analytics
-- `database/schema.sql` PostGIS schema
-- `sample_data/` sample files for local ETL testing
-- `docker-compose.yml` local multi-service orchestration
+To learn React, check out the [React documentation](https://reactjs.org/).
