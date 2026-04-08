@@ -16,11 +16,11 @@ export default function Login({ onLogin }) {
       const res = await fetch('/api/auth/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username: email, password }),
+        body: JSON.stringify({ email, password }),
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Failed to login');
-      onLogin(data.token, data.role);
+      if (!res.ok) throw new Error(data.status === 'error' ? data.message : 'Failed to login');
+      onLogin(data.data.token, data.data.user.role);
     } catch (err) {
       setError(err.message);
     } finally {
