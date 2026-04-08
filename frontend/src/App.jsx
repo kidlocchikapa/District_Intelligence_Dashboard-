@@ -1,6 +1,7 @@
-import { BarChart3, HeartPulse, Home, School, ShieldAlert, UploadCloud, Users2, Menu, ChevronLeft, ChevronRight, LogIn, GraduationCap, Activity, UserCheck, LayoutDashboard } from 'lucide-react';
+import { BarChart3, HeartPulse, Home, School, ShieldAlert, UploadCloud, Users2, Menu, ChevronLeft, ChevronRight, LogIn, GraduationCap, Activity, UserCheck, LayoutDashboard, Database } from 'lucide-react';
 import { useState, useEffect } from 'react';
-import { NavLink, Route, Routes } from 'react-router-dom';
+import { NavLink, Route, Routes, useNavigate } from 'react-router-dom';
+import Login from './Login';
 import { useDistrict } from './context/DistrictContext';
 import AdminPage from './Pages/AdminPage';
 import DisasterPage from './Pages/DisasterPage';
@@ -21,84 +22,93 @@ const navigation = [
 
 function App() {
   const [isCollapsed, setIsCollapsed] = useState(false);
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
   const { selectedDistrict } = useDistrict();
+  const navigate = useNavigate();
+
+  const navItems = [
+    ...navigation,
+    ...(isAuthenticated ? [{ to: '/admin', label: 'Data Management', icon: Database }] : [])
+  ];
+
 
   return (
     <div className="min-h-screen bg-[#F9FAFB] font-sans">
       <div className="mx-auto flex min-h-screen w-full flex-col lg:flex-row">
         {/* Sidebar */}
         <aside 
-          className={`flex flex-col bg-[#F9FAFB] px-4 py-8 border-b border-gray-200 lg:min-h-screen transition-all duration-300 ease-in-out lg:border-b-0 lg:border-r flex-shrink-0 relative ${
-            isCollapsed ? 'lg:w-20' : 'lg:w-64'
-          }`}
-        >
-          {/* Collapse Toggle Button (Desktop) */}
-          <button 
-            onClick={() => setIsCollapsed(!isCollapsed)}
-            className="hidden lg:flex absolute -right-3 top-10 z-50 bg-white border border-gray-200 rounded-full p-1 shadow-sm text-gray-500 hover:text-black hover:bg-gray-50 transition-all hover:scale-110 active:scale-95"
+            className={`flex flex-col bg-[#F9FAFB] px-4 py-8 border-b border-gray-200 lg:min-h-screen transition-all duration-300 ease-in-out lg:border-b-0 lg:border-r flex-shrink-0 relative ${
+              isCollapsed ? 'lg:w-20' : 'lg:w-64'
+            }`}
           >
-            {isCollapsed ? <ChevronRight size={16} /> : <ChevronLeft size={16} />}
-          </button>
-          
-          <div className={`mb-10 px-2 transition-all ${isCollapsed ? 'items-center flex flex-col' : ''}`}>
-            {!isCollapsed ? (
-              <>
-                <h1 className="text-[24px] font-extrabold text-black tracking-tight leading-tight">
-                  District Intel
-                </h1>
-                <div className="mt-2">
-                  <div className="inline-flex items-center rounded-full bg-gray-100 px-2.5 py-0.5 text-[11px] font-bold text-black border border-gray-200 w-fit">
-                    {selectedDistrict || 'All Districts'}
+            {/* Collapse Toggle Button (Desktop) */}
+            <button 
+              onClick={() => setIsCollapsed(!isCollapsed)}
+              className="hidden lg:flex absolute -right-3 top-10 z-50 bg-white border border-gray-200 rounded-full p-1 shadow-sm text-gray-500 hover:text-black hover:bg-gray-50 transition-all hover:scale-110 active:scale-95"
+            >
+              {isCollapsed ? <ChevronRight size={16} /> : <ChevronLeft size={16} />}
+            </button>
+            
+            <div className={`mb-10 px-2 transition-all ${isCollapsed ? 'items-center flex flex-col' : ''}`}>
+              {!isCollapsed ? (
+                <>
+                  <h1 className="text-[24px] font-extrabold text-black tracking-tight leading-tight">
+                    District Intel
+                  </h1>
+                  <div className="mt-2">
+                    <div className="inline-flex items-center rounded-full bg-gray-100 px-2.5 py-0.5 text-[11px] font-bold text-black border border-gray-200 w-fit">
+                      {selectedDistrict || 'All Districts'}
+                    </div>
                   </div>
+                </>
+              ) : (
+                <div className="bg-black text-white w-10 h-10 rounded flex items-center justify-center font-extrabold text-lg shadow-lg">
+                  DI
                 </div>
-              </>
-            ) : (
-              <div className="bg-black text-white w-10 h-10 rounded flex items-center justify-center font-extrabold text-lg shadow-lg">
-                DI
+              )}
+            </div>
+
+            {!isCollapsed && (
+              <div className="mb-4 px-2">
+                <h2 className="text-xs font-extrabold text-black uppercase tracking-wider">Departments</h2>
               </div>
             )}
-          </div>
 
-          {!isCollapsed && (
-            <div className="mb-4 px-2">
-              <h2 className="text-xs font-extrabold text-black uppercase tracking-wider">Departments</h2>
-            </div>
-          )}
+            <nav className={`flex-1 space-y-1 ${isCollapsed ? 'flex flex-col items-center' : ''}`}>
+              {navItems.map(({ to, label, icon: Icon }) => (
+                <NavLink
+                  key={to}
+                  to={to}
+                  title={isCollapsed ? label : ''}
+                  className={({ isActive }) =>
+                    `flex items-center gap-3 rounded transition-all duration-200 ${
+                      isCollapsed ? 'p-3 justify-center' : 'px-3 py-2.5 text-[15px]'
+                    } font-semibold ${
+                      isActive 
+                        ? 'bg-gray-200/60 text-black shadow-sm' 
+                        : 'text-gray-700 hover:bg-gray-100 hover:text-black'
+                    }`
+                  }
+                >
+                  <Icon className={`opacity-70 ${isCollapsed ? 'h-6 w-6' : 'h-5 w-5'}`} />
+                  {!isCollapsed && <span>{label}</span>}
+                </NavLink>
+              ))}
+            </nav>
 
-          <nav className={`flex-1 space-y-1 ${isCollapsed ? 'flex flex-col items-center' : ''}`}>
-            {navigation.map(({ to, label, icon: Icon }) => (
-              <NavLink
-                key={to}
-                to={to}
-                title={isCollapsed ? label : ''}
-                className={({ isActive }) =>
-                  `flex items-center gap-3 rounded transition-all duration-200 ${
-                    isCollapsed ? 'p-3 justify-center' : 'px-3 py-2.5 text-[15px]'
-                  } font-semibold ${
-                    isActive 
-                      ? 'bg-gray-200/60 text-black shadow-sm' 
-                      : 'text-gray-700 hover:bg-gray-100 hover:text-black'
-                  }`
-                }
+            <div className={`mt-auto pt-8 ${isCollapsed ? 'flex justify-center' : ''}`}>
+              <button 
+                onClick={() => navigate('/login')}
+                title={isCollapsed ? "Sign In" : ""}
+                className={`rounded bg-black text-white transition-all duration-200 hover:bg-gray-800 shadow-lg active:scale-[0.98] ${
+                  isCollapsed ? 'p-3' : 'w-full px-4 py-3 text-sm font-bold'
+                }`}
               >
-                <Icon className={`opacity-70 ${isCollapsed ? 'h-6 w-6' : 'h-5 w-5'}`} />
-                {!isCollapsed && <span>{label}</span>}
-              </NavLink>
-            ))}
-          </nav>
+                {isCollapsed ? <LogIn size={20} /> : "Sign In"}
+              </button>
+            </div>
 
-          <div className={`mt-auto pt-8 ${isCollapsed ? 'flex justify-center' : ''}`}>
-            <button 
-              title={isCollapsed ? "Sign In" : ""}
-              className={`rounded bg-black text-white transition-all duration-200 hover:bg-gray-800 shadow-lg active:scale-[0.98] ${
-                isCollapsed ? 'p-3' : 'w-full px-4 py-3 text-sm font-bold'
-              }`}
-            >
-              {isCollapsed ? <LogIn size={20} /> : "Sign In"}
-            </button>
-          </div>
-
-        </aside>
+          </aside>
 
         {/* Main Content Area */}
         <main className="flex-1 bg-white overflow-y-auto">
@@ -110,6 +120,15 @@ function App() {
             <Route path="/welfare" element={<WelfarePage />} />
             <Route path="/population" element={<PopulationPage />} />
             <Route path="/admin" element={<AdminPage />} />
+            <Route path="/login" element={
+              <div className="flex items-center justify-center min-h-[calc(100vh-2rem)] bg-white p-6">
+                <Login onLogin={(token) => { 
+                  console.log('Logged in:', token); 
+                  setIsAuthenticated(true);
+                  navigate('/admin'); 
+                }} />
+              </div>
+            } />
           </Routes>
         </main>
       </div>

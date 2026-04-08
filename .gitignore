@@ -1,13 +1,32 @@
-.env
+# See https://help.github.com/articles/ignoring-files/ for more about ignoring files.
+
+# dependencies
+node_modules/
+/node_modules
+/.pnp
+.pnp.js
+
+# logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# build / assets
+/build
+dist/
 uploads/
 
+# env files
+.env
+.env.local
+.env.test.local
+
+# Python / ETL
 __pycache__/
 *.pyc
 etl/venv/
 etl/.venv/
 
-node_modules/
-dist/
-
+# Misc
 .DS_Store
 .codex
