@@ -20,16 +20,42 @@ import {
 
 const COLORS = ['#4A72E4', '#F4B41A', '#3BB182', '#6974D6'];
 
+function getPopulationBarColor(value, maxPopulation) {
+  if (!Number.isFinite(value) || maxPopulation <= 0) {
+    return '#cbd5e1';
+  }
+
+  const ratio = value / maxPopulation;
+
+  if (ratio >= 0.8) return '#dc2626';
+  if (ratio >= 0.55) return '#8b5e3c';
+  if (ratio >= 0.3) return '#2563eb';
+  return '#22c55e';
+}
+
+function formatDistrictAxisLabel(value) {
+  if (!value) {
+    return '';
+  }
+
+  if (value.length <= 8) {
+    return value;
+  }
+
+  return `${value.slice(0, 8)}…`;
+}
+
 function OverviewPage() {
   const { selectedDistrict, setSelectedDistrict } = useDistrict();
   const districts = useDistrictOptions();
   const summary = useDashboardData(buildDashboardPath('/dashboard/summary', { district: selectedDistrict }));
   const densityMap = useDashboardData(buildDashboardPath('/dashboard/admin-units', { type: 'District', district: selectedDistrict }));
-  const populationDistribution = useDashboardData('/dashboard/population-by-district');
+  const populationDistribution = useDashboardData(buildDashboardPath('/dashboard/population-by-district', { district: selectedDistrict }));
   const welfareDistribution = useDashboardData(buildDashboardPath('/dashboard/welfare-distribution', { district: selectedDistrict }));
 
   const chartData = populationDistribution.data || [];
   const pieData = welfareDistribution.data || [];
+  const maxPopulation = Math.max(...chartData.map((item) => Number(item.population) || 0), 0);
 
   const formatStat = (val) => {
     if (!val) return '0';
@@ -135,32 +161,33 @@ function OverviewPage() {
                ) : (
                  <PopulationRasterPanel
                   geojson={densityMap.data}
-                  title="Population Surface"
-                  subtitle="Rendered from the Malawi WorldPop GeoTIFF to preserve the fine-grained population heat pattern."
+                  title={null}
+                  subtitle={null}
                   heightClass="h-full w-full"
                 />
                )}
             </div>
           </div>
           
-          <div className="border border-gray-100 rounded p-8 shadow-sm bg-white flex flex-col min-h-[400px]">
+          <div className="border border-gray-100 rounded p-8 shadow-sm bg-white flex flex-col min-h-[460px]">
             <h3 className="text-[16px] font-extrabold mb-6">Population by district</h3>
               <div className="flex-1">
                 {populationDistribution.loading ? (
                    <ChartSkeleton />
                 ) : (
                   <ResponsiveContainer width="100%" height="100%">
-                    <BarChart data={chartData} margin={{ top: 20, right: 30, left: 20, bottom: 50 }}>
+                    <BarChart data={chartData} margin={{ top: 20, right: 20, left: 12, bottom: 92 }}>
                       <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
                       <XAxis 
                         dataKey="district" 
                         axisLine={false} 
                         tickLine={false} 
-                        tick={{ fill: '#64748b', fontSize: 11, fontWeight: 700 }}
-                        angle={-45}
+                        tick={{ fill: '#64748b', fontSize: 9, fontWeight: 700 }}
+                        tickFormatter={formatDistrictAxisLabel}
+                        angle={-90}
                         textAnchor="end"
                         interval={0}
-                        height={60}
+                        height={112}
                       />
                       <YAxis 
                         axisLine={false} 
@@ -169,16 +196,24 @@ function OverviewPage() {
                         tickFormatter={(value) => Number(value) >= 1000000 ? `${(value / 1000000).toFixed(1)}M` : value}
                       />
                       <Tooltip 
+                        formatter={(value) => Number(value).toLocaleString()}
+                        labelFormatter={(label) => label}
                         contentStyle={{ borderRadius: '4px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)', fontSize: '12px' }}
                         cursor={{ fill: '#f8fafc' }}
                       />
                       <Bar 
                         dataKey="population" 
-                        fill="#000" 
                         radius={[2, 2, 0, 0]} 
-                        barSize={24}
-                        activeBar={<Rectangle fill="#3b82f6" />}
-                      />
+                        barSize={14}
+                        activeBar={<Rectangle fill="#7e22ce" />}
+                      >
+                        {chartData.map((entry) => (
+                          <Cell
+                            key={`population-bar-${entry.district}`}
+                            fill={getPopulationBarColor(Number(entry.population), maxPopulation)}
+                          />
+                        ))}
+                      </Bar>
                     </BarChart>
                   </ResponsiveContainer>
                 )}

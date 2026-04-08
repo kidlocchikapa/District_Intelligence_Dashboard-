@@ -4,6 +4,42 @@ import { useDistrict } from '../context/DistrictContext';
 import { useDistrictOptions } from '../hooks/useDistrictOptions';
 import { buildDashboardPath } from '../lib/query';
 import MapPanel from '../components/MapPanel';
+import {
+  Bar,
+  BarChart,
+  CartesianGrid,
+  Cell,
+  Rectangle,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from 'recharts';
+
+function getFacilityBarColor(value, maxValue) {
+  if (!Number.isFinite(value) || maxValue <= 0) {
+    return '#cbd5e1';
+  }
+
+  const ratio = value / maxValue;
+
+  if (ratio >= 0.8) return '#dc2626';
+  if (ratio >= 0.55) return '#8b5e3c';
+  if (ratio >= 0.3) return '#2563eb';
+  return '#22c55e';
+}
+
+function formatDistrictAxisLabel(value) {
+  if (!value) {
+    return '';
+  }
+
+  if (value.length <= 8) {
+    return value;
+  }
+
+  return `${value.slice(0, 8)}…`;
+}
 
 function HealthPage() {
   const { selectedDistrict, setSelectedDistrict } = useDistrict();
@@ -14,17 +50,34 @@ function HealthPage() {
     district: selectedDistrict,
     admin_type: 'District'
   }));
+  const districtHealthSummary = useDashboardData(
+    buildDashboardPath('/dashboard/health/summary', {
+      admin_type: 'District',
+    }),
+  );
 
   // Health Facility GeoJSON for Map
   const healthLocations = useDashboardData(buildDashboardPath('/dashboard/health', { 
     district: selectedDistrict 
   }));
 
-  const findMetric = (name) => {
-    return healthSummary.data?.find(m => m.metric_name === name)?.metric_value || 0;
+  const findMetricTotal = (name) => {
+    return (healthSummary.data || [])
+      .filter((metric) => metric.metric_name === name)
+      .reduce((sum, metric) => sum + Number(metric.metric_value || 0), 0);
   };
 
   const formatStat = (val) => Number(val).toLocaleString();
+  const facilityChartData = (districtHealthSummary.data || [])
+    .filter((metric) => metric.metric_name === 'health_facility_count')
+    .map((metric) => ({
+      district: metric.admin_unit_name,
+      facilities: Number(metric.metric_value || 0),
+    }));
+  const maxFacilities = Math.max(
+    ...facilityChartData.map((item) => item.facilities || 0),
+    0,
+  );
 
   const StatCardSkeleton = () => (
     <div className="border border-gray-100 rounded p-6 shadow-md bg-white animate-pulse">
@@ -73,9 +126,9 @@ function HealthPage() {
              [...Array(3)].map((_, i) => <StatCardSkeleton key={i} />)
           ) : (
             [
-              { label: 'Facilities', value: formatStat(findMetric('health_facility_count')), icon: HeartPulse },
-              { label: 'Total Beds', value: formatStat(findMetric('beds_count_total')), icon: Bed },
-              { label: 'Patient Visits', value: formatStat(findMetric('patient_visits_total')), icon: Users },
+              { label: 'Facilities', value: formatStat(findMetricTotal('health_facility_count')), icon: HeartPulse },
+              { label: 'Total Beds', value: formatStat(findMetricTotal('beds_count_total')), icon: Bed },
+              { label: 'Patient Visits', value: formatStat(findMetricTotal('patient_visits_total')), icon: Users },
             ].map((stat, i) => (
               <div key={i} className="border border-gray-100 rounded p-6 shadow-md bg-white group hover:shadow-lg transition-all active:scale-95">
                 <div className="flex justify-between items-start">
@@ -90,24 +143,97 @@ function HealthPage() {
           )}
         </div>
 
-        {/* Map Section */}
-        <div className="border border-gray-100 rounded p-8 shadow-sm bg-white h-[600px] flex flex-col">
-          <h3 className="text-[16px] font-extrabold mb-6">Health Services Map</h3>
-          <div className="flex-1 rounded overflow-hidden relative border border-gray-50 bg-gray-50">
-             {healthLocations.loading ? (
-                <div className="absolute inset-0 flex items-center justify-center animate-pulse">
-                  <span className="text-gray-400 font-bold uppercase tracking-widest">Loading Facilities...</span>
-                </div>
-             ) : (
-                <MapPanel
-                  geojson={healthLocations.data}
-                  metricName="health"
-                  palette="heat" 
-                  showLegend={false}
-                  showLabels={true}
-                  heightClass="h-full w-full"
-                />
-             )}
+        {/* Map + Chart Section */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+          <div className="border border-gray-100 rounded p-8 shadow-sm bg-white h-[600px] flex flex-col">
+            <h3 className="text-[16px] font-extrabold mb-6">Health Services Map</h3>
+            <div className="flex-1 rounded overflow-hidden relative border border-gray-50 bg-gray-50">
+               {healthLocations.loading ? (
+                  <div className="absolute inset-0 flex items-center justify-center animate-pulse">
+                    <span className="text-gray-400 font-bold uppercase tracking-widest">Loading Facilities...</span>
+                  </div>
+               ) : (
+                  <MapPanel
+                    geojson={healthLocations.data}
+                    pointColor="#c56a3d"
+                    popupFields={[
+                      { key: 'type', label: 'Type' },
+                      { key: 'beds_count', label: 'Beds' },
+                      { key: 'patient_visits_total', label: 'Patient Visits' },
+                    ]}
+                    tooltipFields={[
+                      { key: 'type', label: 'Type' },
+                      { key: 'beds_count', label: 'Beds' },
+                      { key: 'patient_visits_total', label: 'Patient Visits' },
+                    ]}
+                    showLegend={false}
+                    showLabels={false}
+                    heightClass="h-full w-full"
+                  />
+               )}
+            </div>
+          </div>
+
+          <div className="border border-gray-100 rounded p-8 shadow-sm bg-white h-[600px] flex flex-col">
+            <h3 className="text-[16px] font-extrabold mb-6">Health Facilities by District</h3>
+            <div className="flex-1">
+              {districtHealthSummary.loading ? (
+                <div className="h-full w-full animate-pulse rounded bg-gray-50" />
+              ) : (
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart
+                    data={facilityChartData}
+                    margin={{ top: 20, right: 20, left: 12, bottom: 92 }}
+                  >
+                    <CartesianGrid
+                      stroke="#f1f5f9"
+                      strokeDasharray="3 3"
+                      vertical={false}
+                    />
+                    <XAxis
+                      dataKey="district"
+                      axisLine={false}
+                      tick={{ fill: '#64748b', fontSize: 9, fontWeight: 700 }}
+                      tickFormatter={formatDistrictAxisLabel}
+                      tickLine={false}
+                      angle={-90}
+                      textAnchor="end"
+                      interval={0}
+                      height={112}
+                    />
+                    <YAxis
+                      axisLine={false}
+                      tick={{ fill: '#64748b', fontSize: 11, fontWeight: 700 }}
+                      tickLine={false}
+                    />
+                    <Tooltip
+                      formatter={(value) => Number(value).toLocaleString()}
+                      labelFormatter={(label) => label}
+                      contentStyle={{
+                        borderRadius: '4px',
+                        border: 'none',
+                        boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)',
+                        fontSize: '12px',
+                      }}
+                      cursor={{ fill: '#f8fafc' }}
+                    />
+                    <Bar
+                      dataKey="facilities"
+                      radius={[2, 2, 0, 0]}
+                      barSize={14}
+                      activeBar={<Rectangle fill="#7e22ce" />}
+                    >
+                      {facilityChartData.map((entry) => (
+                        <Cell
+                          key={`health-facility-bar-${entry.district}`}
+                          fill={getFacilityBarColor(entry.facilities, maxFacilities)}
+                        />
+                      ))}
+                    </Bar>
+                  </BarChart>
+                </ResponsiveContainer>
+              )}
+            </div>
           </div>
         </div>
 
