@@ -36,6 +36,10 @@ function MapPanel({
 }) {
   const features = geojson?.features || [];
   const [zoomLevel, setZoomLevel] = useState(1);
+  const hasHeader = Boolean(title || subtitle);
+  const wrapperClassName = hasHeader
+    ? "flex h-full min-h-0 flex-col gap-4"
+    : "h-full";
 
   if (!features.length) {
     return (
@@ -57,6 +61,10 @@ function MapPanel({
   const svgWidth = 760;
   const svgHeight = 420;
   const bounds = getGeoBounds(features);
+  const leafletBounds = [
+    [bounds.minLat, bounds.minLon],
+    [bounds.maxLat, bounds.maxLon],
+  ];
   const project = createSvgProjector(bounds, svgWidth, svgHeight, 18);
   const viewWidth = svgWidth / zoomLevel;
   const viewHeight = svgHeight / zoomLevel;
@@ -128,19 +136,25 @@ function MapPanel({
   }
 
   return (
-    <div className="space-y-4">
-      <div>
-        <h4 className="text-lg font-semibold text-slate">{title}</h4>
-        {subtitle ? (
-          <p className="mt-1 text-sm leading-6 text-slate/60">{subtitle}</p>
-        ) : null}
-      </div>
+    <div className={wrapperClassName}>
+      {hasHeader ? (
+        <div>
+          {title ? (
+            <h4 className="text-lg font-semibold text-slate">{title}</h4>
+          ) : null}
+          {subtitle ? (
+            <p className="mt-1 text-sm leading-6 text-slate/60">{subtitle}</p>
+          ) : null}
+        </div>
+      ) : null}
       <div
-        className={`relative ${heightClass} overflow-hidden rounded-[1.5rem] border border-fog`}
+        className={`relative ${heightClass} min-h-0 overflow-hidden rounded-[1.5rem] border border-fog`}
         onWheel={handleWheelZoom}
       >
         {hasPointFeatures ? (
           <MapContainer
+            bounds={leafletBounds}
+            boundsOptions={{ padding: [16, 16] }}
             center={firstCenter}
             zoom={zoom}
             scrollWheelZoom
@@ -154,7 +168,7 @@ function MapPanel({
               data={geojson}
               pointToLayer={(feature, latlng) =>
                 L.circleMarker(latlng, {
-                  radius: 6,
+                  radius: 7,
                   color: "#fff7ef",
                   weight: 1.5,
                   fillColor: pointColor,

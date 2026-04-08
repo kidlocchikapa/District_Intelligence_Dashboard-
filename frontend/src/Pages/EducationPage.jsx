@@ -1,4 +1,4 @@
-import { GraduationCap, Users, School, BookOpen, Download } from 'lucide-react';
+import { GraduationCap, Users, School, BookOpen, Download, UserRoundCheck, UserRoundX } from 'lucide-react';
 import { useDashboardData } from '../hooks/useDashboardData';
 import { useDistrict } from '../context/DistrictContext';
 import { useDistrictOptions } from '../hooks/useDistrictOptions';
@@ -19,10 +19,6 @@ function EducationPage() {
   const schoolLocations = useDashboardData(buildDashboardPath('/dashboard/education', { 
     district: selectedDistrict 
   }));
-
-  const findMetric = (name) => {
-    return educationSummary.data?.find(m => m.metric_name === name)?.metric_value || 0;
-  };
 
   const formatStat = (val) => Number(val).toLocaleString();
 
@@ -68,14 +64,16 @@ function EducationPage() {
         </div>
 
         {/* Stats Row */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-10">
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-5 gap-6 mb-10">
           {educationSummary.loading ? (
-             [...Array(3)].map((_, i) => <StatCardSkeleton key={i} />)
+             [...Array(5)].map((_, i) => <StatCardSkeleton key={i} />)
           ) : (
             [
-              { label: 'Total Schools', value: formatStat(findMetric('school_count')), icon: School },
-              { label: 'Total Enrollment', value: formatStat(findMetric('student_enrollment_total')), icon: Users },
-              { label: 'Teachers', value: formatStat(findMetric('teacher_count_total')), icon: BookOpen },
+              { label: 'Total Schools', value: formatStat(educationSummary.data?.school_count || 0), icon: School },
+              { label: 'Total Enrollment', value: formatStat(educationSummary.data?.student_enrollment_total || 0), icon: Users },
+              { label: 'Teachers', value: formatStat(educationSummary.data?.teacher_count_total || 0), icon: BookOpen },
+              { label: 'School-age Population', value: formatStat(educationSummary.data?.school_age_population_total || 0), icon: UserRoundCheck },
+              { label: 'Not in School', value: formatStat(educationSummary.data?.not_in_school_total || 0), icon: UserRoundX },
             ].map((stat, i) => (
               <div key={i} className="border border-gray-100 rounded p-6 shadow-md bg-white group hover:shadow-lg transition-all active:scale-95">
                 <div className="flex justify-between items-start">
@@ -101,10 +99,18 @@ function EducationPage() {
              ) : (
                 <MapPanel
                   geojson={schoolLocations.data}
-                  metricName="education"
-                  palette="heat" // MapPanel might need to handle point data differently if it's customized for polygons
+                  pointColor="#2563eb"
+                  popupFields={[
+                    { key: 'student_enrollment', label: 'Enrollment' },
+                    { key: 'teacher_distribution', label: 'Teachers' },
+                    { key: 'operator_type', label: 'Operator' },
+                  ]}
+                  tooltipFields={[
+                    { key: 'student_enrollment', label: 'Enrollment' },
+                    { key: 'teacher_distribution', label: 'Teachers' },
+                  ]}
                   showLegend={false}
-                  showLabels={true}
+                  showLabels={false}
                   heightClass="h-full w-full"
                 />
              )}
