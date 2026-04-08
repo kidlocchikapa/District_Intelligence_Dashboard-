@@ -7,6 +7,7 @@ import DisasterPage from './Pages/DisasterPage';
 import EducationPage from './Pages/EducationPage';
 import HealthPage from './Pages/HealthPage';
 import OverviewPage from './Pages/OverviewPage';
+import PopulationPage from './Pages/PopulationPage';
 import WelfarePage from './Pages/WelfarePage';
 
 const navigation = [
@@ -107,6 +108,7 @@ function App() {
             <Route path="/health" element={<HealthPage />} />
             <Route path="/disaster" element={<DisasterPage />} />
             <Route path="/welfare" element={<WelfarePage />} />
+            <Route path="/population" element={<PopulationPage />} />
             <Route path="/admin" element={<AdminPage />} />
           </Routes>
         </main>

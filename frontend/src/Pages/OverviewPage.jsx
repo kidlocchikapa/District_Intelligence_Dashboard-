@@ -1,10 +1,9 @@
-import { useState } from 'react';
-import { Menu, Download, Users, School, HeartPulse, Accessibility } from 'lucide-react';
+import { Download, Users, School, HeartPulse, Accessibility } from 'lucide-react';
 import { useDashboardData } from '../hooks/useDashboardData';
 import { useDistrictOptions } from '../hooks/useDistrictOptions';
 import { useDistrict } from '../context/DistrictContext';
 import { buildDashboardPath } from '../lib/query';
-import MapPanel from '../components/MapPanel';
+import PopulationRasterPanel from '../components/PopulationRasterPanel';
 import {
   BarChart,
   Bar,
@@ -12,7 +11,6 @@ import {
   YAxis,
   CartesianGrid,
   Tooltip,
-  Legend,
   ResponsiveContainer,
   PieChart,
   Pie,
@@ -135,12 +133,10 @@ function OverviewPage() {
                     </div>
                   </div>
                ) : (
-                 <MapPanel
+                 <PopulationRasterPanel
                   geojson={densityMap.data}
-                  metricName="population_density"
-                  palette="heat"
-                  showLegend={false}
-                  showLabels={true}
+                  title="Population Surface"
+                  subtitle="Rendered from the Malawi WorldPop GeoTIFF to preserve the fine-grained population heat pattern."
                   heightClass="h-full w-full"
                 />
                )}
