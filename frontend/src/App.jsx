@@ -1,6 +1,7 @@
 import { BarChart3, HeartPulse, Home, School, ShieldAlert, UploadCloud, Users2, Menu, ChevronLeft, ChevronRight, LogIn, GraduationCap, Activity, UserCheck, LayoutDashboard } from 'lucide-react';
 import { useState, useEffect } from 'react';
-import { NavLink, Route, Routes } from 'react-router-dom';
+import { NavLink, Route, Routes, useNavigate } from 'react-router-dom';
+import Login from './Login';
 import { useDistrict } from './context/DistrictContext';
 import AdminPage from './Pages/AdminPage';
 import DisasterPage from './Pages/DisasterPage';
@@ -21,6 +22,8 @@ const navigation = [
 function App() {
   const [isCollapsed, setIsCollapsed] = useState(false);
   const { selectedDistrict } = useDistrict();
+  const navigate = useNavigate();
+
 
   return (
     <div className="min-h-screen bg-[#F9FAFB] font-sans">
@@ -88,6 +91,7 @@ function App() {
 
           <div className={`mt-auto pt-8 ${isCollapsed ? 'flex justify-center' : ''}`}>
             <button 
+              onClick={() => navigate('/login')}
               title={isCollapsed ? "Sign In" : ""}
               className={`rounded bg-black text-white transition-all duration-200 hover:bg-gray-800 shadow-lg active:scale-[0.98] ${
                 isCollapsed ? 'p-3' : 'w-full px-4 py-3 text-sm font-bold'
@@ -108,6 +112,7 @@ function App() {
             <Route path="/disaster" element={<DisasterPage />} />
             <Route path="/welfare" element={<WelfarePage />} />
             <Route path="/admin" element={<AdminPage />} />
+            <Route path="/login" element={<div className="flex items-center justify-center min-h-[calc(100vh-2rem)] bg-gray-50 p-6"><Login onLogin={(token) => { console.log('Logged in:', token); navigate('/admin'); }} /></div>} />
           </Routes>
         </main>
       </div>

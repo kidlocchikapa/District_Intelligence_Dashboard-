@@ -299,3 +299,132 @@ main {
   height: 2.5rem;
   width: 40%;
 }
+
+/* Login Redesign Styles */
+.login-full-page {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100vw;
+  height: 100vh;
+  background-color: #ffffff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 9999;
+}
+
+.login-card {
+  width: 100%;
+  max-width: 440px;
+  padding: 2rem;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.login-branding {
+  display: flex;
+  align-items: center;
+  gap: 1.5rem;
+  margin-bottom: 2.5rem;
+}
+
+.login-logo {
+  width: auto;
+  height: 80px;
+  object-fit: contain;
+}
+
+.login-title-container {
+  display: flex;
+  flex-direction: column;
+}
+
+.login-main-title {
+  font-size: 1.75rem;
+  font-weight: 800;
+  line-height: 1.1;
+  color: #000000;
+  text-transform: uppercase;
+  letter-spacing: -0.02em;
+}
+
+.login-subtitle {
+  margin-bottom: 2.5rem;
+  color: #4b5563;
+  font-size: 1rem;
+  text-align: center;
+}
+
+.login-form {
+  width: 100%;
+}
+
+.login-field-group {
+  margin-bottom: 1.5rem;
+  display: flex;
+  flex-direction: column;
+}
+
+.login-field-label {
+  font-size: 0.9rem;
+  color: #374151;
+  margin-bottom: 0.5rem;
+  font-weight: 500;
+}
+
+.login-input {
+  width: 100%;
+  padding: 0.875rem 1rem;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  background: #ffffff;
+  color: #111827;
+  font-size: 1rem;
+  transition: border-color 0.2s;
+}
+
+.login-input:focus {
+  outline: none;
+  border-color: #000000;
+}
+
+.login-input::placeholder {
+  color: #9ca3af;
+}
+
+.login-submit-btn {
+  width: 100%;
+  padding: 1rem;
+  background-color: #000000;
+  color: #ffffff;
+  border: none;
+  border-radius: 8px;
+  font-weight: 600;
+  font-size: 1rem;
+  cursor: pointer;
+  margin-top: 1rem;
+  transition: opacity 0.2s;
+}
+
+.login-submit-btn:hover {
+  opacity: 0.9;
+}
+
+.login-submit-btn:disabled {
+  background-color: #6b7280;
+  cursor: not-allowed;
+}
+
+.login-footer-text {
+  margin-top: 2rem;
+  font-size: 0.9rem;
+  color: #4b5563;
+  text-align: center;
+}
+
+.login-footer-text strong {
+  color: #000000;
+  cursor: pointer;
+}
