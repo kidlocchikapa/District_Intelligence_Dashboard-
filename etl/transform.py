@@ -75,7 +75,10 @@ def infer_boundary_schema(df, matched_columns, original_columns=None):
             'code': ['code'],
             'name': ['name'],
             'district_name': ['district_name', 'name'],
-            'ward_name': ['ward_name', 'name'],
+            # Do not infer ward_name from a generic name column. District-only
+            # boundary files often have a single district label field, and using
+            # it here incorrectly reclassifies districts as wards.
+            'ward_name': ['ward_name'],
             'parent_code': ['parent_code'],
         }
         for fallback in canonical_fallbacks.get(column_name, []):

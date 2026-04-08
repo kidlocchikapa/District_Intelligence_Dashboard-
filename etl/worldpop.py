@@ -140,7 +140,7 @@ def resolve_worldpop_raster(
     iso3='MWI',
     download_dir=None,
 ):
-    catalog = load_worldpop_catalog(api_url=api_url)
+    catalog = load_worldpop_catalog(url=api_url)
     selected = select_worldpop_dataset(catalog, year=year, iso3=iso3)
     target_dir = download_dir or os.path.join(os.path.dirname(__file__), 'data', 'worldpop')
     raster_path = download_worldpop_raster(
