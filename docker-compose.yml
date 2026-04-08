@@ -51,6 +51,9 @@ services:
       JWT_SECRET: ${JWT_SECRET:-dev-only-change-me}
       JWT_EXPIRES_IN: ${JWT_EXPIRES_IN:-1d}
       BCRYPT_ROUNDS: ${BCRYPT_ROUNDS:-12}
+    dns:
+      - 1.1.1.1
+      - 8.8.8.8
     volumes:
       - ./uploads:/app/uploads
     command: ["sh", "-c", "cd /app/backend && npm run dev"]

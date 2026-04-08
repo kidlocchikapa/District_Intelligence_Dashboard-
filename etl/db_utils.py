@@ -1,6 +1,7 @@
 ##import libaries
 import json
 import os
+import re
 from datetime import datetime
 
 import pandas as pd
@@ -11,11 +12,19 @@ from sqlalchemy.orm import sessionmaker
 #Loaad environment variables from .env file
 load_dotenv(os.path.join(os.path.dirname(__file__), '../.env'))
 
+# Normalize connection strings loaded from .env so accidental whitespace
+# does not break remote database connections.
+def normalize_database_url(connection_string):
+    cleaned = connection_string.strip()
+    cleaned = re.sub(r"\s+\?", "?", cleaned)
+    return cleaned
+
+
 # build database url from environment variables, prioritizing DATABASE_URL if set, otherwise constructing from individual components
 def build_database_url():
     explicit_url = os.getenv('DATABASE_URL')
     if explicit_url:
-        return explicit_url
+        return normalize_database_url(explicit_url)
 
     db_user = os.getenv('DB_USER')
     db_password = os.getenv('DB_PASSWORD')
@@ -24,7 +33,7 @@ def build_database_url():
     db_port = os.getenv('DB_PORT', '5432')
 
     if db_user and db_password and db_name:
-        return f'postgresql://{db_user}:{db_password}@{db_host}:{db_port}/{db_name}'
+        return normalize_database_url(f'postgresql://{db_user}:{db_password}@{db_host}:{db_port}/{db_name}')
 
     return None
 
@@ -145,5 +154,4 @@ def log_etl_run(
     except Exception as exc:
         print(f'Failed to log ETL run: {exc}')
         session.rollback()
-
 

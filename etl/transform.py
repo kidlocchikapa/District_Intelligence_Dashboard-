@@ -141,6 +141,35 @@ def validate_schema(df, dataset_config):
 
     return df
 
+
+def coerce_numeric_columns(df, numeric_columns):
+    working = df.copy()
+
+    for column in numeric_columns:
+        if column not in working.columns:
+            continue
+
+        # Normalize common formatted numeric strings before coercion.
+        cleaned = (
+            working[column]
+            .astype("string")
+            .str.replace(",", "", regex=False)
+            .str.strip()
+        )
+        cleaned = cleaned.replace(
+            {
+                "": pd.NA,
+                "nan": pd.NA,
+                "NaN": pd.NA,
+                "<NA>": pd.NA,
+                "None": pd.NA,
+                "null": pd.NA,
+            }
+        )
+        working[column] = pd.to_numeric(cleaned, errors="coerce")
+
+    return working
+
 def dms_to_decimal(value):
     pattern = re.compile(
         r'^\s*(?P<deg>-?\d+(?:\.\d+)?)'
