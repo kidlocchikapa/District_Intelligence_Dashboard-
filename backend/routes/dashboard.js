@@ -122,6 +122,47 @@ router.get("/districts", async (req, res) => {
   }
 });
 
+/**
+ * @route   GET /api/v1/dashboard/population-by-district
+ * @desc    Get district population totals for the overview bar chart
+ */
+router.get("/population-by-district", async (req, res) => {
+  const { district } = req.query;
+
+  try {
+    const params = [];
+    let whereClause = "WHERE LOWER(type) = LOWER('District')";
+
+    if (district) {
+      params.push(district);
+      whereClause += ` AND LOWER(name) = LOWER($${params.length})`;
+    }
+
+    const result = await db.query(
+      `
+        SELECT
+          name AS district,
+          COALESCE(population_total, 0) AS population
+        FROM administrative_units
+        ${whereClause}
+        ORDER BY name
+      `,
+      params,
+    );
+
+    res.json({
+      status: "success",
+      data: result.rows.map((row) => ({
+        district: row.district,
+        population: parseInt(row.population || 0, 10),
+      })),
+    });
+  } catch (err) {
+    console.error(err.message);
+    res.status(500).send("Server error");
+  }
+});
+
 
 /**
  * @route   GET /api/v1/dashboard/admin-units

@@ -6,6 +6,24 @@ const {
   appendDistrictNameCondition,
 } = require("./queryFilters");
 
+function parseNumericValue(value) {
+  if (value === null || value === undefined) {
+    return 0;
+  }
+
+  if (typeof value === "number") {
+    return Number.isFinite(value) ? value : 0;
+  }
+
+  const cleaned = String(value).replace(/[^0-9.-]/g, "");
+  if (!cleaned) {
+    return 0;
+  }
+
+  const parsed = Number(cleaned);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
 // @route   GET api/v1/dashboard/education
 // @desc    Get education facility locations (GeoJSON)
 router.get("/", async (req, res) => {
@@ -73,37 +91,97 @@ router.get("/", async (req, res) => {
 // @route   GET api/v1/dashboard/education/summary
 // @desc    Get ward/district education aggregates
 router.get("/summary", async (req, res) => {
-  const { admin_type: adminType = "Ward", district } = req.query;
+  const { district } = req.query;
 
   try {
-    const conditions = [
-      "analysis_type = 'education_summary'",
-      "admin_unit_type = $1",
-    ];
-    const params = [adminType];
-    appendDistrictNameCondition(conditions, params, "admin_unit_name", district);
-
+    const conditions = ["ef.geom IS NOT NULL"];
+    const params = [];
+    appendDistrictGeometryCondition(
+      conditions,
+      params,
+      "ef.geom",
+      district,
+    );
+    const whereClause = conditions.length
+      ? `WHERE ${conditions.join(" AND ")}`
+      : "";
     const result = await db.query(
       `
-            SELECT
-                admin_unit_id,
-                admin_unit_code,
-                admin_unit_name,
-                admin_unit_type,
-                metric_name,
-                metric_value,
-                metric_unit,
-                metadata,
-                calculated_at
-            FROM analysis_results
-            WHERE ${conditions.join(" AND ")}
-            ORDER BY admin_unit_name, metric_name
-            `,
+        SELECT
+          school_id,
+          student_enrollment_total,
+          teacher_count,
+          student_enrollment,
+          teacher_distribution
+        FROM education_facilities ef
+        ${whereClause}
+      `,
       params,
     );
+
+    const facilityTotals = result.rows.reduce(
+      (accumulator, row) => {
+        accumulator.school_count += 1;
+        accumulator.student_enrollment_total += parseNumericValue(
+          row.student_enrollment_total ?? row.student_enrollment,
+        );
+        accumulator.teacher_count_total += parseNumericValue(
+          row.teacher_count ?? row.teacher_distribution,
+        );
+        return accumulator;
+      },
+      {
+        school_count: 0,
+        student_enrollment_total: 0,
+        teacher_count_total: 0,
+      },
+    );
+
+    const worldpopConditions = [
+      "admin_unit_type = $1",
+      "worldpop_year = (SELECT MAX(worldpop_year) FROM worldpop_age_sex)",
+    ];
+    const worldpopParams = ["District"];
+    appendDistrictNameCondition(
+      worldpopConditions,
+      worldpopParams,
+      "admin_unit_name",
+      district,
+    );
+
+    const worldpopResult = await db.query(
+      `
+        SELECT COALESCE(
+          SUM(
+            CASE
+              WHEN age_class = '5' THEN total_population
+              WHEN age_class = '10' THEN total_population
+              WHEN age_class = '15' THEN total_population * 0.6
+              ELSE 0
+            END
+          ),
+          0
+        ) AS school_age_population_total
+        FROM worldpop_age_sex
+        WHERE ${worldpopConditions.join(" AND ")}
+      `,
+      worldpopParams,
+    );
+    const schoolAgePopulationTotal = parseNumericValue(
+      worldpopResult.rows[0]?.school_age_population_total,
+    );
+    const notInSchoolTotal = Math.max(
+      schoolAgePopulationTotal - facilityTotals.student_enrollment_total,
+      0,
+    );
+
     res.json({
       status: "success",
-      data: result.rows,
+      data: {
+        ...facilityTotals,
+        school_age_population_total: Math.round(schoolAgePopulationTotal),
+        not_in_school_total: Math.round(notInSchoolTotal),
+      },
     });
   } catch (err) {
     console.error(err.message);
