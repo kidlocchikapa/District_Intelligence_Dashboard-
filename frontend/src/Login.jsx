@@ -1,4 +1,6 @@
 import { useState } from 'react';
+import { toast } from 'react-hot-toast';
+import { setAuthToken } from './lib/api';
 import logo from './assets/court_of_arms.png';
 
 export default function Login({ onLogin }) {
@@ -20,9 +22,13 @@ export default function Login({ onLogin }) {
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.status === 'error' ? data.message : 'Failed to login');
+      
+      setAuthToken(data.data.token);
+      toast.success('Signed in successfully');
       onLogin(data.data.token, data.data.user.role);
     } catch (err) {
       setError(err.message);
+      toast.error(err.message || 'Failed to sign in');
     } finally {
       setLoading(false);
     }

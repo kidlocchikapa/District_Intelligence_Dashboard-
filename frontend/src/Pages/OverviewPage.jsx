@@ -137,7 +137,7 @@ function OverviewPage() {
                ) : (
                  <MapPanel
                   geojson={densityMap.data}
-                  metricName="population_density"
+                  metricName="population"
                   palette="heat"
                   showLegend={false}
                   showLabels={true}

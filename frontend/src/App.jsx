@@ -1,6 +1,8 @@
 import { BarChart3, HeartPulse, Home, School, ShieldAlert, UploadCloud, Users2, Menu, ChevronLeft, ChevronRight, LogIn, GraduationCap, Activity, UserCheck, LayoutDashboard, Database } from 'lucide-react';
 import { useState, useEffect } from 'react';
 import { NavLink, Route, Routes, useNavigate } from 'react-router-dom';
+import { Toaster, toast } from 'react-hot-toast';
+import { setAuthToken, hydrateAuthToken } from './lib/api';
 import Login from './Login';
 import { useDistrict } from './context/DistrictContext';
 import AdminPage from './Pages/AdminPage';
@@ -21,7 +23,7 @@ const navigation = [
 
 function App() {
   const [isCollapsed, setIsCollapsed] = useState(false);
-  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [isAuthenticated, setIsAuthenticated] = useState(() => Boolean(hydrateAuthToken()));
   const { selectedDistrict } = useDistrict();
   const navigate = useNavigate();
 
@@ -30,13 +32,21 @@ function App() {
     ...(isAuthenticated ? [{ to: '/admin', label: 'Data Management', icon: Database }] : [])
   ];
 
+  const handleLogout = () => {
+    setIsAuthenticated(false);
+    setAuthToken(null);
+    toast.success('Successfully signed out');
+    navigate('/login');
+  };
+
 
   return (
-    <div className="min-h-screen bg-[#F9FAFB] font-sans">
-      <div className="mx-auto flex min-h-screen w-full flex-col lg:flex-row">
+    <div className="h-screen overflow-hidden bg-[#F9FAFB] font-sans">
+      <Toaster position="top-right" />
+      <div className="mx-auto flex h-full w-full flex-col lg:flex-row">
         {/* Sidebar */}
         <aside 
-            className={`flex flex-col bg-[#F9FAFB] px-4 py-8 border-b border-gray-200 lg:min-h-screen transition-all duration-300 ease-in-out lg:border-b-0 lg:border-r flex-shrink-0 relative ${
+            className={`flex flex-col bg-[#F9FAFB] px-4 py-8 border-b border-gray-200 lg:h-full overflow-y-auto transition-all duration-300 ease-in-out lg:border-b-0 lg:border-r flex-shrink-0 relative ${
               isCollapsed ? 'lg:w-20' : 'lg:w-64'
             }`}
           >
@@ -97,13 +107,19 @@ function App() {
 
             <div className={`mt-auto pt-8 ${isCollapsed ? 'flex justify-center' : ''}`}>
               <button 
-                onClick={() => navigate('/login')}
-                title={isCollapsed ? "Sign In" : ""}
+                onClick={() => {
+                  if (isAuthenticated) {
+                    handleLogout();
+                  } else {
+                    navigate('/login');
+                  }
+                }}
+                title={isCollapsed ? (isAuthenticated ? "Sign Out" : "Sign In") : ""}
                 className={`rounded bg-black text-white transition-all duration-200 hover:bg-gray-800 shadow-lg active:scale-[0.98] ${
                   isCollapsed ? 'p-3' : 'w-full px-4 py-3 text-sm font-bold'
                 }`}
               >
-                {isCollapsed ? <LogIn size={20} /> : "Sign In"}
+                {isCollapsed ? <LogIn size={20} /> : (isAuthenticated ? "Sign Out" : "Sign In")}
               </button>
             </div>
 
