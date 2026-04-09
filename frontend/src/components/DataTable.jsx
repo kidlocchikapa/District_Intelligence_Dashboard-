@@ -12,7 +12,7 @@ function DataTable({ rows, columns, title, subtitle }) {
         <h4 className="text-lg font-semibold text-slate">{title}</h4>
         {subtitle ? <p className="mt-1 text-sm leading-6 text-slate/60">{subtitle}</p> : null}
       </div>
-      <div className="overflow-hidden rounded-[1.5rem] border border-fog">
+      <div className="overflow-hidden rounded border border-fog">
         <div className="max-h-[360px] overflow-auto">
           <table className="min-w-full divide-y divide-fog text-sm">
             <thead className="bg-sand/70">

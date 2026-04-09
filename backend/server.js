@@ -1,9 +1,6 @@
-const express = require('express')
-const cors = require('cors')
-const path = require('path')
-const authRoutes = require('./routes/auth')
-
-
+const express = require('express');
+const cors = require('cors');
+const path = require('path');
 require('dotenv').config({ path: path.resolve(__dirname, '../.env') });
 
 
@@ -18,17 +15,27 @@ app.use(express.urlencoded({ extended: true }));
 // Import Routes
 const authRoutes = require('./routes/auth');
 const dataManagerRoutes = require('./routes/dataManager');
+const dashboardRoutes = require('./routes/dashboard');
+const educationRoutes = require('./routes/education');
+const healthRoutes = require('./routes/health');
+const disasterRoutes = require('./routes/disaster');
+const adminRoutes = require('./routes/admin');
 
 // Register Routes
-app.use('/api/auth', authRoutes);
-app.use('/api/data', dataManagerRoutes);
+app.use("/api/v1/auth", authRoutes);
+app.use('/api/v1/data', dataManagerRoutes);
+app.use('/api/v1/dashboard', dashboardRoutes);
+app.use('/api/v1/dashboard/education', educationRoutes);
+app.use('/api/v1/dashboard/health', healthRoutes);
+app.use('/api/v1/dashboard/disaster', disasterRoutes);
+app.use('/api/v1/admin', adminRoutes);
 
 // Basic Routes
-app.get('/', (req, res) => {
+app.get(['/', '/api/v1', '/api/v1/'], (req, res) => {
     res.json({ message: 'District Intelligence API v1' });
 });
 
-app.use('/api/v1/auth', authRoutes);
+
 
 app.listen(port, () => {
   console.log(`Server running on port ${port}`);

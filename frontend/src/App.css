@@ -1,5 +1,3 @@
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
-
 :root {
   --bg-color: #0f172a;
   --panel-bg: rgba(30, 41, 59, 0.7);
@@ -15,7 +13,6 @@
 body {
   margin: 0;
   padding: 0;
-  font-family: 'Inter', sans-serif;
   background-color: var(--bg-color);
   background-image: 
     radial-gradient(at 0% 0%, hsla(253,16%,7%,1) 0, transparent 50%), 
@@ -49,6 +46,7 @@ header h1 {
   font-weight: 600;
   background: -webkit-linear-gradient(0deg, #60a5fa, #a78bfa);
   -webkit-background-clip: text;
+  background-clip: text;
   -webkit-text-fill-color: transparent;
 }
 
@@ -70,10 +68,6 @@ header button:hover {
 
 main {
   flex: 1;
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  padding: 2rem;
 }
 
 /* Glassmorphism Panel */
@@ -216,9 +210,10 @@ main {
   background: var(--success);
   color: white;
   border: none;
-  padding: 0.5rem 1.5rem;
-  border-radius: 6px;
+  padding: 0.4rem 1.25rem;
+  border-radius: 8px;
   font-weight: 600;
+  font-size: 0.85rem;
   cursor: pointer;
   transition: filter 0.2s;
 }
@@ -260,4 +255,187 @@ main {
 
 @keyframes spin {
   to { transform: rotate(360deg); }
+}
+
+/* Skeleton Loading */
+.skeleton {
+  background: linear-gradient(
+    90deg,
+    #f0f0f0 25%,
+    #e0e0e0 50%,
+    #f0f0f0 75%
+  );
+  background-size: 200% 100%;
+  animation: skeleton-loading 1.5s infinite linear;
+  border-radius: 4px;
+}
+
+@keyframes skeleton-loading {
+  0% {
+    background-position: 200% 0;
+  }
+  100% {
+    background-position: -200% 0;
+  }
+}
+
+.skeleton-text {
+  height: 1rem;
+  width: 100%;
+  margin-bottom: 0.5rem;
+}
+
+.skeleton-title {
+  height: 1.5rem;
+  width: 60%;
+  margin-bottom: 1rem;
+}
+
+.skeleton-value {
+  height: 2.5rem;
+  width: 40%;
+}
+
+/* Login Redesign Styles */
+.login-form-container {
+  width: 100%;
+  min-height: calc(100vh - 4rem);
+  background-color: transparent;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.login-card {
+  width: 100%;
+  max-width: 440px;
+  padding: 2rem;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  position: relative;
+}
+
+.login-return-link {
+  position: absolute;
+  top: -1.5rem;
+  left: 1rem;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  color: #6b7280;
+  font-size: 0.875rem;
+  text-decoration: none;
+  transition: color 0.2s;
+  font-weight: 500;
+}
+
+.login-return-link:hover {
+  color: #000000;
+}
+
+.login-branding {
+  display: flex;
+  align-items: center;
+  gap: 1.5rem;
+  margin-bottom: 2.5rem;
+}
+
+.login-logo {
+  width: auto;
+  height: 80px;
+  object-fit: contain;
+}
+
+.login-title-container {
+  display: flex;
+  flex-direction: column;
+}
+
+.login-main-title {
+  font-size: 1.75rem;
+  font-weight: 800;
+  line-height: 1.1;
+  color: #000000;
+  text-transform: uppercase;
+  letter-spacing: -0.02em;
+}
+
+.login-subtitle {
+  margin-bottom: 2.5rem;
+  color: #4b5563;
+  font-size: 1rem;
+  text-align: center;
+}
+
+.login-form {
+  width: 100%;
+}
+
+.login-field-group {
+  margin-bottom: 1.5rem;
+  display: flex;
+  flex-direction: column;
+}
+
+.login-field-label {
+  font-size: 0.9rem;
+  color: #374151;
+  margin-bottom: 0.5rem;
+  font-weight: 500;
+}
+
+.login-input {
+  width: 100%;
+  padding: 0.875rem 1rem;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  background: #ffffff;
+  color: #111827;
+  font-size: 1rem;
+  transition: border-color 0.2s;
+}
+
+.login-input:focus {
+  outline: none;
+  border-color: #000000;
+}
+
+.login-input::placeholder {
+  color: #9ca3af;
+}
+
+.login-submit-btn {
+  width: 100%;
+  padding: 1rem;
+  background-color: #000000;
+  color: #ffffff;
+  border: none;
+  border-radius: 8px;
+  font-weight: 600;
+  font-size: 1rem;
+  cursor: pointer;
+  margin-top: 1rem;
+  transition: opacity 0.2s;
+}
+
+.login-submit-btn:hover {
+  opacity: 0.9;
+}
+
+.login-submit-btn:disabled {
+  background-color: #6b7280;
+  cursor: not-allowed;
+}
+
+.login-footer-text {
+  margin-top: 2rem;
+  font-size: 0.9rem;
+  color: #4b5563;
+  text-align: center;
+}
+
+.login-footer-text strong {
+  color: #000000;
+  cursor: pointer;
 }

@@ -1,12 +1,13 @@
 import { useState } from 'react';
+import { toast } from 'react-hot-toast';
+import { setAuthToken } from './lib/api';
+import logo from './assets/court_of_arms.png';
 
 export default function Login({ onLogin }) {
-  const [username, setUsername] = useState('');
+  const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState(null);
   const [loading, setLoading] = useState(false);
-
-  const [isRegistering, setIsRegistering] = useState(false);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -14,74 +15,76 @@ export default function Login({ onLogin }) {
     setLoading(true);
 
     try {
-      if (isRegistering) {
-        const res = await fetch('/api/auth/register', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ username, password }),
-        });
-        const data = await res.json();
-        if (!res.ok) throw new Error(data.error || 'Failed to register');
-        
-        setError("Registration successful! You can now sign in.");
-        setIsRegistering(false);
-      } else {
-        const res = await fetch('/api/auth/login', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ username, password }),
-        });
-        const data = await res.json();
-        if (!res.ok) throw new Error(data.error || 'Failed to login');
-        onLogin(data.token, data.role);
-      }
+      const res = await fetch('/api/v1/auth/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, password }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.status === 'error' ? data.message : 'Failed to login');
+      
+      setAuthToken(data.data.token);
+      toast.success('Signed in successfully');
+      onLogin(data.data.token, data.data.user.role);
     } catch (err) {
       setError(err.message);
+      toast.error(err.message || 'Failed to sign in');
     } finally {
       setLoading(false);
     }
   };
 
   return (
-    <div className="glass-panel login-container">
-      <h2>{isRegistering ? 'Create Account' : 'Welcome Back'}</h2>
-      <p>{isRegistering ? 'Register an admin account.' : 'Log in to access District Intelligence tools.'}</p>
-      
-      {error && <div className="error-message" style={{ background: error.includes('successful') ? 'rgba(16, 185, 129, 0.1)' : '', color: error.includes('successful') ? 'var(--success)' : '' }}>{error}</div>}
-      
-      <form onSubmit={handleSubmit}>
-        <div className="form-group">
-          <label>Admin Username</label>
-          <input 
-            type="text" 
-            value={username} 
-            onChange={(e) => setUsername(e.target.value)} 
-            placeholder="e.g. admin"
-            required
-            autoComplete="username"
-          />
+    <div className="login-form-container">
+      <div className="login-card">
+        {/* Branding Header */}
+        <div className="login-branding">
+          <img src={logo} alt="Court of Arms" className="login-logo" />
+          <div className="login-title-container">
+            <h1 className="login-main-title">DISTRICT<br />INTELLIGENCE<br />DASHBOARD</h1>
+          </div>
         </div>
+
+        <p className="login-subtitle">Sign in to manage Dashboard</p>
         
-        <div className="form-group">
-          <label>Password</label>
-          <input 
-            type="password" 
-            value={password} 
-            onChange={(e) => setPassword(e.target.value)} 
-            placeholder="••••••••"
-            required
-            autoComplete={isRegistering ? 'new-password' : 'current-password'}
-          />
-        </div>
+        {error && <div className="error-message" style={{ width: '100%', marginBottom: '1.5rem' }}>{error}</div>}
         
-        <button type="submit" className="btn-primary" disabled={loading}>
-          {loading ? 'Processing...' : (isRegistering ? 'Register' : 'Sign In')}
-        </button>
-      </form>
-      
-      <p style={{marginTop: '1.5rem', textAlign: 'center', fontSize: '0.9rem', cursor: 'pointer', color: 'var(--accent)'}} onClick={() => { setIsRegistering(!isRegistering); setError(null); }}>
-        {isRegistering ? 'Already have an account? Sign in' : 'Need an account? Register'}
-      </p>
+        <form onSubmit={handleSubmit} className="login-form">
+          <div className="login-field-group">
+            <label className="login-field-label">Enter your email</label>
+            <input 
+              type="email" 
+              value={email} 
+              onChange={(e) => setEmail(e.target.value)} 
+              placeholder="Official@district.gov.mw"
+              required
+              className="login-input"
+              autoComplete="username"
+            />
+          </div>
+          
+          <div className="login-field-group">
+            <label className="login-field-label">Enter your Password</label>
+            <input 
+              type="password" 
+              value={password} 
+              onChange={(e) => setPassword(e.target.value)} 
+              placeholder="********************"
+              required
+              className="login-input"
+              autoComplete="current-password"
+            />
+          </div>
+          
+          <button type="submit" className="login-submit-btn" disabled={loading}>
+            {loading ? 'Signing in...' : 'Sign in'}
+          </button>
+        </form>
+        
+        <p className="login-footer-text">
+          Having issues with signing-up? <strong>contact support</strong>
+        </p>
+      </div>
     </div>
   );
 }

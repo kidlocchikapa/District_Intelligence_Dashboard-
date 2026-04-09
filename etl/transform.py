@@ -75,7 +75,10 @@ def infer_boundary_schema(df, matched_columns, original_columns=None):
             'code': ['code'],
             'name': ['name'],
             'district_name': ['district_name', 'name'],
-            'ward_name': ['ward_name', 'name'],
+            # Do not infer ward_name from a generic name column. District-only
+            # boundary files often have a single district label field, and using
+            # it here incorrectly reclassifies districts as wards.
+            'ward_name': ['ward_name'],
             'parent_code': ['parent_code'],
         }
         for fallback in canonical_fallbacks.get(column_name, []):
@@ -140,6 +143,35 @@ def validate_schema(df, dataset_config):
         raise ValueError(f'Missing required columns: {missing_columns}')
 
     return df
+
+
+def coerce_numeric_columns(df, numeric_columns):
+    working = df.copy()
+
+    for column in numeric_columns:
+        if column not in working.columns:
+            continue
+
+        # Normalize common formatted numeric strings before coercion.
+        cleaned = (
+            working[column]
+            .astype("string")
+            .str.replace(",", "", regex=False)
+            .str.strip()
+        )
+        cleaned = cleaned.replace(
+            {
+                "": pd.NA,
+                "nan": pd.NA,
+                "NaN": pd.NA,
+                "<NA>": pd.NA,
+                "None": pd.NA,
+                "null": pd.NA,
+            }
+        )
+        working[column] = pd.to_numeric(cleaned, errors="coerce")
+
+    return working
 
 def dms_to_decimal(value):
     pattern = re.compile(
