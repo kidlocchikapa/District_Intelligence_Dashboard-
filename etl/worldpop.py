@@ -140,7 +140,7 @@ def resolve_worldpop_raster(
     iso3='MWI',
     download_dir=None,
 ):
-    catalog = load_worldpop_catalog(api_url=api_url)
+    catalog = load_worldpop_catalog(url=api_url)
     selected = select_worldpop_dataset(catalog, year=year, iso3=iso3)
     target_dir = download_dir or os.path.join(os.path.dirname(__file__), 'data', 'worldpop')
     raster_path = download_worldpop_raster(
@@ -234,7 +234,12 @@ def wait_for_worldpop_task(task_id, tasks_url=None, timeout=180, poll_interval=2
 
     raise TimeoutError(f'WorldPop task {task_id} did not finish within {timeout} seconds')
 
-## Function to request WorldPop statistics for a given geometry, dataset, and year, preparing the geometry for the API request, handling asynchronous execution if needed, and returning the resulting statistics payload with metadata about the request
+
+'''
+Function to request WorldPop statistics for a given geometry, dataset, and year, preparing the geometry for
+the API request, handling asynchronous execution if needed, and returning the resulting statistics payload with metadata about the request
+'''
+## 
 def request_worldpop_stats(
     geometry,
     dataset=DEFAULT_WORLDPOP_DATASET,
@@ -290,7 +295,8 @@ def request_worldpop_stats(
     )
     return response_payload
 
-## Helper function to extract the total population value from a WorldPop statistics response payload, handling different possible structures of the input data
+## Helper function to extract the total population value from a WorldPop statistics response payload, 
+# handling different possible structures of the input data
 def extract_total_population(stats_data):
     payload = stats_data.get('data') if isinstance(stats_data, dict) and 'data' in stats_data else stats_data
     return float((payload or {}).get('total_population') or 0.0)
@@ -422,7 +428,9 @@ def build_age_sex_record(row, year, bucket, response_payload):
         },
     }
 
-## Function to process a GeoDataFrame of administrative units, requesting WorldPop population statistics for each unit, and calculating total population and population density for each unit based on the retrieved statistics and the area of the unit's geometry
+## Function to process a GeoDataFrame of administrative units, requesting WorldPop 
+# population statistics for each unit, and calculating total population and population density 
+# for each unit based on the retrieved statistics and the area of the unit's geometry
 def process_population_stats(
     api_url,
     admin_units_gdf,
@@ -453,8 +461,9 @@ def process_population_stats(
     ]
     return working
 
-## Function to build age andd sex disaggregated outputs from a GeoDataFrame of administrative units, r
-# equesting WorldPop age and sex pyramid statistics for each unit, and constructing standardized records for both theage and sex disaggregated data and the aggregated indicators for school-age and child populations, including metadata about the 
+# Function to build age andd sex disaggregated outputs from a GeoDataFrame of administrative units, r
+# equesting WorldPop age and sex pyramid statistics for each unit, and constructing standardized records for both 
+# theage and sex disaggregated data and the aggregated indicators for school-age and child populations, including metadata about the 
 # WorldPop dataset and request parameters used for each record
 def build_age_sex_outputs(
     admin_units_gdf,
