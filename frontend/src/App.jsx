@@ -1,8 +1,9 @@
-import { BarChart3, HeartPulse, Home, School, ShieldAlert, UploadCloud, Users2, Menu, ChevronLeft, ChevronRight, LogIn, GraduationCap, Activity, UserCheck, LayoutDashboard, Database } from 'lucide-react';
+import { BarChart3, HeartPulse, Home, School, ShieldAlert, UploadCloud, Users2, Menu, ChevronLeft, ChevronRight, LogIn, LogOut, GraduationCap, Activity, UserCheck, LayoutDashboard, Database } from 'lucide-react';
 import { useState, useEffect } from 'react';
 import { NavLink, Route, Routes, useNavigate } from 'react-router-dom';
 import Login from './Login';
 import { useDistrict } from './context/DistrictContext';
+import { AUTH_EVENT_NAME, hydrateAuthToken, setAuthToken } from './lib/api';
 import AdminPage from './Pages/AdminPage';
 import DisasterPage from './Pages/DisasterPage';
 import EducationPage from './Pages/EducationPage';
@@ -22,14 +23,35 @@ const navigation = [
 
 function App() {
   const [isCollapsed, setIsCollapsed] = useState(false);
-  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [isAuthenticated, setIsAuthenticated] = useState(() => Boolean(hydrateAuthToken()));
   const { selectedDistrict } = useDistrict();
   const navigate = useNavigate();
+
+  useEffect(() => {
+    function syncAuthState(event) {
+      const nextToken = event?.detail?.token;
+      setIsAuthenticated(Boolean(nextToken));
+    }
+
+    window.addEventListener(AUTH_EVENT_NAME, syncAuthState);
+    return () => window.removeEventListener(AUTH_EVENT_NAME, syncAuthState);
+  }, []);
 
   const navItems = [
     ...navigation,
     ...(isAuthenticated ? [{ to: '/admin', label: 'Data Management', icon: Database }] : [])
   ];
+
+  function handleSessionAction() {
+    if (isAuthenticated) {
+      setAuthToken(null);
+      setIsAuthenticated(false);
+      navigate('/');
+      return;
+    }
+
+    navigate('/login');
+  }
 
 
   return (
@@ -98,13 +120,13 @@ function App() {
 
             <div className={`mt-auto pt-8 ${isCollapsed ? 'flex justify-center' : ''}`}>
               <button 
-                onClick={() => navigate('/login')}
-                title={isCollapsed ? "Sign In" : ""}
+                onClick={handleSessionAction}
+                title={isCollapsed ? (isAuthenticated ? "Sign Out" : "Sign In") : ""}
                 className={`rounded bg-black text-white transition-all duration-200 hover:bg-gray-800 shadow-lg active:scale-[0.98] ${
                   isCollapsed ? 'p-3' : 'w-full px-4 py-3 text-sm font-bold'
                 }`}
               >
-                {isCollapsed ? <LogIn size={20} /> : "Sign In"}
+                {isCollapsed ? (isAuthenticated ? <LogOut size={20} /> : <LogIn size={20} />) : (isAuthenticated ? "Sign Out" : "Sign In")}
               </button>
             </div>
 
@@ -123,8 +145,8 @@ function App() {
             <Route path="/login" element={
               <div className="flex items-center justify-center min-h-[calc(100vh-2rem)] bg-white p-6">
                 <Login onLogin={(token) => { 
-                  console.log('Logged in:', token); 
-                  setIsAuthenticated(true);
+                  setAuthToken(token);
+                  setIsAuthenticated(Boolean(token));
                   navigate('/admin'); 
                 }} />
               </div>
