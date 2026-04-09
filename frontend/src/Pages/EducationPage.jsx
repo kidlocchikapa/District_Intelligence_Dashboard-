@@ -7,10 +7,12 @@ import {
   UserRoundCheck,
   UserRoundX,
 } from 'lucide-react';
+import { useState, useEffect } from 'react';
 import DataTable from '../components/DataTable';
 import { useDashboardData } from '../hooks/useDashboardData';
 import { useDistrict } from '../context/DistrictContext';
 import { useDistrictOptions } from '../hooks/useDistrictOptions';
+import { usePdfExport } from '../hooks/usePdfExport';
 import { formatNumber } from '../lib/format';
 import { buildDashboardPath } from '../lib/query';
 import MapPanel from '../components/MapPanel';
@@ -121,6 +123,8 @@ function EducationCategoryPieTooltip({ active, payload }) {
 
 function EducationPage() {
   const { selectedDistrict, setSelectedDistrict } = useDistrict();
+  const [filteredSchools, setFilteredSchools] = useState([]);
+  const { contentRef, exportPdf } = usePdfExport('Education_Report.pdf');
   const districts = useDistrictOptions();
 
   const educationSummary = useDashboardData(
@@ -250,7 +254,7 @@ function EducationPage() {
   );
 
   return (
-    <div className="min-h-screen bg-white text-black font-sans pb-10">
+    <div ref={contentRef} className="min-h-screen bg-white text-black font-sans pb-10">
       <div className="flex items-center gap-4 px-8 py-8 border-b border-gray-200">
         <GraduationCap className="h-8 w-8 text-black" />
         <h1 className="text-[28px] font-extrabold tracking-tight">
@@ -265,10 +269,13 @@ function EducationPage() {
             : 'National Education Overview'}
         </p>
 
-        <div className="flex gap-4 mb-8">
-          <button className="flex items-center gap-2 border border-gray-300 rounded px-3 py-1.5 text-[13px] font-bold hover:bg-gray-50 transition-all active:scale-95">
+        <div className="flex gap-4 mb-6">
+          <button 
+            onClick={exportPdf}
+            className="flex items-center gap-2 border border-gray-300 rounded px-3 py-1.5 text-[13px] font-bold hover:bg-gray-50 transition-all shadow-sm active:scale-95"
+          >
             <Download className="h-4 w-4" />
-            Download Data
+            Download PDF
           </button>
 
           <div className="relative">

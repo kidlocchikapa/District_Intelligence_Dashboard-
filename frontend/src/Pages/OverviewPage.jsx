@@ -3,6 +3,7 @@ import { useDashboardData } from '../hooks/useDashboardData';
 import { useDistrictOptions } from '../hooks/useDistrictOptions';
 import { useDistrict } from '../context/DistrictContext';
 import { buildDashboardPath } from '../lib/query';
+import { usePdfExport } from '../hooks/usePdfExport';
 import PopulationRasterPanel from '../components/PopulationRasterPanel';
 import {
   BarChart,
@@ -57,6 +58,8 @@ function OverviewPage() {
   const pieData = welfareDistribution.data || [];
   const maxPopulation = Math.max(...chartData.map((item) => Number(item.population) || 0), 0);
 
+  const { contentRef, exportPdf } = usePdfExport('Overview_Report.pdf');
+
   const formatStat = (val) => {
     if (!val) return '0';
     return Number(val).toLocaleString();
@@ -85,7 +88,7 @@ function OverviewPage() {
   );
 
   return (
-    <div className="min-h-screen bg-white text-black font-sans pb-10">
+    <div ref={contentRef} className="min-h-screen bg-white text-black font-sans pb-10">
       {/* Header Area */}
       <div className="flex items-center gap-4 px-8 py-8 border-b border-gray-200">
         <h1 className="text-[28px] font-extrabold tracking-tight">OVERVIEW</h1>
@@ -98,9 +101,12 @@ function OverviewPage() {
         
         {/* Actions Row */}
         <div className="flex gap-4 mb-8">
-          <button className="flex items-center gap-2 border border-gray-300 rounded px-3 py-1.5 text-[13px] font-bold hover:bg-gray-50 transition-all shadow-sm active:scale-95">
+          <button 
+            onClick={exportPdf}
+            className="flex items-center gap-2 border border-gray-300 rounded px-3 py-1.5 text-[13px] font-bold hover:bg-gray-50 transition-all shadow-sm active:scale-95"
+          >
             <Download className="h-4 w-4" />
-            Download CSV
+            Download PDF
           </button>
           
           <div className="relative">
