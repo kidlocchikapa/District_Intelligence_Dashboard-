@@ -258,6 +258,27 @@ ALTER TABLE worldpop_age_sex ADD COLUMN IF NOT EXISTS end_time TIMESTAMP;
 ALTER TABLE worldpop_age_sex ADD COLUMN IF NOT EXISTS execution_time DOUBLE PRECISION;
 ALTER TABLE worldpop_age_sex ADD COLUMN IF NOT EXISTS metadata JSONB DEFAULT '{}'::jsonb;
 
+ALTER TABLE education_facilities ADD COLUMN IF NOT EXISTS is_active BOOLEAN NOT NULL DEFAULT TRUE;
+ALTER TABLE education_facilities ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP;
+ALTER TABLE health_facilities ADD COLUMN IF NOT EXISTS is_active BOOLEAN NOT NULL DEFAULT TRUE;
+ALTER TABLE health_facilities ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP;
+ALTER TABLE welfare_beneficiaries ADD COLUMN IF NOT EXISTS is_active BOOLEAN NOT NULL DEFAULT TRUE;
+ALTER TABLE welfare_beneficiaries ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP;
+ALTER TABLE disaster_zones ADD COLUMN IF NOT EXISTS is_active BOOLEAN NOT NULL DEFAULT TRUE;
+ALTER TABLE disaster_zones ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP;
+
+CREATE TABLE IF NOT EXISTS admin_data_edits (
+    id SERIAL PRIMARY KEY,
+    table_name VARCHAR(100) NOT NULL,
+    record_id BIGINT NOT NULL,
+    action VARCHAR(50) NOT NULL,
+    changed_by_user_id INTEGER REFERENCES users(id),
+    before_data JSONB,
+    after_data JSONB,
+    changed_fields JSONB DEFAULT '[]'::jsonb,
+    changed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
 -- Spatial Indexes
 CREATE INDEX IF NOT EXISTS idx_admin_units_geom ON administrative_units USING GIST(geom);
 CREATE INDEX IF NOT EXISTS idx_admin_units_centroid ON administrative_units USING GIST(centroid);
@@ -265,11 +286,15 @@ CREATE INDEX IF NOT EXISTS idx_admin_units_simplified_geom ON administrative_uni
 CREATE INDEX IF NOT EXISTS idx_edu_facilities_geom ON education_facilities USING GIST(geom);
 CREATE INDEX IF NOT EXISTS idx_edu_facilities_ward_id ON education_facilities(ward_id);
 CREATE INDEX IF NOT EXISTS idx_edu_facilities_district_id ON education_facilities(district_id);
+CREATE INDEX IF NOT EXISTS idx_edu_facilities_is_active ON education_facilities(is_active);
 CREATE INDEX IF NOT EXISTS idx_health_facilities_geom ON health_facilities USING GIST(geom);
 CREATE INDEX IF NOT EXISTS idx_health_facilities_ward_id ON health_facilities(ward_id);
 CREATE INDEX IF NOT EXISTS idx_health_facilities_district_id ON health_facilities(district_id);
+CREATE INDEX IF NOT EXISTS idx_health_facilities_is_active ON health_facilities(is_active);
 CREATE INDEX IF NOT EXISTS idx_welfare_geom ON welfare_beneficiaries USING GIST(geom);
+CREATE INDEX IF NOT EXISTS idx_welfare_is_active ON welfare_beneficiaries(is_active);
 CREATE INDEX IF NOT EXISTS idx_disaster_zones_geom ON disaster_zones USING GIST(geom);
+CREATE INDEX IF NOT EXISTS idx_disaster_zones_is_active ON disaster_zones(is_active);
 CREATE INDEX IF NOT EXISTS idx_master_gazetteer_geom ON master_gazetteer USING GIST(geom);
 CREATE INDEX IF NOT EXISTS idx_admin_units_code ON administrative_units(code);
 CREATE INDEX IF NOT EXISTS idx_master_gazetteer_names ON master_gazetteer(normalized_district_name, normalized_ward_name, normalized_village_name);
@@ -277,3 +302,4 @@ CREATE INDEX IF NOT EXISTS idx_unified_indicators_lookup ON unified_indicators(d
 CREATE INDEX IF NOT EXISTS idx_worldpop_age_sex_lookup ON worldpop_age_sex(admin_unit_id, worldpop_year, age_class);
 CREATE INDEX IF NOT EXISTS idx_analysis_results_lookup ON analysis_results(analysis_type, metric_name, admin_unit_id);
 CREATE INDEX IF NOT EXISTS idx_analysis_results_geom ON analysis_results USING GIST(geom);
+CREATE INDEX IF NOT EXISTS idx_admin_data_edits_lookup ON admin_data_edits(table_name, record_id, changed_at DESC);
