@@ -19,6 +19,7 @@ const dashboardRoutes = require('./routes/dashboard');
 const educationRoutes = require('./routes/education');
 const healthRoutes = require('./routes/health');
 const disasterRoutes = require('./routes/disaster');
+const adminRoutes = require('./routes/admin');
 
 // Register Routes
 app.use("/api/v1/auth", authRoutes);
@@ -27,9 +28,10 @@ app.use('/api/v1/dashboard', dashboardRoutes);
 app.use('/api/v1/dashboard/education', educationRoutes);
 app.use('/api/v1/dashboard/health', healthRoutes);
 app.use('/api/v1/dashboard/disaster', disasterRoutes);
+app.use('/api/v1/admin', adminRoutes);
 
 // Basic Routes
-app.get('/', (req, res) => {
+app.get(['/', '/api/v1', '/api/v1/'], (req, res) => {
     res.json({ message: 'District Intelligence API v1' });
 });
 
