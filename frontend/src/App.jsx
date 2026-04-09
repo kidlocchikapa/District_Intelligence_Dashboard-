@@ -2,10 +2,9 @@ import { BarChart3, HeartPulse, Home, School, ShieldAlert, UploadCloud, Users2, 
 import { useState, useEffect } from 'react';
 import { NavLink, Route, Routes, useNavigate } from 'react-router-dom';
 import { Toaster, toast } from 'react-hot-toast';
-import { setAuthToken, hydrateAuthToken } from './lib/api';
+import { setAuthToken, hydrateAuthToken, AUTH_EVENT_NAME } from './lib/api';
 import Login from './Login';
 import { useDistrict } from './context/DistrictContext';
-import { AUTH_EVENT_NAME, hydrateAuthToken, setAuthToken } from './lib/api';
 import AdminPage from './Pages/AdminPage';
 import DisasterPage from './Pages/DisasterPage';
 import EducationPage from './Pages/EducationPage';
@@ -60,20 +59,18 @@ function App() {
     <div className="h-screen overflow-hidden bg-[#F9FAFB] font-sans">
       <Toaster position="top-right" />
       <div className="mx-auto flex h-full w-full flex-col lg:flex-row">
-        {/* Sidebar */}
-        <aside
-          className={`flex flex-col bg-[#F9FAFB] px-4 py-8 border-b border-gray-200 lg:h-full overflow-y-auto transition-all duration-300 ease-in-out lg:border-b-0 lg:border-r flex-shrink-0 relative ${isCollapsed ? 'lg:w-20' : 'lg:w-64'
-            }`}
-        >
+        {/* Sidebar Container */}
+        <div className={`relative flex flex-col bg-[#F9FAFB] border-b border-gray-200 lg:h-full transition-all duration-300 ease-in-out lg:border-b-0 lg:border-r flex-shrink-0 ${isCollapsed ? 'lg:w-20' : 'lg:w-64'}`}>
           {/* Collapse Toggle Button (Desktop) */}
           <button
             onClick={() => setIsCollapsed(!isCollapsed)}
-            className="hidden lg:flex absolute -right-3 top-10 z-50 bg-white border border-gray-200 rounded-full p-1 shadow-sm text-gray-500 hover:text-black hover:bg-gray-50 transition-all hover:scale-110 active:scale-95"
+            className="hidden lg:flex absolute -right-3 top-10 z-[60] bg-white border border-gray-200 rounded-full p-1 shadow-sm text-gray-500 hover:text-black hover:bg-gray-50 transition-all hover:scale-110 active:scale-95"
           >
             {isCollapsed ? <ChevronRight size={16} /> : <ChevronLeft size={16} />}
           </button>
 
-          <div className={`mb-10 px-2 transition-all ${isCollapsed ? 'items-center flex flex-col' : ''}`}>
+          <aside className="flex flex-col h-full w-full overflow-y-auto px-4 py-8">
+            <div className={`mb-10 px-2 transition-all ${isCollapsed ? 'items-center flex flex-col' : ''}`}>
             {!isCollapsed ? (
               <>
                 <h1 className="text-[24px] font-extrabold text-black tracking-tight leading-tight">
@@ -129,7 +126,8 @@ function App() {
             </button>
           </div>
 
-        </aside>
+          </aside>
+        </div>
 
         {/* Main Content Area */}
         <main className="flex-1 bg-white overflow-y-auto">
