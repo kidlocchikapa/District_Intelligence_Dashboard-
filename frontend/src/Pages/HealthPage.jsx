@@ -88,6 +88,19 @@ function HealthPage() {
     ...facilityChartData.map((item) => item.facilities || 0),
     0,
   );
+  
+  const selectedDistrictHospitals = (healthLocations.data?.features || [])
+    .filter(f => {
+      const type = (f.properties?.type || '').toLowerCase();
+      return type.includes('hospital');
+    })
+    .map(f => ({
+      name: f.properties?.name || f.properties?.name_en || 'Unnamed Hospital',
+      type: f.properties?.type || 'Hospital',
+      beds: f.properties?.beds_count || 0,
+      visits: f.properties?.patient_visits_total || 0
+    }));
+
   const getServedPopulationValue = (metricName) =>
     (servedPopulationSummary.data || [])
       .filter((metric) => metric.metric_name === metricName)
@@ -208,64 +221,96 @@ function HealthPage() {
           </div>
 
           <div className="h-[600px] flex flex-col gap-6">
-            <div className="border border-gray-100 rounded p-6 shadow-sm bg-white h-[260px]">
-              <h3 className="text-[16px] font-extrabold mb-4">Health Facilities by District</h3>
-              <div className="h-[180px]">
-                {districtHealthSummary.loading ? (
-                  <div className="h-full w-full animate-pulse rounded bg-gray-50" />
-                ) : (
-                  <ResponsiveContainer width="100%" height="100%">
-                    <BarChart
-                      data={facilityChartData}
-                      margin={{ top: 8, right: 16, left: 8, bottom: 44 }}
-                    >
-                      <CartesianGrid
-                        stroke="#f1f5f9"
-                        strokeDasharray="3 3"
-                        vertical={false}
-                      />
-                      <XAxis
-                        dataKey="district"
-                        axisLine={false}
-                        tick={{ fill: '#64748b', fontSize: 9, fontWeight: 700 }}
-                        tickFormatter={formatDistrictAxisLabel}
-                        tickLine={false}
-                        angle={-35}
-                        textAnchor="end"
-                        interval={0}
-                        height={52}
-                      />
-                      <YAxis
-                        axisLine={false}
-                        tick={{ fill: '#64748b', fontSize: 11, fontWeight: 700 }}
-                        tickLine={false}
-                      />
-                      <Tooltip
-                        formatter={(value) => Number(value).toLocaleString()}
-                        labelFormatter={(label) => label}
-                        contentStyle={{
-                          borderRadius: '4px',
-                          border: 'none',
-                          boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)',
-                          fontSize: '12px',
-                        }}
-                        cursor={{ fill: '#f8fafc' }}
-                      />
-                      <Bar
-                        dataKey="facilities"
-                        radius={[2, 2, 0, 0]}
-                        barSize={14}
-                        activeBar={<Rectangle fill="#7e22ce" />}
-                      >
-                        {facilityChartData.map((entry) => (
-                          <Cell
-                            key={`health-facility-bar-${entry.district}`}
-                            fill={getFacilityBarColor(entry.facilities, maxFacilities)}
-                          />
+            <div className="border border-gray-100 rounded p-6 shadow-sm bg-white h-[260px] flex flex-col">
+              <h3 className="text-[16px] font-extrabold mb-4">
+                {selectedDistrict ? `Hospitals in ${selectedDistrict}` : 'Health Facilities by District'}
+              </h3>
+              
+              <div className="flex-1 overflow-hidden">
+                {selectedDistrict ? (
+                  <div className="h-full overflow-y-auto pr-2 custom-scrollbar">
+                    {selectedDistrictHospitals.length > 0 ? (
+                      <div className="space-y-3">
+                        {selectedDistrictHospitals.map((hospital, idx) => (
+                          <div key={idx} className="flex items-center justify-between p-3 rounded-xl border border-gray-50 bg-gray-50/50 hover:bg-gray-100 transition-colors">
+                            <div className="min-w-0">
+                              <p className="text-sm font-bold text-gray-900 truncate">{hospital.name}</p>
+                              <p className="text-[11px] font-medium text-gray-500 uppercase tracking-wider">{hospital.type}</p>
+                            </div>
+                            <div className="text-right shrink-0">
+                              <p className="text-sm font-black text-blue-600">{hospital.beds || '--'}</p>
+                              <p className="text-[10px] font-bold text-gray-400 uppercase">Beds</p>
+                            </div>
+                          </div>
                         ))}
-                      </Bar>
-                    </BarChart>
-                  </ResponsiveContainer>
+                      </div>
+                    ) : (
+                      <div className="h-full flex flex-col items-center justify-center text-center p-4">
+                         <HeartPulse className="h-8 w-8 text-gray-200 mb-2" />
+                         <p className="text-sm font-bold text-gray-400">No hospitals found in this district</p>
+                         <p className="text-[11px] text-gray-300 mt-1">Try selecting another district or "All Districts"</p>
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <div className="h-[180px]">
+                    {districtHealthSummary.loading ? (
+                      <div className="h-full w-full animate-pulse rounded bg-gray-50" />
+                    ) : (
+                      <ResponsiveContainer width="100%" height="100%">
+                        <BarChart
+                          data={facilityChartData}
+                          margin={{ top: 8, right: 16, left: 8, bottom: 44 }}
+                        >
+                          <CartesianGrid
+                            stroke="#f1f5f9"
+                            strokeDasharray="3 3"
+                            vertical={false}
+                          />
+                          <XAxis
+                            dataKey="district"
+                            axisLine={false}
+                            tick={{ fill: '#64748b', fontSize: 9, fontWeight: 700 }}
+                            tickFormatter={formatDistrictAxisLabel}
+                            tickLine={false}
+                            angle={-35}
+                            textAnchor="end"
+                            interval={0}
+                            height={52}
+                          />
+                          <YAxis
+                            axisLine={false}
+                            tick={{ fill: '#64748b', fontSize: 11, fontWeight: 700 }}
+                            tickLine={false}
+                          />
+                          <Tooltip
+                            formatter={(value) => Number(value).toLocaleString()}
+                            labelFormatter={(label) => label}
+                            contentStyle={{
+                              borderRadius: '4px',
+                              border: 'none',
+                              boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)',
+                              fontSize: '12px',
+                            }}
+                            cursor={{ fill: '#f8fafc' }}
+                          />
+                          <Bar
+                            dataKey="facilities"
+                            radius={[2, 2, 0, 0]}
+                            barSize={14}
+                            activeBar={<Rectangle fill="#7e22ce" />}
+                          >
+                            {facilityChartData.map((entry) => (
+                              <Cell
+                                key={`health-facility-bar-${entry.district}`}
+                                fill={getFacilityBarColor(entry.facilities, maxFacilities)}
+                              />
+                            ))}
+                          </Bar>
+                        </BarChart>
+                      </ResponsiveContainer>
+                    )}
+                  </div>
                 )}
               </div>
             </div>

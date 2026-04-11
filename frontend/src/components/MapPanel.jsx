@@ -14,6 +14,7 @@ import { formatNumber, titleizeMetric } from "../lib/format";
 import EmptyState from "./EmptyState";
 
 import { useEffect } from "react";
+import { useDistrict } from "../context/DistrictContext";
 
 function MapFitter({ bounds }) {
   const map = useMap();
@@ -45,6 +46,7 @@ function MapPanel({
   showZoomControls = true,
   heightClass = "h-[380px]",
 }) {
+  const { setSelectedDistrict } = useDistrict();
   const features = geojson?.features || [];
 
   if (!features.length) {
@@ -166,6 +168,13 @@ function MapPanel({
         },
         mouseout: (e) => {
           e.target.setStyle(styleFeature(feature));
+        },
+        click: (e) => {
+          const properties = feature?.properties || {};
+          const districtName = properties.admin_unit_name || properties.name;
+          if (districtName) {
+            setSelectedDistrict(districtName);
+          }
         }
       });
     }

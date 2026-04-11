@@ -1,9 +1,21 @@
 import { useEffect, useState } from "react";
 import "leaflet/dist/leaflet.css";
-import { GeoJSON, ImageOverlay, MapContainer, ZoomControl } from "react-leaflet";
+import { GeoJSON, ImageOverlay, MapContainer, ZoomControl, useMap } from "react-leaflet";
+import { useDistrict } from "../context/DistrictContext";
+import { getGeoBounds } from "../lib/geo";
 import EmptyState from "./EmptyState";
 
 const DEFAULT_METADATA_URL = "/worldpop/mwi_ppp_2020.preview.json";
+
+function MapFitter({ bounds }) {
+  const map = useMap();
+  useEffect(() => {
+    if (bounds && bounds[0][0] !== Infinity) {
+      map.fitBounds(bounds, { padding: [20, 20], maxZoom: 12 });
+    }
+  }, [bounds, map]);
+  return null;
+}
 
 function PopulationRasterPanel({
   geojson,
@@ -12,7 +24,9 @@ function PopulationRasterPanel({
   metadataUrl = DEFAULT_METADATA_URL,
   heightClass = "h-[460px]",
 }) {
+  const { selectedDistrict, setSelectedDistrict } = useDistrict();
   const [metadata, setMetadata] = useState(null);
+  const [hoveredDistrict, setHoveredDistrict] = useState(null);
   const [error, setError] = useState(null);
 
   useEffect(() => {
@@ -77,8 +91,16 @@ function PopulationRasterPanel({
   const imageUrl = metadata.image.startsWith("/")
     ? metadata.image
     : `${metadataUrl.slice(0, metadataUrl.lastIndexOf("/") + 1)}${metadata.image}`;
-  const bounds = metadata.bounds;
+  const defaultBounds = metadata.bounds;
   const features = geojson?.features || [];
+
+  let dynamicBounds = defaultBounds;
+  if (features.length > 0) {
+    const b = getGeoBounds(features);
+    if (b.minLat !== Infinity) {
+      dynamicBounds = [[b.minLat, b.minLon], [b.maxLat, b.maxLon]];
+    }
+  }
 
   return (
     <div className={wrapperClassName}>
@@ -93,33 +115,69 @@ function PopulationRasterPanel({
         </div>
       ) : null}
       <div
-        className={`relative ${heightClass} min-h-0 overflow-hidden rounded-[1.5rem] border border-fog bg-[#f8f8f3]`}
+        className={`relative ${heightClass} min-h-0 overflow-hidden rounded-[1.5rem] border border-fog bg-[#f8f8f3] group`}
       >
         <MapContainer
-          bounds={bounds}
+          bounds={defaultBounds}
           boundsOptions={{ padding: [12, 12] }}
           className="h-full w-full"
           scrollWheelZoom
           zoomControl={false}
           attributionControl={false}
         >
+          <MapFitter bounds={dynamicBounds} />
           <ZoomControl position="topright" />
-          <ImageOverlay bounds={bounds} url={imageUrl} opacity={0.94} />
+          <ImageOverlay bounds={defaultBounds} url={imageUrl} opacity={0.94} />
           {features.length ? (
             <GeoJSON
+              key={`pop-raster-geojson-${features.length}-${selectedDistrict}`}
               data={geojson}
-              style={() => ({
+              style={(feature) => ({
                 color: "#6d7a65",
-                weight: features.length === 1 ? 2 : 0.9,
-                opacity: 0.45,
-                fillOpacity: 0,
+                weight: features.length === 1 || feature.properties.admin_unit_name === hoveredDistrict ? 2.5 : 1,
+                opacity: 0.6,
+                fillColor: feature.properties.admin_unit_name === hoveredDistrict ? "#6d7a65" : "transparent",
+                fillOpacity: feature.properties.admin_unit_name === hoveredDistrict ? 0.1 : 0,
               })}
+              onEachFeature={(feature, layer) => {
+                layer.on({
+                  mouseover: (e) => {
+                    const name = feature.properties.admin_unit_name || feature.properties.name;
+                    setHoveredDistrict(name);
+                    const layer = e.target;
+                    layer.setStyle({
+                      weight: 3,
+                      opacity: 0.8,
+                      fillOpacity: 0.15
+                    });
+                  },
+                  mouseout: (e) => {
+                    setHoveredDistrict(null);
+                    const layer = e.target;
+                    layer.setStyle({
+                      weight: features.length === 1 ? 2.5 : 1,
+                      opacity: 0.6,
+                      fillOpacity: 0
+                    });
+                  },
+                  click: () => {
+                    const name = feature.properties.admin_unit_name || feature.properties.name;
+                    if (name) setSelectedDistrict(name);
+                  }
+                });
+              }}
             />
           ) : null}
         </MapContainer>
 
         <div className="pointer-events-none absolute inset-x-4 bottom-4 flex items-end justify-between gap-4">
           <div className="rounded-2xl border border-white/80 bg-white/92 px-4 py-3 shadow-sm backdrop-blur">
+            {hoveredDistrict && (
+              <div className="mb-2 pb-2 border-b border-slate/10">
+                <p className="text-[10px] font-bold uppercase tracking-wider text-slate/40">Current District</p>
+                <p className="text-sm font-extrabold text-slate">{hoveredDistrict}</p>
+              </div>
+            )}
             <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate/55">
               {metadata.legend?.label || "Population Density"}
             </p>
