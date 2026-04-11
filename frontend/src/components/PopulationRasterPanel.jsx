@@ -23,6 +23,7 @@ function PopulationRasterPanel({
   subtitle,
   metadataUrl = DEFAULT_METADATA_URL,
   heightClass = "h-[460px]",
+  loading = false,
 }) {
   const { selectedDistrict, setSelectedDistrict } = useDistrict();
   const [metadata, setMetadata] = useState(null);
@@ -170,37 +171,52 @@ function PopulationRasterPanel({
           ) : null}
         </MapContainer>
 
-        <div className="pointer-events-none absolute inset-x-4 bottom-4 flex items-end justify-between gap-4">
-          <div className="rounded-2xl border border-white/80 bg-white/92 px-4 py-3 shadow-sm backdrop-blur">
+        {/* Loading Overlay */}
+        {loading && (
+          <div className="absolute inset-0 z-[400] bg-white/40 backdrop-blur-[1px] flex items-center justify-center transition-all">
+             <div className="flex flex-col items-center">
+                <div className="h-10 w-10 border-4 border-blue-600/20 border-t-blue-600 rounded-full animate-spin mb-3"></div>
+                <span className="text-xs font-bold text-blue-600 uppercase tracking-widest animate-pulse">Updating View...</span>
+             </div>
+          </div>
+        )}
+
+        <div className="pointer-events-none absolute inset-x-4 bottom-4 flex items-end justify-between gap-4 z-[401]">
+          <div className="rounded-2xl border border-white/80 bg-white/92 px-5 py-4 shadow-md backdrop-blur-md min-w-[220px]">
             {hoveredDistrict && (
-              <div className="mb-2 pb-2 border-b border-slate/10">
-                <p className="text-[10px] font-bold uppercase tracking-wider text-slate/40">Current District</p>
-                <p className="text-sm font-extrabold text-slate">{hoveredDistrict}</p>
+              <div className="mb-3 pb-3 border-b border-slate/10 animate-in fade-in slide-in-from-bottom-2 duration-300">
+                <p className="text-[10px] font-bold uppercase tracking-wider text-blue-600/60 leading-none">Hovering District</p>
+                <p className="mt-1.5 text-[15px] font-black text-slate leading-none">{hoveredDistrict}</p>
               </div>
             )}
-            <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate/55">
-              {metadata.legend?.label || "Population Density"}
-            </p>
-            <div className="mt-2 flex items-end gap-3">
-              <div className="flex items-stretch overflow-hidden rounded-full border border-slate/10">
-                {(metadata.legend?.colors || []).map((color) => (
-                  <span
-                    key={color}
-                    className="h-3 w-7"
-                    style={{ backgroundColor: color }}
-                  />
-                ))}
-              </div>
-              <div className="flex items-center gap-2 text-xs font-semibold text-slate/75">
-                <span>{metadata.legend?.lowLabel || "Low"}</span>
-                <span className="text-slate/30">to</span>
-                <span>{metadata.legend?.highLabel || "High"}</span>
+            <div>
+              <p className="text-[10px] font-bold uppercase tracking-[0.15em] text-slate/50 leading-none mb-2.5">
+                {metadata.legend?.label || "Population Density"}
+              </p>
+              <div className="flex flex-col gap-3">
+                <div className="flex items-stretch overflow-hidden rounded-full border border-slate/10 h-2.5 w-full">
+                  {(metadata.legend?.colors || []).map((color) => (
+                    <span
+                      key={color}
+                      className="flex-1"
+                      style={{ backgroundColor: color }}
+                    />
+                  ))}
+                </div>
+                <div className="flex items-center justify-between text-[10px] font-bold text-slate/60 uppercase tracking-wider">
+                  <span>{metadata.legend?.lowLabel || "Low"}</span>
+                  <div className="flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-slate/5 border border-slate/5">
+                    <span className="w-1.5 h-1.5 rounded-full bg-blue-500/50 animate-pulse"></span>
+                    <span className="text-[9px]">Live Data</span>
+                  </div>
+                  <span>{metadata.legend?.highLabel || "High"}</span>
+                </div>
               </div>
             </div>
           </div>
 
-          <div className="rounded-full border border-white/80 bg-white/92 px-3 py-2 text-[11px] font-semibold uppercase tracking-[0.18em] text-slate/60 shadow-sm backdrop-blur">
-            WorldPop raster preview
+          <div className="rounded-full border border-white/80 bg-white/92 px-4 py-2 text-[10px] font-bold uppercase tracking-[0.12em] text-slate/50 shadow-sm backdrop-blur-md border-b-2 border-b-slate/10">
+            WorldPop GIS Source
           </div>
         </div>
       </div>

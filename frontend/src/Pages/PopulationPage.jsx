@@ -112,6 +112,7 @@ function PopulationPage() {
               title="WorldPop Population Surface"
               subtitle="Rendered directly from the Malawi 2020 GeoTIFF so the map keeps the fine-grained heatmap pattern instead of district-wide color blocks."
               heightClass="h-[620px]"
+              loading={districtBoundaries.loading}
             />
           </div>
 

@@ -158,20 +158,13 @@ function OverviewPage() {
           <div className="border border-gray-100 rounded p-8 shadow-sm bg-white flex flex-col h-[480px]">
             <h3 className="text-[16px] font-extrabold mb-6">District Map Overview</h3>
             <div className="w-full flex-1 rounded overflow-hidden relative border border-gray-50 shadow-inner bg-gray-50">
-               {densityMap.loading ? (
-                  <div className="absolute inset-0 flex items-center justify-center">
-                    <div className="w-full h-full bg-gray-100 animate-pulse flex items-center justify-center">
-                       <span className="text-gray-400 font-bold tracking-widest uppercase">Initializing Map...</span>
-                    </div>
-                  </div>
-               ) : (
                  <PopulationRasterPanel
                   geojson={densityMap.data}
                   title={null}
                   subtitle={null}
                   heightClass="h-full w-full"
+                  loading={densityMap.loading}
                 />
-               )}
             </div>
           </div>
           

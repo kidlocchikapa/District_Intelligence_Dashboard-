@@ -229,7 +229,19 @@ function HealthPage() {
               <div className="flex-1 overflow-hidden">
                 {selectedDistrict ? (
                   <div className="h-full overflow-y-auto pr-2 custom-scrollbar">
-                    {selectedDistrictHospitals.length > 0 ? (
+                    {healthLocations.loading ? (
+                      <div className="space-y-3">
+                        {[...Array(3)].map((_, i) => (
+                          <div key={i} className="flex items-center justify-between p-3 rounded-xl border border-gray-100 bg-white animate-pulse">
+                            <div className="min-w-0 flex-1 space-y-2">
+                              <div className="h-4 bg-gray-100 rounded w-3/4"></div>
+                              <div className="h-3 bg-gray-50 rounded w-1/4"></div>
+                            </div>
+                            <div className="ml-4 w-12 h-8 bg-gray-50 rounded"></div>
+                          </div>
+                        ))}
+                      </div>
+                    ) : selectedDistrictHospitals.length > 0 ? (
                       <div className="space-y-3">
                         {selectedDistrictHospitals.map((hospital, idx) => (
                           <div key={idx} className="flex items-center justify-between p-3 rounded-xl border border-gray-50 bg-gray-50/50 hover:bg-gray-100 transition-colors">
