@@ -60,7 +60,7 @@ function MapPanel({
 
   const features = activeGeojson?.features || [];
 
-  if (!features.length) {
+  if (!loading && !features.length) {
     return (
       <EmptyState
         title={title}
