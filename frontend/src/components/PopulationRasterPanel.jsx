@@ -27,6 +27,8 @@ function PopulationRasterPanel({
 }) {
   const { selectedDistrict, setSelectedDistrict } = useDistrict();
   const [metadata, setMetadata] = useState(null);
+  const [activeGeojson, setActiveGeojson] = useState(geojson);
+  const [activeBounds, setActiveBounds] = useState(null);
   const [hoveredDistrict, setHoveredDistrict] = useState(null);
   const [error, setError] = useState(null);
 
@@ -62,6 +64,25 @@ function PopulationRasterPanel({
     return <EmptyState title={title} description={error} />;
   }
 
+  const defaultBounds = metadata?.bounds;
+
+  useEffect(() => {
+    if (!loading && geojson && metadata) {
+      setActiveGeojson(geojson);
+      const features = geojson.features || [];
+      if (features.length > 0) {
+        const b = getGeoBounds(features);
+        if (b.minLat !== Infinity) {
+          setActiveBounds([[b.minLat, b.minLon], [b.maxLat, b.maxLon]]);
+        } else {
+          setActiveBounds(defaultBounds);
+        }
+      } else {
+        setActiveBounds(defaultBounds);
+      }
+    }
+  }, [geojson, loading, defaultBounds, metadata]);
+
   const hasHeader = Boolean(title || subtitle);
   const wrapperClassName = hasHeader
     ? "flex h-full min-h-0 flex-col gap-4"
@@ -92,16 +113,7 @@ function PopulationRasterPanel({
   const imageUrl = metadata.image.startsWith("/")
     ? metadata.image
     : `${metadataUrl.slice(0, metadataUrl.lastIndexOf("/") + 1)}${metadata.image}`;
-  const defaultBounds = metadata.bounds;
-  const features = geojson?.features || [];
-
-  let dynamicBounds = defaultBounds;
-  if (features.length > 0) {
-    const b = getGeoBounds(features);
-    if (b.minLat !== Infinity) {
-      dynamicBounds = [[b.minLat, b.minLon], [b.maxLat, b.maxLon]];
-    }
-  }
+  const features = activeGeojson?.features || [];
 
   return (
     <div className={wrapperClassName}>
@@ -126,13 +138,13 @@ function PopulationRasterPanel({
           zoomControl={false}
           attributionControl={false}
         >
-          <MapFitter bounds={dynamicBounds} />
+          <MapFitter bounds={activeBounds || defaultBounds} />
           <ZoomControl position="topright" />
           <ImageOverlay bounds={defaultBounds} url={imageUrl} opacity={0.94} />
           {features.length ? (
             <GeoJSON
               key={`pop-raster-geojson-${features.length}-${selectedDistrict}`}
-              data={geojson}
+              data={activeGeojson}
               style={(feature) => ({
                 color: "#6d7a65",
                 weight: features.length === 1 || feature.properties.admin_unit_name === hoveredDistrict ? 2.5 : 1,
@@ -171,12 +183,12 @@ function PopulationRasterPanel({
           ) : null}
         </MapContainer>
 
-        {/* Loading Overlay */}
+        {/* Subtle Background Loading Indicator */}
         {loading && (
-          <div className="absolute inset-0 z-[400] bg-white/40 backdrop-blur-[1px] flex items-center justify-center transition-all">
-             <div className="flex flex-col items-center">
-                <div className="h-10 w-10 border-4 border-blue-600/20 border-t-blue-600 rounded-full animate-spin mb-3"></div>
-                <span className="text-xs font-bold text-blue-600 uppercase tracking-widest animate-pulse">Updating View...</span>
+          <div className="absolute top-4 left-4 z-[400] animate-in fade-in duration-500">
+             <div className="flex items-center gap-3 bg-white/95 backdrop-blur-md px-4 py-2.5 rounded-2xl border border-white/50 shadow-lg shadow-blue-900/5">
+                <div className="h-4 w-4 border-2 border-blue-600/20 border-t-blue-600 rounded-full animate-spin"></div>
+                <span className="text-[10px] font-bold text-slate uppercase tracking-widest">District Data Refreshing...</span>
              </div>
           </div>
         )}

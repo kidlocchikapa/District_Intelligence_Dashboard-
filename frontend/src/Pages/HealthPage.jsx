@@ -194,11 +194,6 @@ function HealthPage() {
           <div className="border border-gray-100 rounded p-8 shadow-sm bg-white h-[600px] flex flex-col">
             <h3 className="text-[16px] font-extrabold mb-6">Health Services Map</h3>
             <div className="flex-1 rounded overflow-hidden relative border border-gray-50 bg-gray-50">
-               {healthLocations.loading ? (
-                  <div className="absolute inset-0 flex items-center justify-center animate-pulse">
-                    <span className="text-gray-400 font-bold uppercase tracking-widest">Loading Facilities...</span>
-                  </div>
-               ) : (
                   <MapPanel
                     geojson={healthLocations.data}
                     pointColor="#c56a3d"
@@ -215,8 +210,8 @@ function HealthPage() {
                     showLegend={false}
                     showLabels={false}
                     heightClass="h-full w-full"
+                    loading={healthLocations.loading}
                   />
-               )}
             </div>
           </div>
 
