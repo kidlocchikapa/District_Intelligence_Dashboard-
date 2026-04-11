@@ -5,6 +5,7 @@ import { useDistrictOptions } from '../hooks/useDistrictOptions';
 import { buildDashboardPath } from '../lib/query';
 import { usePdfExport } from '../hooks/usePdfExport';
 import MapPanel from '../components/MapPanel';
+import GlobalHospitalRegistry from '../components/GlobalHospitalRegistry';
 import {
   Bar,
   BarChart,
@@ -412,6 +413,13 @@ function HealthPage() {
           </div>
         </div>
 
+        {/* Global Hospital Registry - Only shown when in All Districts mode */}
+        {!selectedDistrict && (
+          <GlobalHospitalRegistry 
+            data={healthLocations.data}
+            loading={healthLocations.loading}
+          />
+        )}
       </div>
     </div>
   );
