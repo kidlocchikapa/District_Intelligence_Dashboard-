@@ -1,13 +1,23 @@
 const express = require("express");
+const db = require("../db");
 const fs = require("fs");
 const multer = require("multer");
 const path = require("path");
 const { spawn } = require("child_process");
 
 const auth = require("../middleware/auth");
+const requireRole = require("../middleware/requireRole");
+const ensureRbacSchema = require("../helpers/rbacSchema");
 const {
+  validateAdminUserUpdate,
+  validateReplaceDepartmentPermissions,
+} = require("../validators/rbacValidation");
+const {
+  buildAuthAccessProfile,
+  fetchUserDepartmentPermissions,
   getAccessibleDepartmentsForUser,
   isGlobalAccessRole,
+  replaceUserDepartmentPermissions,
   userHasDepartmentAccess,
 } = require("../services/rbacService");
 
@@ -226,6 +236,23 @@ const TASK_DEPARTMENT_MAP = {
   disaster_insights: "disaster",
 };
 
+async function ensureUsersTable() {
+  await db.query(`
+    CREATE TABLE IF NOT EXISTS users (
+      id SERIAL PRIMARY KEY,
+      username VARCHAR(100) UNIQUE,
+      full_name VARCHAR(255) NOT NULL,
+      email VARCHAR(255) NOT NULL UNIQUE,
+      password_hash TEXT NOT NULL,
+      role VARCHAR(50) NOT NULL DEFAULT 'department_admin',
+      is_active BOOLEAN NOT NULL DEFAULT TRUE,
+      last_login_at TIMESTAMP,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )
+  `);
+}
+
 function getAuthUser(req) {
   return req.user?.user || req.user || {};
 }
@@ -283,6 +310,276 @@ function requireGlobalAccess(req, res) {
   });
   return false;
 }
+
+function serializeManagedUser(user, permissions = []) {
+  return {
+    id: user.id,
+    fullName: user.full_name,
+    email: user.email,
+    role: user.role,
+    isActive: Boolean(user.is_active),
+    lastLoginAt: user.last_login_at,
+    createdAt: user.created_at,
+    updatedAt: user.updated_at,
+    access: buildAuthAccessProfile(user.role, permissions),
+  };
+}
+
+async function loadManagedUser(userId) {
+  const userResult = await db.query(
+    `
+      SELECT
+        id,
+        full_name,
+        email,
+        role,
+        is_active,
+        last_login_at,
+        created_at,
+        updated_at
+      FROM users
+      WHERE id = $1
+      LIMIT 1
+    `,
+    [userId],
+  );
+
+  if (!userResult.rowCount) {
+    return null;
+  }
+
+  const user = userResult.rows[0];
+  const permissions = await fetchUserDepartmentPermissions(userId);
+  return serializeManagedUser(user, permissions);
+}
+
+router.get("/users", auth, requireRole("super_admin"), async (req, res) => {
+  try {
+    await ensureUsersTable();
+    await ensureRbacSchema();
+
+    const [userResult, permissionResult] = await Promise.all([
+      db.query(
+        `
+          SELECT
+            id,
+            full_name,
+            email,
+            role,
+            is_active,
+            last_login_at,
+            created_at,
+            updated_at
+          FROM users
+          ORDER BY created_at DESC, id DESC
+        `,
+      ),
+      db.query(
+        `
+          SELECT
+            user_id,
+            department,
+            can_read,
+            can_write,
+            can_recompute,
+            created_at,
+            updated_at
+          FROM user_department_permissions
+          ORDER BY user_id, department
+        `,
+      ),
+    ]);
+
+    const permissionsByUserId = new Map();
+    permissionResult.rows.forEach((permission) => {
+      const existingPermissions = permissionsByUserId.get(permission.user_id) || [];
+      existingPermissions.push(permission);
+      permissionsByUserId.set(permission.user_id, existingPermissions);
+    });
+
+    return res.json({
+      status: "success",
+      data: userResult.rows.map((user) =>
+        serializeManagedUser(user, permissionsByUserId.get(user.id) || []),
+      ),
+    });
+  } catch (error) {
+    console.error("List admin users error:", error.message);
+    return res.status(500).json({
+      status: "error",
+      message: "Unable to load admin users",
+    });
+  }
+});
+
+router.get("/users/:id/permissions", auth, requireRole("super_admin"), async (req, res) => {
+  const userId = Number(req.params.id);
+
+  if (!Number.isInteger(userId) || userId <= 0) {
+    return res.status(400).json({
+      status: "error",
+      message: "A valid user id is required",
+    });
+  }
+
+  try {
+    await ensureUsersTable();
+    await ensureRbacSchema();
+
+    const user = await loadManagedUser(userId);
+    if (!user) {
+      return res.status(404).json({
+        status: "error",
+        message: "User not found",
+      });
+    }
+
+    return res.json({
+      status: "success",
+      data: user,
+    });
+  } catch (error) {
+    console.error("Get user permissions error:", error.message);
+    return res.status(500).json({
+      status: "error",
+      message: "Unable to load user permissions",
+    });
+  }
+});
+
+router.patch("/users/:id", auth, requireRole("super_admin"), async (req, res) => {
+  const userId = Number(req.params.id);
+
+  if (!Number.isInteger(userId) || userId <= 0) {
+    return res.status(400).json({
+      status: "error",
+      message: "A valid user id is required",
+    });
+  }
+
+  const { error, value } = validateAdminUserUpdate(req.body);
+  if (error) {
+    return res.status(400).json({
+      status: "error",
+      message: error,
+    });
+  }
+
+  try {
+    await ensureUsersTable();
+    await ensureRbacSchema();
+
+    const updateFields = [];
+    const params = [];
+
+    if (Object.prototype.hasOwnProperty.call(value, "role")) {
+      params.push(value.role);
+      updateFields.push(`role = $${params.length}`);
+    }
+
+    if (Object.prototype.hasOwnProperty.call(value, "isActive")) {
+      params.push(value.isActive);
+      updateFields.push(`is_active = $${params.length}`);
+    }
+
+    params.push(userId);
+    const result = await db.query(
+      `
+        UPDATE users
+        SET ${updateFields.join(", ")}, updated_at = CURRENT_TIMESTAMP
+        WHERE id = $${params.length}
+        RETURNING id
+      `,
+      params,
+    );
+
+    if (!result.rowCount) {
+      return res.status(404).json({
+        status: "error",
+        message: "User not found",
+      });
+    }
+
+    const user = await loadManagedUser(userId);
+    return res.json({
+      status: "success",
+      message: "User updated successfully",
+      data: user,
+    });
+  } catch (error) {
+    console.error("Update admin user error:", error.message);
+    return res.status(500).json({
+      status: "error",
+      message: "Unable to update user",
+    });
+  }
+});
+
+router.put("/users/:id/permissions", auth, requireRole("super_admin"), async (req, res) => {
+  const userId = Number(req.params.id);
+
+  if (!Number.isInteger(userId) || userId <= 0) {
+    return res.status(400).json({
+      status: "error",
+      message: "A valid user id is required",
+    });
+  }
+
+  const { error, value } = validateReplaceDepartmentPermissions(req.body);
+  if (error) {
+    return res.status(400).json({
+      status: "error",
+      message: error,
+    });
+  }
+
+  await ensureUsersTable();
+  await ensureRbacSchema();
+
+  const client = await db.connect();
+  let hasOpenTransaction = false;
+
+  try {
+    await client.query("BEGIN");
+    hasOpenTransaction = true;
+
+    const userResult = await client.query(
+      "SELECT id FROM users WHERE id = $1 LIMIT 1",
+      [userId],
+    );
+
+    if (!userResult.rowCount) {
+      await client.query("ROLLBACK");
+      hasOpenTransaction = false;
+      return res.status(404).json({
+        status: "error",
+        message: "User not found",
+      });
+    }
+
+    await replaceUserDepartmentPermissions(client, userId, value.permissions);
+    await client.query("COMMIT");
+    hasOpenTransaction = false;
+
+    const user = await loadManagedUser(userId);
+    return res.json({
+      status: "success",
+      message: "Department permissions updated successfully",
+      data: user,
+    });
+  } catch (error) {
+    if (hasOpenTransaction) {
+      await client.query("ROLLBACK");
+    }
+    console.error("Replace department permissions error:", error.message);
+    return res.status(500).json({
+      status: "error",
+      message: "Unable to update department permissions",
+    });
+  } finally {
+    client.release();
+  }
+});
 
 // Helper function to construct ETL command-line arguments based on input parameters
 function buildEtlArgs({

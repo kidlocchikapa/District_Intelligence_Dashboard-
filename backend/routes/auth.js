@@ -22,6 +22,7 @@ async function ensureUsersTable() {
   await db.query(`
     CREATE TABLE IF NOT EXISTS users (
       id SERIAL PRIMARY KEY,
+      username VARCHAR(100) UNIQUE,
       full_name VARCHAR(255) NOT NULL,
       email VARCHAR(255) NOT NULL UNIQUE,
       password_hash TEXT NOT NULL,
@@ -32,6 +33,57 @@ async function ensureUsersTable() {
       updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     )
   `);
+}
+
+async function usersTableHasColumn(columnName) {
+  const result = await db.query(
+    `
+      SELECT 1
+      FROM information_schema.columns
+      WHERE table_schema = 'public'
+        AND table_name = 'users'
+        AND column_name = $1
+      LIMIT 1
+    `,
+    [columnName],
+  );
+
+  return result.rowCount > 0;
+}
+
+function buildUsernameSeed(email) {
+  const normalized = String(email || "")
+    .split("@")[0]
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "");
+
+  return (normalized || "user").slice(0, 40);
+}
+
+async function generateAvailableUsername(email) {
+  const baseUsername = buildUsernameSeed(email);
+  let suffix = 0;
+
+  while (suffix < 1000) {
+    const candidate =
+      suffix === 0
+        ? baseUsername
+        : `${baseUsername.slice(0, Math.max(1, 39 - String(suffix).length))}_${suffix}`;
+
+    const result = await db.query(
+      "SELECT 1 FROM users WHERE username = $1 LIMIT 1",
+      [candidate],
+    );
+
+    if (!result.rowCount) {
+      return candidate;
+    }
+
+    suffix += 1;
+  }
+
+  return `${baseUsername}_${Date.now().toString().slice(-6)}`;
 }
 
 async function buildUserResponse(user) {
@@ -69,14 +121,24 @@ router.post("/register", async (req, res) => {
     }
 
     const passwordHash = await hashPassword(password);
-    const createdUser = await db.query(
-      `
-        INSERT INTO users (full_name, email, password_hash, role)
-        VALUES ($1, $2, $3, $4)
-        RETURNING id, full_name, email, role, created_at
-      `,
-      [fullName, email, passwordHash, role],
-    );
+    const hasUsernameColumn = await usersTableHasColumn("username");
+    const createdUser = hasUsernameColumn
+      ? await db.query(
+          `
+            INSERT INTO users (username, full_name, email, password_hash, role)
+            VALUES ($1, $2, $3, $4, $5)
+            RETURNING id, full_name, email, role, created_at
+          `,
+          [await generateAvailableUsername(email), fullName, email, passwordHash, role],
+        )
+      : await db.query(
+          `
+            INSERT INTO users (full_name, email, password_hash, role)
+            VALUES ($1, $2, $3, $4)
+            RETURNING id, full_name, email, role, created_at
+          `,
+          [fullName, email, passwordHash, role],
+        );
 
     //generate JWT token for the newly registered user
     const user = createdUser.rows[0];
