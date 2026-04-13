@@ -3,6 +3,7 @@ const ensureRbacSchema = require("../helpers/rbacSchema");
 
 const DEPARTMENTS = ["education", "health", "welfare", "disaster"];
 const GLOBAL_ACCESS_ROLES = ["super_admin", "admin"];
+const USER_ROLES = ["super_admin", "admin", "department_admin", "analyst", "user"];
 
 function normalizeRole(role) {
   return String(role || "").trim().toLowerCase();
@@ -10,6 +11,10 @@ function normalizeRole(role) {
 
 function isGlobalAccessRole(role) {
   return GLOBAL_ACCESS_ROLES.includes(normalizeRole(role));
+}
+
+function normalizeDepartment(department) {
+  return String(department || "").trim().toLowerCase();
 }
 
 function hasPermissionForAction(permission, action) {
@@ -103,12 +108,74 @@ function buildAuthAccessProfile(role, permissions) {
   };
 }
 
+function normalizePermissionList(permissions = []) {
+  const uniquePermissions = new Map();
+
+  permissions.forEach((permission) => {
+    const department = normalizeDepartment(permission.department);
+    if (!DEPARTMENTS.includes(department)) {
+      return;
+    }
+
+    uniquePermissions.set(department, {
+      department,
+      can_read: Boolean(permission.canRead ?? permission.can_read),
+      can_write: Boolean(permission.canWrite ?? permission.can_write),
+      can_recompute: Boolean(permission.canRecompute ?? permission.can_recompute),
+    });
+  });
+
+  return DEPARTMENTS
+    .filter((department) => uniquePermissions.has(department))
+    .map((department) => uniquePermissions.get(department));
+}
+
+async function replaceUserDepartmentPermissions(queryable, userId, permissions = []) {
+  if (!userId) {
+    return [];
+  }
+
+  await ensureRbacSchema();
+
+  const normalizedPermissions = normalizePermissionList(permissions);
+
+  await queryable.query("DELETE FROM user_department_permissions WHERE user_id = $1", [userId]);
+
+  for (const permission of normalizedPermissions) {
+    await queryable.query(
+      `
+        INSERT INTO user_department_permissions (
+          user_id,
+          department,
+          can_read,
+          can_write,
+          can_recompute
+        )
+        VALUES ($1, $2, $3, $4, $5)
+      `,
+      [
+        userId,
+        permission.department,
+        permission.can_read,
+        permission.can_write,
+        permission.can_recompute,
+      ],
+    );
+  }
+
+  return normalizedPermissions;
+}
+
 module.exports = {
   DEPARTMENTS,
+  USER_ROLES,
   normalizeRole,
+  normalizeDepartment,
   isGlobalAccessRole,
   fetchUserDepartmentPermissions,
   getAccessibleDepartmentsForUser,
   userHasDepartmentAccess,
   buildAuthAccessProfile,
+  normalizePermissionList,
+  replaceUserDepartmentPermissions,
 };
