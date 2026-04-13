@@ -5,6 +5,11 @@ const path = require("path");
 const { spawn } = require("child_process");
 
 const auth = require("../middleware/auth");
+const {
+  getAccessibleDepartmentsForUser,
+  isGlobalAccessRole,
+  userHasDepartmentAccess,
+} = require("../services/rbacService");
 
 const router = express.Router();
 const uploadDirectory = path.resolve(__dirname, "../../uploads");
@@ -207,6 +212,77 @@ const presetTaskDefinitions = {
     ],
   },
 };
+
+const DATASET_DEPARTMENT_MAP = {
+  education: "education",
+  health: "health",
+  welfare: "welfare",
+  disaster: "disaster",
+};
+
+const TASK_DEPARTMENT_MAP = {
+  education_insights: "education",
+  health_insights: "health",
+  disaster_insights: "disaster",
+};
+
+function getAuthUser(req) {
+  return req.user?.user || req.user || {};
+}
+
+function resolveJobDepartment(job) {
+  if (job?.meta?.datasetType && DATASET_DEPARTMENT_MAP[job.meta.datasetType]) {
+    return DATASET_DEPARTMENT_MAP[job.meta.datasetType];
+  }
+
+  if (job?.meta?.task && TASK_DEPARTMENT_MAP[job.meta.task]) {
+    return TASK_DEPARTMENT_MAP[job.meta.task];
+  }
+
+  return null;
+}
+
+async function requireDepartmentCapability(req, res, department, action) {
+  const authUser = getAuthUser(req);
+
+  if (!authUser.id) {
+    res.status(401).json({
+      status: "error",
+      message: "Authentication is required",
+    });
+    return false;
+  }
+
+  const hasAccess = await userHasDepartmentAccess(
+    authUser.id,
+    authUser.role,
+    department,
+    action,
+  );
+
+  if (!hasAccess) {
+    res.status(403).json({
+      status: "error",
+      message: `You do not have ${action} access to the ${department} department`,
+    });
+    return false;
+  }
+
+  return true;
+}
+
+function requireGlobalAccess(req, res) {
+  const authUser = getAuthUser(req);
+  if (isGlobalAccessRole(authUser.role)) {
+    return true;
+  }
+
+  res.status(403).json({
+    status: "error",
+    message: "Global admin access is required for this action",
+  });
+  return false;
+}
 
 // Helper function to construct ETL command-line arguments based on input parameters
 function buildEtlArgs({
@@ -466,52 +542,118 @@ function queueWorkflow(job, stages) {
 }
 
 // API endpoint to retrieve available task presets, returning their keys, labels, and descriptions for frontend display
-router.get("/task-presets", auth, (req, res) => {
-  const presets = Object.entries(presetTaskDefinitions).map(
-    ([key, definition]) => ({
-      key,
-      label: definition.label,
-      description: definition.description,
-    }),
-  );
+router.get("/task-presets", auth, async (req, res) => {
+  try {
+    const authUser = getAuthUser(req);
+    let allowedDepartments = [];
 
-  return res.json({
-    status: "success",
-    data: {
-      presets,
-    },
-  });
+    if (!isGlobalAccessRole(authUser.role)) {
+      allowedDepartments = await getAccessibleDepartmentsForUser(
+        authUser.id,
+        authUser.role,
+        "recompute",
+      );
+    }
+
+    const presets = Object.entries(presetTaskDefinitions)
+      .filter(([key]) => {
+        const department = TASK_DEPARTMENT_MAP[key];
+        if (!department) {
+          return isGlobalAccessRole(authUser.role);
+        }
+
+        return (
+          isGlobalAccessRole(authUser.role) ||
+          allowedDepartments.includes(department)
+        );
+      })
+      .map(([key, definition]) => ({
+        key,
+        label: definition.label,
+        description: definition.description,
+      }));
+
+    return res.json({
+      status: "success",
+      data: {
+        presets,
+      },
+    });
+  } catch (error) {
+    console.error("Task preset authorization error:", error.message);
+    return res.status(500).json({
+      status: "error",
+      message: "Unable to load task presets",
+    });
+  }
 });
 
 //@Get endpoint
 //@desc Retrieves job details, either for a specific job if job_id is provided or a list of recent jobs if not
-router.get("/jobs", auth, (req, res) => {
-  const jobId = req.query.job_id;
-  if (jobId) {
-    const job = jobs.get(jobId);
-    if (!job) {
-      return res
-        .status(404)
-        .json({ status: "error", message: "Job not found" });
+router.get("/jobs", auth, async (req, res) => {
+  try {
+    const jobId = req.query.job_id;
+    const authUser = getAuthUser(req);
+    const isGlobal = isGlobalAccessRole(authUser.role);
+    const allowedDepartments = isGlobal
+      ? []
+      : await getAccessibleDepartmentsForUser(
+          authUser.id,
+          authUser.role,
+          "read",
+        );
+
+    if (jobId) {
+      const job = jobs.get(jobId);
+      if (!job) {
+        return res
+          .status(404)
+          .json({ status: "error", message: "Job not found" });
+      }
+
+      const department = resolveJobDepartment(job);
+      if (
+        !isGlobal &&
+        (!department || !allowedDepartments.includes(department))
+      ) {
+        return res.status(403).json({
+          status: "error",
+          message: "You do not have access to this job",
+        });
+      }
+
+      return res.json({
+        status: "success",
+        data: {
+          job: serializeJob(job),
+        },
+      });
     }
 
     return res.json({
       status: "success",
       data: {
-        job: serializeJob(job),
+        jobs: recentJobIds
+          .map((id) => jobs.get(id))
+          .filter(Boolean)
+          .filter((job) => {
+            if (isGlobal) {
+              return true;
+            }
+
+            const department = resolveJobDepartment(job);
+            return Boolean(department && allowedDepartments.includes(department));
+          })
+          .map((job) => serializeJob(job)),
       },
     });
+  } catch (error) {
+    console.error("Admin jobs authorization error:", error.message);
+    return res.status(500).json({
+      status: "error",
+      message: "Unable to load jobs",
+    });
   }
-
-  return res.json({
-    status: "success",
-    data: {
-      jobs: recentJobIds
-        .map((id) => jobs.get(id))
-        .filter(Boolean)
-        .map((job) => serializeJob(job)),
-    },
-  });
 });
 
 /**
@@ -519,7 +661,7 @@ router.get("/jobs", auth, (req, res) => {
  * Handles dataset uploads, creating a new job for the upload and queuing it for background processing
  * Expects multipart/form-data with fields for dataset type, source type, and the file itself, along with optional parameters
  */
-router.post("/upload", [auth, upload.single("file")], (req, res) => {
+router.post("/upload", [auth, upload.single("file")], async (req, res) => {
   const {
     type,
     sourceType = "file",
@@ -545,6 +687,16 @@ router.post("/upload", [auth, upload.single("file")], (req, res) => {
     return res
       .status(400)
       .json({ status: "error", message: "No file uploaded" });
+  }
+
+  const department = DATASET_DEPARTMENT_MAP[type];
+  if (department) {
+    const allowed = await requireDepartmentCapability(req, res, department, "write");
+    if (!allowed) {
+      return;
+    }
+  } else if (!requireGlobalAccess(req, res)) {
+    return;
   }
 
   const args = buildEtlArgs({
@@ -588,7 +740,7 @@ router.post("/upload", [auth, upload.single("file")], (req, res) => {
  * Initiates a background synchronization job to fetch and process data from an external API, creating a new job and queuing it for execution
  * Expects JSON body with parameters for dataset type, API URL, headers, and other optional settings depending on the type of sync
  */
-router.post("/sync", auth, (req, res) => {
+router.post("/sync", auth, async (req, res) => {
   const {
     type,
     apiUrl,
@@ -619,6 +771,10 @@ router.post("/sync", auth, (req, res) => {
       status: "error",
       message: "apiUrl is required for non-WorldPop API sync",
     });
+  }
+
+  if (!requireGlobalAccess(req, res)) {
+    return;
   }
 
   const args = buildEtlArgs({
@@ -664,7 +820,7 @@ router.post("/sync", auth, (req, res) => {
  * POST /admin/run-task
  * t
  */
-router.post("/run-task", auth, (req, res) => {
+router.post("/run-task", auth, async (req, res) => {
   const {
     task,
     apiUrl = "https://api.worldpop.org/v1/services/stats",
@@ -683,6 +839,21 @@ router.post("/run-task", auth, (req, res) => {
       status: "error",
       message: "Unknown admin task preset",
     });
+  }
+
+  const department = TASK_DEPARTMENT_MAP[task];
+  if (department) {
+    const allowed = await requireDepartmentCapability(
+      req,
+      res,
+      department,
+      "recompute",
+    );
+    if (!allowed) {
+      return;
+    }
+  } else if (!requireGlobalAccess(req, res)) {
+    return;
   }
 
   const stages = definition.stages({

@@ -1,6 +1,8 @@
 const express = require("express");
 const router = express.Router();
 const db = require("../db");
+const auth = require("../middleware/auth");
+const requireRole = require("../middleware/requireRole");
 
 // Import sub-routers for different dashboard sections
 const educationRoutes = require("./education");
@@ -12,7 +14,8 @@ const analysisRoutes = require("./analysis");
 router.use("/education", educationRoutes);
 router.use("/health", healthRoutes);
 router.use("/disaster", disasterRoutes);
-router.use("/analysis", analysisRoutes);
+router.use("/analysis", auth, requireRole("admin", "super_admin"), analysisRoutes);
+router.use(auth, requireRole("admin", "super_admin"));
 
 /**
  * @route   GET /api/v1/dashboard/summary

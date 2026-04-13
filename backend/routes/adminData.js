@@ -5,7 +5,7 @@ const { spawn } = require("child_process");
 
 const db = require("../db");
 const auth = require("../middleware/auth");
-const requireAdminRole = require("../middleware/requireAdminRole");
+const requireDepartmentAccess = require("../middleware/requireDepartmentAccess");
 const ensureAdminDataSchema = require("../helpers/adminDataSchema");
 const {
   validateEducationCreate,
@@ -28,6 +28,10 @@ const {
   clearDepartmentStale,
   getStaleDepartments,
 } = require("../services/adminDataService");
+const {
+  getAccessibleDepartmentsForUser,
+  isGlobalAccessRole,
+} = require("../services/rbacService");
 
 const router = express.Router();
 
@@ -200,7 +204,7 @@ const DISASTER_SELECT_FIELDS = `
   ST_AsGeoJSON(dz.geom)::jsonb AS geometry
 `;
 
-router.use(auth, requireAdminRole);
+router.use(auth);
 router.use(async (req, res, next) => {
   try {
     await ensureAdminDataSchema();
@@ -212,6 +216,50 @@ router.use(async (req, res, next) => {
       message: "Unable to prepare admin data schema support",
     });
   }
+});
+
+function resolveAdminDataAccessRule(req) {
+  const segments = String(req.path || "")
+    .split("/")
+    .filter(Boolean);
+
+  if (!segments.length) {
+    return null;
+  }
+
+  if (segments[0] === "recompute") {
+    if (segments[1] === "status") {
+      return { kind: "status" };
+    }
+
+    return {
+      kind: "department",
+      department: segments[1],
+      action: "recompute",
+    };
+  }
+
+  if (!["education", "health", "welfare", "disaster"].includes(segments[0])) {
+    return null;
+  }
+
+  return {
+    kind: "department",
+    department: segments[0],
+    action: req.method === "GET" ? "read" : "write",
+  };
+}
+
+router.use(async (req, res, next) => {
+  const accessRule = resolveAdminDataAccessRule(req);
+  if (!accessRule || accessRule.kind === "status") {
+    return next();
+  }
+
+  return requireDepartmentAccess(
+    accessRule.department,
+    accessRule.action,
+  )(req, res, next);
 });
 
 function parseBooleanFilter(value) {
@@ -2399,6 +2447,36 @@ router.post("/disaster/:id/archive", async (req, res) => {
 
 router.get("/recompute/status", async (req, res) => {
   const mergedState = mergeRecomputeStaleState();
+  const authUser = getAuthUser(req);
+
+  if (!isGlobalAccessRole(authUser.role)) {
+    const departments = await getAccessibleDepartmentsForUser(
+      authUser.id,
+      authUser.role,
+      "read",
+    );
+
+    if (!departments.length) {
+      return res.status(403).json({
+        status: "error",
+        message: "You do not have access to any department recompute status",
+      });
+    }
+
+    const filteredDepartments = departments.reduce((accumulator, department) => {
+      if (Object.prototype.hasOwnProperty.call(mergedState, department)) {
+        accumulator[department] = mergedState[department];
+      }
+      return accumulator;
+    }, {});
+
+    return res.json({
+      status: "success",
+      data: {
+        departments: filteredDepartments,
+      },
+    });
+  }
 
   return res.json({
     status: "success",
