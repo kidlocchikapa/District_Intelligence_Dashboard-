@@ -1,10 +1,14 @@
 const express = require("express");
 const router = express.Router();
 const db = require("../db");
+const auth = require("../middleware/auth");
+const requireDepartmentAccess = require("../middleware/requireDepartmentAccess");
 const {
   appendDistrictGeometryCondition,
   appendDistrictNameCondition,
 } = require("./queryFilters");
+
+router.use(auth, requireDepartmentAccess("education", "read"));
 
 function parseNumericValue(value) {
   if (value === null || value === undefined) {

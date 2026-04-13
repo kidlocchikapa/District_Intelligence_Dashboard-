@@ -1,7 +1,11 @@
 const express = require("express");
 const router = express.Router();
 const db = require("../db");
+const auth = require("../middleware/auth");
+const requireDepartmentAccess = require("../middleware/requireDepartmentAccess");
 const { appendDistrictGeometryCondition } = require("./queryFilters");
+
+router.use(auth, requireDepartmentAccess("disaster", "read"));
 
 // @route   GET api/v1/dashboard/disaster
 // @desc    Get disaster zones (GeoJSON)
