@@ -199,6 +199,18 @@ def load_to_postgis(session, gdf, dataset_type, if_exists='append'):
         return rows_loaded, normalized_table_names
 
     geom_type = 'MULTIPOLYGON' if dataset_type == 'disaster' else 'POINT'
+
+    requires_non_null_geom = dataset_type in {'education'}
+
+    if geom_type == 'POINT' and 'geom' in load_df.columns and requires_non_null_geom:
+        valid_geom_mask = load_df['geom'].notna()
+        dropped = int((~valid_geom_mask).sum())
+        if dropped > 0:
+            print(f"Skipping {dropped} rows with missing/invalid point geometry for {dataset_type} load")
+        load_df = load_df.loc[valid_geom_mask].copy()
+        if load_df.empty:
+            return 0, table_name
+
     load_df.to_sql(
         table_name,
         engine,

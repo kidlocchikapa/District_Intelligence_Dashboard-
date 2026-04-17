@@ -1,10 +1,12 @@
 import math
 import re
+import json
 from difflib import get_close_matches
 
 import geopandas as gpd
 import pandas as pd
-from shapely.geometry import MultiPolygon, Point, Polygon
+from shapely.geometry import MultiPolygon, Point, Polygon, shape
+from shapely import wkt
 from shapely.validation import make_valid
 
 from pipeline_config import GEOGRAPHIC_COLUMNS
@@ -214,15 +216,105 @@ def parse_coordinate_value(value):
         return dms_to_decimal(text)
 
 
+def _extract_point_from_geom_value(value):
+    if value is None or value is pd.NA:
+        return None
+
+    if isinstance(value, Point):
+        return value
+
+    if hasattr(value, 'geom_type') and getattr(value, 'geom_type', '').lower() == 'point':
+        return value
+
+    text_value = str(value).strip()
+    if not text_value:
+        return None
+
+    try:
+        if text_value.upper().startswith('SRID=') and ';' in text_value:
+            text_value = text_value.split(';', 1)[1]
+        geom = wkt.loads(text_value)
+        if isinstance(geom, Point):
+            return geom
+    except Exception:
+        pass
+
+    try:
+        parsed = json.loads(text_value)
+        geom = shape(parsed)
+        if isinstance(geom, Point):
+            return geom
+    except Exception:
+        pass
+
+    return None
+
+
 def parse_coordinates(df, lon_col='longitude', lat_col='latitude', compound_col='coordinates'):
     working = df.copy()
 
-    if compound_col in working.columns:
-        extracted = working[compound_col].astype(str).str.extract(
+    lon_aliases = [
+        lon_col,
+        'longitude',
+        'longitudes',
+        'lon',
+        'lng',
+        'long',
+        'x',
+        'x_coord',
+        'x_coordinate',
+        'xcoord',
+        'easting',
+    ]
+    lat_aliases = [
+        lat_col,
+        'latitude',
+        'latitudes',
+        'lat',
+        'y',
+        'y_coord',
+        'y_coordinate',
+        'ycoord',
+        'northing',
+    ]
+
+    for alias in lon_aliases:
+        if alias in working.columns:
+            if lon_col not in working.columns:
+                working[lon_col] = working[alias]
+            else:
+                working[lon_col] = working[lon_col].fillna(working[alias])
+
+    for alias in lat_aliases:
+        if alias in working.columns:
+            if lat_col not in working.columns:
+                working[lat_col] = working[alias]
+            else:
+                working[lat_col] = working[lat_col].fillna(working[alias])
+
+    compound_candidates = [compound_col, 'coord', 'coords', 'gps', 'location_coordinates']
+    compound_key = next((key for key in compound_candidates if key in working.columns), None)
+
+    if compound_key:
+        extracted = working[compound_key].astype(str).str.extract(
             r'(?P<latitude>-?\d+(?:\.\d+)?)\s*[,/]\s*(?P<longitude>-?\d+(?:\.\d+)?)'
         )
         working['latitude'] = working['latitude'].fillna(extracted['latitude']) if 'latitude' in working.columns else extracted['latitude']
         working['longitude'] = working['longitude'].fillna(extracted['longitude']) if 'longitude' in working.columns else extracted['longitude']
+
+        # If values look like lon,lat order then swap into the canonical columns.
+        extracted_lon_lat = working[compound_key].astype(str).str.extract(
+            r'(?P<longitude>-?\d+(?:\.\d+)?)\s*[,/]\s*(?P<latitude>-?\d+(?:\.\d+)?)'
+        )
+        candidate_lon = extracted_lon_lat['longitude'].apply(parse_coordinate_value)
+        candidate_lat = extracted_lon_lat['latitude'].apply(parse_coordinate_value)
+        swap_mask = (
+            candidate_lon.between(-180, 180, inclusive='both')
+            & candidate_lat.between(-90, 90, inclusive='both')
+        )
+        if swap_mask.any():
+            working.loc[swap_mask, 'longitude'] = working.loc[swap_mask, 'longitude'].fillna(candidate_lon[swap_mask])
+            working.loc[swap_mask, 'latitude'] = working.loc[swap_mask, 'latitude'].fillna(candidate_lat[swap_mask])
 
     if lon_col not in working.columns:
         working[lon_col] = pd.NA
@@ -236,8 +328,32 @@ def parse_coordinates(df, lon_col='longitude', lat_col='latitude', compound_col=
         working[lon_col] = working[lon_col].fillna(point_geometries.apply(lambda geom: geom.x if geom is not None else pd.NA))
         working[lat_col] = working[lat_col].fillna(point_geometries.apply(lambda geom: geom.y if geom is not None else pd.NA))
 
+    if 'geom' in working.columns:
+        point_geometries = working['geom'].apply(_extract_point_from_geom_value)
+        working[lon_col] = working[lon_col].fillna(point_geometries.apply(lambda geom: geom.x if geom is not None else pd.NA))
+        working[lat_col] = working[lat_col].fillna(point_geometries.apply(lambda geom: geom.y if geom is not None else pd.NA))
+
     working[lon_col] = working[lon_col].apply(parse_coordinate_value)
     working[lat_col] = working[lat_col].apply(parse_coordinate_value)
+
+    # Convert projected UTM-like coordinates (common in Malawi datasets) to WGS84.
+    invalid_bounds = (
+        ~working[lon_col].between(-180, 180, inclusive='both')
+        | ~working[lat_col].between(-90, 90, inclusive='both')
+    )
+    utm_like = (
+        working[lon_col].between(100000, 900000, inclusive='both')
+        & working[lat_col].between(7000000, 10000000, inclusive='both')
+    )
+    transform_mask = invalid_bounds & utm_like
+
+    if transform_mask.any():
+        projected_points = gpd.GeoSeries(
+            [Point(x, y) for x, y in zip(working.loc[transform_mask, lon_col], working.loc[transform_mask, lat_col])],
+            crs='EPSG:32736',
+        ).to_crs('EPSG:4326')
+        working.loc[transform_mask, lon_col] = projected_points.x.values
+        working.loc[transform_mask, lat_col] = projected_points.y.values
 
     valid_bounds = (
         working[lon_col].between(-180, 180, inclusive='both')

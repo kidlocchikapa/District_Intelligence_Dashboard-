@@ -70,13 +70,15 @@ CREATE TABLE IF NOT EXISTS education_facilities (
     teacher_pressure DOUBLE PRECISION,
     x_coordinate DOUBLE PRECISION,
     y_coordinate DOUBLE PRECISION,
-    osm_id BIGINT UNIQUE,
-    osm_type VARCHAR(100),
     ta_id INTEGER REFERENCES admin3_units(id),
     district_id INTEGER REFERENCES districts(id),
     geom GEOMETRY(Point, 4326) NOT NULL,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
+
+ALTER TABLE IF EXISTS education_facilities DROP CONSTRAINT IF EXISTS education_facilities_osm_id_key;
+ALTER TABLE IF EXISTS education_facilities DROP COLUMN IF EXISTS osm_id;
+ALTER TABLE IF EXISTS education_facilities DROP COLUMN IF EXISTS osm_type;
 
 -- Health Facilities
 CREATE TABLE IF NOT EXISTS health_facilities (
@@ -86,7 +88,6 @@ CREATE TABLE IF NOT EXISTS health_facilities (
     common_name VARCHAR(255),
     type VARCHAR(50), -- e.g., 'Clinic', 'Hospital'
     ownership VARCHAR(100),
-    "operator:type" VARCHAR(100),
     "capacity:persons" INTEGER,
     zone VARCHAR(100),
     district VARCHAR(255),
@@ -99,13 +100,16 @@ CREATE TABLE IF NOT EXISTS health_facilities (
     longitude DOUBLE PRECISION,
     patient_visits_total INTEGER,
     services_offered TEXT[],
-    osm_id BIGINT UNIQUE,
-    osm_type VARCHAR(100),
     ta_id INTEGER REFERENCES admin3_units(id),
     district_id INTEGER REFERENCES districts(id),
     geom GEOMETRY(Point, 4326),
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
+
+ALTER TABLE IF EXISTS health_facilities DROP CONSTRAINT IF EXISTS health_facilities_osm_id_key;
+ALTER TABLE IF EXISTS health_facilities DROP COLUMN IF EXISTS "operator:type";
+ALTER TABLE IF EXISTS health_facilities DROP COLUMN IF EXISTS osm_id;
+ALTER TABLE IF EXISTS health_facilities DROP COLUMN IF EXISTS osm_type;
 
 -- Welfare Beneficiaries
 CREATE TABLE IF NOT EXISTS welfare_beneficiaries (
