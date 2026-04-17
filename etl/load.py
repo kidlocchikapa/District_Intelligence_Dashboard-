@@ -1,3 +1,4 @@
+# importing libraries
 import json
 
 import pandas as pd
@@ -7,7 +8,7 @@ from sqlalchemy import text
 
 from pipeline_config import DATASET_CONFIG
 
-
+#This function handles fetching administrative unit data from the database and create a lookup structure
 def fetch_admin_unit_lookup(session):
     query = text(
         """
@@ -47,7 +48,8 @@ def fetch_admin_unit_lookup(session):
             lookup[(normalized_name, '')] = record
     return {'by_name': lookup, 'by_id': by_id}
 
-
+# This function takes a DataFrame and an administrative unit lookup, and attempts to assign TA, ward,
+#  and district IDs based on the names and codes in the DataFrame
 def assign_ward_ids(df, admin_lookup):
     working = df.copy()
     ta_ids = []
@@ -90,7 +92,8 @@ def assign_ward_ids(df, admin_lookup):
     working['geo_code'] = geo_codes
     return working
 
-
+# This function fetches administrative unit data from the database and returns it as a DataFrame, which can be used
+#  for indicator processing and assignment
 def fetch_admin_units_for_indicators(session):
     query = text(
         """
@@ -121,7 +124,8 @@ def fetch_admin_units_for_indicators(session):
     rows = session.execute(query).mappings().all()
     return pd.DataFrame(rows)
 
-
+# This function prepares a DataFrame for loading into PostGIS by ensuring 
+# required columns are present, converting geometries to WKT, and sanitizing JSON values
 def prepare_dataframe_for_load(df, dataset_type):
     working = df.copy()
     load_columns = DATASET_CONFIG[dataset_type]['load_columns']
@@ -153,7 +157,7 @@ def prepare_dataframe_for_load(df, dataset_type):
 
     return working[load_columns]
 
-
+# This function recursively sanitizes JSON values by converting pandas NA and NaN to None
 def _sanitize_json_value(value):
     if value is None or value is pd.NA:
         return None
@@ -175,7 +179,7 @@ def _sanitize_json_value(value):
 
     return value
 
-
+# this function trim strings
 def _coerce_array(value):
     if value is None or pd.isna(value):
         return None
@@ -183,7 +187,8 @@ def _coerce_array(value):
         return value
     return [item.strip() for item in str(value).split(',') if item.strip()]
 
-
+# This function handles loading a GeoDataFrame into PostGIS, with special handling for boundary d
+# atasets to load them into normalized tables
 def load_to_postgis(session, gdf, dataset_type, if_exists='append'):
     engine = session.bind
     table_name = DATASET_CONFIG[dataset_type]['table_name']
@@ -203,7 +208,7 @@ def load_to_postgis(session, gdf, dataset_type, if_exists='append'):
     )
     return len(load_df), table_name
 
-
+# This function handles loading indicator data into the unified_indicators table
 def load_unified_indicators(session, indicators_df, source_filename=None):
     if indicators_df is None or indicators_df.empty:
         return 0
@@ -216,7 +221,7 @@ def load_unified_indicators(session, indicators_df, source_filename=None):
     working.to_sql('unified_indicators', engine, if_exists='append', index=False, dtype={'metadata': JSONB})
     return len(working)
 
-
+# This function handles loading WorldPop age and sex data into the worldpop_age_sex table
 def load_worldpop_age_sex(session, age_sex_df):
     if age_sex_df is None or age_sex_df.empty:
         return 0
@@ -226,23 +231,34 @@ def load_worldpop_age_sex(session, age_sex_df):
     working['metadata'] = working['metadata'].apply(_sanitize_json_value)
 
     years = [int(year) for year in working['worldpop_year'].dropna().unique().tolist()]
-    admin_unit_ids = [int(admin_id) for admin_id in working['admin_unit_id'].dropna().unique().tolist()]
 
-    if years and admin_unit_ids:
-        session.execute(
-            text(
-                """
-                DELETE FROM worldpop_age_sex
-                WHERE worldpop_year = ANY(:years)
-                  AND admin_unit_id = ANY(:admin_unit_ids)
-                """
-            ),
-            {
-                'years': years,
-                'admin_unit_ids': admin_unit_ids,
-            },
+    if years:
+        unit_types = (
+            working[['admin_unit_type', 'admin_unit_id']]
+            .dropna()
+            .copy()
         )
-        session.commit()
+        if not unit_types.empty:
+            for admin_unit_type, group in unit_types.groupby('admin_unit_type'):
+                admin_ids = [int(admin_id) for admin_id in group['admin_unit_id'].tolist()]
+                if not admin_ids:
+                    continue
+                session.execute(
+                    text(
+                        """
+                        DELETE FROM worldpop_age_sex
+                        WHERE worldpop_year = ANY(:years)
+                          AND LOWER(admin_unit_type) = LOWER(:admin_unit_type)
+                          AND admin_unit_id = ANY(:admin_unit_ids)
+                        """
+                    ),
+                    {
+                        'years': years,
+                        'admin_unit_type': str(admin_unit_type),
+                        'admin_unit_ids': admin_ids,
+                    },
+                )
+            session.commit()
 
     working.to_sql(
         'worldpop_age_sex',
@@ -253,7 +269,7 @@ def load_worldpop_age_sex(session, age_sex_df):
     )
     return len(working)
 
-
+# This function handles loading analysis results into the analysis_results table,
 def load_analysis_results(session, analysis_df):
     if analysis_df is None or analysis_df.empty:
         return 0
@@ -285,7 +301,7 @@ def load_analysis_results(session, analysis_df):
     )
     return len(working)
 
-
+# This function ensures that the normalized boundary tables (districts and admin3_units) exist in the database
 def ensure_normalized_boundary_tables(session):
     session.execute(
         text(
@@ -315,11 +331,13 @@ def ensure_normalized_boundary_tables(session):
                 id SERIAL PRIMARY KEY,
                 name VARCHAR(255) NOT NULL,
                 code VARCHAR(100) UNIQUE,
-                type VARCHAR(50) NOT NULL CHECK (type IN ('TA', 'Ward', 'Village', 'Admin3')),
+                type VARCHAR(50) NOT NULL CHECK (type IN ('TA', 'Village', 'Admin3')),
                 district_id INTEGER REFERENCES districts(id) ON DELETE SET NULL,
                 valid_on DATE,
                 boundary_version VARCHAR(100),
                 reference_name VARCHAR(255),
+                population_total INTEGER DEFAULT 0,
+                population_density FLOAT DEFAULT 0,
                 metadata JSONB DEFAULT '{}'::jsonb,
                 geom GEOMETRY(MultiPolygon, 4326),
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -328,13 +346,16 @@ def ensure_normalized_boundary_tables(session):
             """
         )
     )
+    session.execute(text("ALTER TABLE IF EXISTS admin3_units ADD COLUMN IF NOT EXISTS population_total INTEGER DEFAULT 0"))
+    session.execute(text("ALTER TABLE IF EXISTS admin3_units ADD COLUMN IF NOT EXISTS population_density FLOAT DEFAULT 0"))
     session.execute(text("CREATE INDEX IF NOT EXISTS idx_districts_geom ON districts USING GIST(geom)"))
     session.execute(text("CREATE INDEX IF NOT EXISTS idx_districts_name ON districts(name)"))
     session.execute(text("CREATE INDEX IF NOT EXISTS idx_admin3_units_geom ON admin3_units USING GIST(geom)"))
     session.execute(text("CREATE INDEX IF NOT EXISTS idx_admin3_units_district_id ON admin3_units(district_id)"))
     session.commit()
 
-
+# This function handles loading boundary data into normalized tables (districts and admin3_units) with logic to resolve
+#  parent-child relationships  
 def load_boundaries_normalized(session, gdf):
     ensure_normalized_boundary_tables(session)
     engine = session.bind

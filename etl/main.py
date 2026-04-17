@@ -52,6 +52,11 @@ from worldpop import (
 )
 
 
+DISTRICT_GROUPS = {
+    'zomba_all': ['Zomba', 'Zomba City'],
+}
+
+
 ##main ETL processing functions
 def process_tabular_dataset(
     session,
@@ -80,7 +85,7 @@ def process_tabular_dataset(
 
         metadata = {
             'source_name': source_name,
-            'accepted_types': ['District', 'TA', 'Ward', 'Village'],
+            'accepted_types': ['District', 'TA', 'Village'],
         }
 
 ##logging the ETL run for boundary datasets without indicator derivation
@@ -220,6 +225,7 @@ def process_worldpop_dataset(
     session,
     raster_path=None,
     district_name=None,
+    district_names=None,
     api_url=None,
     year=DEFAULT_WORLDPOP_YEAR,
     worldpop_dataset=DEFAULT_WORLDPOP_DATASET,
@@ -232,11 +238,21 @@ def process_worldpop_dataset(
     resolved_worldpop = None
     source_name = None
     row_count = 0
+    selected_districts = []
+    if district_name:
+        selected_districts.append(district_name)
+    if district_names:
+        selected_districts.extend(district_names)
+    selected_districts = sorted({name for name in selected_districts if name})
 
 ## For raster-based WorldPop processing, fetch admin units, process the raster, and derive indicators
     if raster_path:
         source_name = os.path.basename(raster_path)
-        admin_units_gdf = fetch_admin_units(session, district_name=district_name)
+        admin_units_gdf = fetch_admin_units(
+            session,
+            district_name=district_name,
+            district_names=selected_districts,
+        )
         if admin_units_gdf.empty:
             raise ValueError('No administrative units with geometry were found for WorldPop processing')
 
@@ -248,6 +264,7 @@ def process_worldpop_dataset(
         row_count = len(population_gdf)
         metadata = {
             'district_name': district_name,
+            'district_names': selected_districts,
             'indicator_rows_loaded': indicators_loaded,
             'worldpop_year': year,
             'raster_path': raster_path,
@@ -255,7 +272,11 @@ def process_worldpop_dataset(
         }
     elif worldpop_dataset == 'wpgppop':
         source_name = f'worldpop_{worldpop_dataset}_{year}'
-        admin_units_gdf = fetch_admin_units(session, district_name=district_name)
+        admin_units_gdf = fetch_admin_units(
+            session,
+            district_name=district_name,
+            district_names=selected_districts,
+        )
         if admin_units_gdf.empty:
             raise ValueError('No administrative units with geometry were found for WorldPop processing')
 
@@ -273,6 +294,7 @@ def process_worldpop_dataset(
         row_count = len(population_gdf)
         metadata = {
             'district_name': district_name,
+            'district_names': selected_districts,
             'indicator_rows_loaded': indicators_loaded,
             'worldpop_year': year,
             'worldpop_dataset': worldpop_dataset,
@@ -280,7 +302,11 @@ def process_worldpop_dataset(
         }
     elif worldpop_dataset == 'wpgpas':
         source_name = f'worldpop_{worldpop_dataset}_{year}'
-        admin_units_gdf = fetch_admin_units(session, district_name=district_name)
+        admin_units_gdf = fetch_admin_units(
+            session,
+            district_name=district_name,
+            district_names=selected_districts,
+        )
         if admin_units_gdf.empty:
             raise ValueError('No administrative units with geometry were found for WorldPop processing')
 
@@ -300,6 +326,7 @@ def process_worldpop_dataset(
         metadata = {
             'age_sex_rows_loaded': rows_loaded,
             'district_name': district_name,
+            'district_names': selected_districts,
             'indicator_rows_loaded': indicators_loaded,
             'worldpop_year': year,
             'worldpop_dataset': worldpop_dataset,
@@ -423,6 +450,7 @@ def main():
     parser.add_argument('--api-header', action='append', help='Optional API headers in KEY=VALUE format')
     parser.add_argument('--gazetteer', help='Optional path to a reference gazetteer file')
     parser.add_argument('--district', help='District filter for WorldPop processing')
+    parser.add_argument('--district-group', choices=sorted(DISTRICT_GROUPS.keys()), help='Named district group for WorldPop processing')
     parser.add_argument('--worldpop-year', type=int, default=DEFAULT_WORLDPOP_YEAR, help='WorldPop population year to use')
     parser.add_argument('--worldpop-dataset', default=DEFAULT_WORLDPOP_DATASET, choices=['wpgppop', 'wpgpas'], help='WorldPop stats dataset to query')
     parser.add_argument('--worldpop-api-key', help='Optional WorldPop API key')
@@ -430,7 +458,7 @@ def main():
     parser.add_argument('--school-age-max', type=int, default=DEFAULT_SCHOOL_AGE_MAX, help='Upper bound for school-age population aggregation')
     parser.add_argument('--child-class-max', type=int, default=DEFAULT_CHILD_CLASS_MAX, help='Maximum wpgpas class treated as child population')
     parser.add_argument('--analysis-type', action='append', choices=sorted(ANALYSIS_TYPES), help='Spatial analysis to run')
-    parser.add_argument('--admin-level', choices=['District', 'Ward', 'Village'], help='Administrative level for analysis')
+    parser.add_argument('--admin-level', choices=['District', 'TA', 'Village'], help='Administrative level for analysis')
     parser.add_argument('--coverage-distance-km', type=float, default=5.0, help='Coverage buffer distance in kilometers')
     parser.add_argument(
         '--missing-data-strategy',
@@ -441,6 +469,7 @@ def main():
 
     args = parser.parse_args()
     session = get_session()
+    selected_group_districts = DISTRICT_GROUPS.get(args.district_group, [])
 
     try:
         if args.type == 'worldpop':
@@ -448,6 +477,7 @@ def main():
                 session,
                 raster_path=args.file,
                 district_name=args.district,
+                district_names=selected_group_districts,
                 api_url=args.api_url,
                 year=args.worldpop_year,
                 worldpop_dataset=args.worldpop_dataset,

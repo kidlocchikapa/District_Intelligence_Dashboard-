@@ -75,7 +75,8 @@ def load_worldpop_catalog(url=None, timeout=60):
     return fetch_json(catalog_url, timeout=timeout)
 
 
-## Function to select the most appropriate WorldPop dataset based on year and ISO3 country code, ensuring it is a GeoTIFF format
+## Function to select the most appropriate WorldPop dataset based on year a
+# nd ISO3 country code, ensuring it is a GeoTIFF format
 def select_worldpop_dataset(catalog, year=DEFAULT_WORLDPOP_YEAR, iso3='MWI'):
     entries = catalog.get('data', []) if isinstance(catalog, dict) else catalog
     if not isinstance(entries, list):
@@ -115,7 +116,8 @@ def select_worldpop_dataset(catalog, year=DEFAULT_WORLDPOP_YEAR, iso3='MWI'):
     }
 
 
-## Function to download a WorldPop raster file from a given URL, saving it to a specified directory with optional filename and timeout settings
+## Function to download a WorldPop raster file from a given URL, saving it to a specified 
+# directory with optional filename and timeout settings
 def download_worldpop_raster(raster_url, download_dir, filename=None, timeout=300):
     os.makedirs(download_dir, exist_ok=True)
     target_name = filename or os.path.basename(raster_url.split('?', 1)[0])
@@ -133,7 +135,8 @@ def download_worldpop_raster(raster_url, download_dir, filename=None, timeout=30
 
     return target_path
 
-## Function to resolve the appropriate WorldPop raster dataset for a given year and ISO3 country code, downloading the raster file and returning metadata about the selected dataset
+## Function to resolve the appropriate WorldPop raster dataset for a given year 
+# and ISO3 country code, downloading the raster file and returning metadata about the selected dataset
 def resolve_worldpop_raster(
     api_url=None,
     year=DEFAULT_WORLDPOP_YEAR,
@@ -151,7 +154,8 @@ def resolve_worldpop_raster(
     selected['raster_path'] = raster_path
     return selected
 
-## Helper function to convert a geometry object to a GeoJSON FeatureCollection format, ensuring it is compatible with WorldPop API requirements
+## Helper function to convert a geometry object to a GeoJSON FeatureCollection format,
+#  ensuring it is compatible with WorldPop API requirements
 def geometry_to_feature_collection(geometry):
     return {
         'type': 'FeatureCollection',
@@ -165,12 +169,14 @@ def geometry_to_feature_collection(geometry):
     }
 
 
-## Helper function to serialize a geometry object into a GeoJSON FeatureCollection string, using compact separators to minimize the resulting string length for API usage
+## Helper function to serialize a geometry object into a GeoJSON FeatureCollection string
+# , using compact separators to minimize the resulting string length for API usage
 def serialize_geojson_feature_collection(geometry):
     return json.dumps(geometry_to_feature_collection(geometry), separators=(',', ':'))
 
 
-## Function to build a WorldPop statistics API URL with the appropriate query parameters, including dataset, year, GeoJSON payload, API key, and asynchronous execution flag
+## Function to build a WorldPop statistics API URL with the appropriate query parameters, including 
+# dataset, year, GeoJSON payload, API key, and asynchronous execution flag
 def build_worldpop_stats_url(api_url, dataset, year, geojson_payload, api_key=None, run_async=False):
     params = {
         'dataset': dataset,
@@ -183,7 +189,9 @@ def build_worldpop_stats_url(api_url, dataset, year, geojson_payload, api_key=No
     return f"{(api_url or DEFAULT_WORLDPOP_STATS_URL).rstrip('?')}?{urlencode(params)}"
 
 
-## Main function to prepare a geometry for a WorldPop API request, attempting various simplification tolerances to reduce the GeoJSON payload size while ensuring it remains valid for the API, and falling back to the geometry's envelope if necessary
+## Main function to prepare a geometry for a WorldPop API request, attempting various 
+# simplification tolerances to reduce the GeoJSON payload size while ensuring it remains valid for the API,
+#  and falling back to the geometry's envelope if necessary
 def prepare_worldpop_request_geometry(
     geometry,
     api_url,
@@ -213,7 +221,8 @@ def prepare_worldpop_request_geometry(
         raise ValueError(f'WorldPop request URL remains too large after simplification ({len(target_url)} chars)')
     return envelope, payload, 'envelope', target_url
 
-## Function to wait for a WorldPop asynchronous task to complete by polling the task status endpoint, with error handling and timeout support
+## Function to wait for a WorldPop asynchronous task to complete by polling the task status endpoint, 
+# with error handling and timeout support
 def wait_for_worldpop_task(task_id, tasks_url=None, timeout=180, poll_interval=2):
     target_base = (tasks_url or DEFAULT_WORLDPOP_TASKS_URL).rstrip('/')
     target_url = f'{target_base}/{task_id}'
@@ -237,7 +246,8 @@ def wait_for_worldpop_task(task_id, tasks_url=None, timeout=180, poll_interval=2
 
 '''
 Function to request WorldPop statistics for a given geometry, dataset, and year, preparing the geometry for
-the API request, handling asynchronous execution if needed, and returning the resulting statistics payload with metadata about the request
+the API request, handling asynchronous execution if needed, and returning the 
+resulting statistics payload with metadata about the request
 '''
 ## 
 def request_worldpop_stats(
@@ -377,7 +387,8 @@ def aggregate_child_population_from_classes(agesex_pyramid, max_class=DEFAULT_CH
         'child_population_female': female_total,
     }
 
-## Helper function to build a standardized indicator record from a WorldPop statistics response, including dataset type, indicator name, geographic information, indicator value, source filename, and optional metadata
+## Helper function to build a standardized indicator record from a WorldPop statistics response, 
+# including dataset type, indicator name, geographic information, indicator value, source filename, and optional metadata
 def build_indicator_record(row, indicator_name, indicator_value, source_filename, metadata=None):
     return {
         'dataset_type': 'worldpop',
@@ -391,7 +402,8 @@ def build_indicator_record(row, indicator_name, indicator_value, source_filename
     }
 
 
-## Helper function to build a standardized age and sex disaggregated record from a WorldPop statistics response, including geographic information, age and
+## Helper function to build a standardized age and sex disaggregated record from a WorldPop 
+# statistics response, including geographic information, age and
 def build_age_sex_record(row, year, bucket, response_payload):
     task_id = response_payload.get('taskid')
     start_time = response_payload.get('startTime')
@@ -603,16 +615,64 @@ def get_zonal_stats(raster_path, polygons_gdf, stat='sum'):
 
 ## Function to fetch administrative units from a database session, optionally filtering by district name, 
 ## and returning the results as a GeoDataFrame with geometry column named 'geom'
-def fetch_admin_units(session, district_name=None):
+def fetch_admin_units(session, district_name=None, district_names=None):
     query = """
-        SELECT id, code, name, 'District' AS type, population_total, geom
-        FROM districts
-        WHERE geom IS NOT NULL
+        SELECT
+            u.id,
+            u.code,
+            u.name,
+            u.type,
+            u.population_total,
+            u.geom
+        FROM (
+            SELECT
+                d.id,
+                d.code,
+                d.name,
+                'District'::VARCHAR AS type,
+                COALESCE(d.population_total, 0)::INTEGER AS population_total,
+                d.geom,
+                d.id AS district_id
+            FROM districts d
+            WHERE d.geom IS NOT NULL
+
+            UNION ALL
+
+            SELECT
+                a.id,
+                a.code,
+                a.name,
+                'TA'::VARCHAR AS type,
+                COALESCE(a.population_total, 0)::INTEGER AS population_total,
+                a.geom,
+                a.district_id
+            FROM admin3_units a
+            WHERE a.geom IS NOT NULL
+              AND LOWER(a.type) = 'ta'
+        ) u
+        LEFT JOIN districts d ON d.id = u.district_id
     """
     params = {}
+    selected_district_names = []
     if district_name:
-        query += " AND LOWER(name) = LOWER(:district_name)"
-        params['district_name'] = district_name
+        selected_district_names.append(str(district_name).strip().lower())
+    if district_names:
+        selected_district_names.extend(
+            str(name).strip().lower()
+            for name in district_names
+            if str(name).strip()
+        )
+
+    selected_district_names = sorted(set(selected_district_names))
+
+    if selected_district_names:
+        query += """
+            WHERE
+                (LOWER(u.type) = 'district' AND LOWER(u.name) = ANY(:district_names))
+                OR
+                (LOWER(u.type) = 'ta' AND LOWER(d.name) = ANY(:district_names))
+        """
+        params['district_names'] = selected_district_names
 
     return gpd.read_postgis(text(query), session.bind, geom_col='geom', params=params)
 
@@ -638,21 +698,41 @@ def process_population_data(raster_path, admin_units_gdf):
 def update_population_metrics(session, population_gdf):
     updated = 0
     for _, row in population_gdf.iterrows():
-        session.execute(
-            text(
-                """
-                UPDATE districts
-                SET population_total = :population_total,
-                    population_density = :population_density
-                WHERE id = :id
-                """
-            ),
-            {
-                'id': int(row['id']),
-                'population_total': int(row['population_total'] or 0),
-                'population_density': float(row['population_density'] or 0),
-            },
-        )
+        row_type = str(row.get('type') or '').strip().lower()
+        params = {
+            'id': int(row['id']),
+            'population_total': int(row['population_total'] or 0),
+            'population_density': float(row['population_density'] or 0),
+        }
+
+        if row_type == 'district':
+            session.execute(
+                text(
+                    """
+                    UPDATE districts
+                    SET population_total = :population_total,
+                        population_density = :population_density
+                    WHERE id = :id
+                    """
+                ),
+                params,
+            )
+        elif row_type == 'ta':
+            session.execute(
+                text(
+                    """
+                    UPDATE admin3_units
+                    SET population_total = :population_total,
+                        population_density = :population_density
+                    WHERE id = :id
+                      AND LOWER(type) = 'ta'
+                    """
+                ),
+                params,
+            )
+        else:
+            continue
+
         updated += 1
 
     session.commit()

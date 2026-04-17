@@ -27,6 +27,8 @@ CREATE TABLE IF NOT EXISTS admin3_units (
     valid_on DATE,
     boundary_version VARCHAR(100),
     reference_name VARCHAR(255),
+    population_total INTEGER DEFAULT 0,
+    population_density FLOAT DEFAULT 0,
     metadata JSONB DEFAULT '{}'::jsonb,
     geom GEOMETRY(MultiPolygon, 4326),
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -35,6 +37,8 @@ CREATE TABLE IF NOT EXISTS admin3_units (
 
 ALTER TABLE IF EXISTS districts DROP COLUMN IF EXISTS source;
 ALTER TABLE IF EXISTS admin3_units DROP COLUMN IF EXISTS source;
+ALTER TABLE IF EXISTS admin3_units ADD COLUMN IF NOT EXISTS population_total INTEGER DEFAULT 0;
+ALTER TABLE IF EXISTS admin3_units ADD COLUMN IF NOT EXISTS population_density FLOAT DEFAULT 0;
 
 UPDATE admin3_units
 SET type = 'TA'
