@@ -12,8 +12,10 @@ from ingest import extract_source, load_reference_gazetteer
 from load import (
     assign_ward_ids,
     fetch_admin_unit_lookup,
+    fetch_spatial_admin_lookup,
     fetch_admin_units_for_indicators,
     load_analysis_results,
+    run_post_load_spatial_fk_enrichment,
     load_to_postgis,
     load_unified_indicators,
 )
@@ -173,7 +175,8 @@ def process_tabular_dataset(
 
     admin_units_df = fetch_admin_units_for_indicators(session)
     admin_lookup = fetch_admin_unit_lookup(session)
-    transformed_df = assign_ward_ids(transformed_df, admin_lookup)
+    spatial_lookup = fetch_spatial_admin_lookup(session)
+    transformed_df = assign_ward_ids(transformed_df, admin_lookup, spatial_lookup=spatial_lookup)
     gdf = to_gdf(transformed_df)
     if dataset_type == 'disaster' and 'geometry' in gdf.columns:
         gdf['geometry'] = gdf['geometry'].apply(ensure_multipolygon)
@@ -181,6 +184,12 @@ def process_tabular_dataset(
     rows_flagged = int(transformed_df['is_flagged'].sum()) if 'is_flagged' in transformed_df.columns else 0
     rows_processed = len(transformed_df)
     rows_loaded, table_name = load_to_postgis(session, gdf, dataset_type)
+    enrichment_result = run_post_load_spatial_fk_enrichment(
+        session,
+        dataset_type,
+        started_at=started_at,
+        completed_at=datetime.utcnow(),
+    )
 
     indicators_df = derive_indicators(transformed_df, dataset_type, admin_units_df)
     indicators_loaded = load_unified_indicators(session, indicators_df, source_filename=source_name)
@@ -190,6 +199,7 @@ def process_tabular_dataset(
         'gazetteer_rows': len(gazetteer_df),
         'indicator_rows_loaded': indicators_loaded,
         'source_name': source_name,
+        'post_load_spatial_fk_enrichment': enrichment_result,
     }
 
     log_etl_run(

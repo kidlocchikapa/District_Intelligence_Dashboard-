@@ -5,6 +5,8 @@ import pandas as pd
 from geoalchemy2 import Geometry, WKTElement
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy import text
+from shapely.geometry import Point
+from shapely import wkt
 
 from pipeline_config import DATASET_CONFIG
 
@@ -48,9 +50,90 @@ def fetch_admin_unit_lookup(session):
             lookup[(normalized_name, '')] = record
     return {'by_name': lookup, 'by_id': by_id}
 
+
+def fetch_spatial_admin_lookup(session):
+    query = text(
+        """
+        SELECT
+            d.id AS district_id,
+            d.name AS district_name,
+            ST_AsText(d.geom) AS district_geom_wkt,
+            a.id AS ta_id,
+            a.name AS ta_name,
+            ST_AsText(a.geom) AS ta_geom_wkt
+        FROM districts d
+        LEFT JOIN admin3_units a
+            ON a.district_id = d.id
+            AND LOWER(a.type) = 'ta'
+        WHERE d.geom IS NOT NULL
+        """
+    )
+    rows = session.execute(query).mappings().all()
+
+    districts = {}
+    ta_units = []
+    for row in rows:
+        district_id = row['district_id']
+        if district_id not in districts:
+            district_geom = wkt.loads(row['district_geom_wkt']) if row['district_geom_wkt'] else None
+            districts[district_id] = {
+                'id': district_id,
+                'name': row['district_name'],
+                'geom': district_geom,
+            }
+
+        if row['ta_id'] and row['ta_geom_wkt']:
+            ta_units.append(
+                {
+                    'id': row['ta_id'],
+                    'name': row['ta_name'],
+                    'district_id': district_id,
+                    'geom': wkt.loads(row['ta_geom_wkt']),
+                }
+            )
+
+    return {
+        'districts': list(districts.values()),
+        'ta_units': ta_units,
+    }
+
+
+def _normalize_lookup_text(value):
+    if value is None or pd.isna(value):
+        return ''
+    return str(value).strip().lower()
+
+
+def _coalesce_row_values(row, columns):
+    for column in columns:
+        value = row.get(column)
+        if pd.notna(value):
+            text = str(value).strip()
+            if text:
+                return text
+    return None
+
+
+def _find_spatial_match(point, polygons):
+    if point is None:
+        return None
+
+    # Prefer strict containment; fallback to intersects for boundary-touch cases.
+    for candidate in polygons:
+        geom = candidate.get('geom')
+        if geom is not None and point.within(geom):
+            return candidate
+
+    for candidate in polygons:
+        geom = candidate.get('geom')
+        if geom is not None and point.intersects(geom):
+            return candidate
+
+    return None
+
 # This function takes a DataFrame and an administrative unit lookup, and attempts to assign TA, ward,
 #  and district IDs based on the names and codes in the DataFrame
-def assign_ward_ids(df, admin_lookup):
+def assign_ward_ids(df, admin_lookup, spatial_lookup=None):
     working = df.copy()
     ta_ids = []
     ward_ids = []
@@ -58,10 +141,25 @@ def assign_ward_ids(df, admin_lookup):
     geo_codes = []
     lookup_by_name = admin_lookup['by_name']
     lookup_by_id = admin_lookup['by_id']
+    district_polygons = (spatial_lookup or {}).get('districts', [])
+    ta_polygons = (spatial_lookup or {}).get('ta_units', [])
 
     for _, row in working.iterrows():
-        ward_name = (row.get('ward_name') or '').strip().lower() if pd.notna(row.get('ward_name')) else ''
-        district_name = (row.get('district_name') or '').strip().lower() if pd.notna(row.get('district_name')) else ''
+        ward_name = _normalize_lookup_text(
+            _coalesce_row_values(row, ['ward_name', 'ta_name', 'admin3_unit'])
+        )
+        district_name = _normalize_lookup_text(
+            _coalesce_row_values(row, ['district_name', 'district'])
+        )
+
+        lon = row.get('longitude')
+        lat = row.get('latitude')
+        point = None
+        if pd.notna(lon) and pd.notna(lat):
+            try:
+                point = Point(float(lon), float(lat))
+            except Exception:
+                point = None
 
         ward_match = (
             lookup_by_name.get((ward_name, 'ward'))
@@ -79,6 +177,19 @@ def assign_ward_ids(df, admin_lookup):
             parent = lookup_by_id.get(ward_match['parent_id'])
             if parent and parent['type'] == 'district':
                 district_id = parent['id']
+
+        # Spatial relationship derivation for upload-time foreign keys.
+        if ward_id is None and point is not None and ta_polygons:
+            matched_ta = _find_spatial_match(point, ta_polygons)
+            if matched_ta:
+                ward_id = matched_ta['id']
+                if district_id is None:
+                    district_id = matched_ta.get('district_id')
+
+        if district_id is None and point is not None and district_polygons:
+            matched_district = _find_spatial_match(point, district_polygons)
+            if matched_district:
+                district_id = matched_district['id']
 
         chosen = ward_match or district_match
         ta_ids.append(ward_id)
@@ -219,6 +330,146 @@ def load_to_postgis(session, gdf, dataset_type, if_exists='append'):
         dtype={'geom': Geometry(geom_type, srid=4326)},
     )
     return len(load_df), table_name
+
+
+def run_post_load_spatial_fk_enrichment(session, dataset_type, started_at, completed_at):
+    if dataset_type not in {'education', 'health'}:
+        return {'enabled': False, 'updated_rows': 0}
+
+    table_name = DATASET_CONFIG[dataset_type]['table_name']
+    params = {
+        'started_at': started_at,
+        'completed_at': completed_at,
+    }
+
+    updates = []
+
+    # District assignment: strict point-in-polygon first.
+    updates.append(
+        session.execute(
+            text(
+                f"""
+                UPDATE {table_name} t
+                SET district_id = (
+                    SELECT d.id
+                    FROM districts d
+                    WHERE d.geom IS NOT NULL
+                      AND t.geom IS NOT NULL
+                      AND ST_Within(t.geom, d.geom)
+                    ORDER BY ST_Area(d.geom) DESC
+                    LIMIT 1
+                )
+                WHERE t.created_at >= :started_at
+                  AND t.created_at <= :completed_at
+                  AND t.district_id IS NULL
+                  AND t.geom IS NOT NULL
+                """
+            ),
+            params,
+        ).rowcount
+    )
+
+    # District fallback for boundary-touching points.
+    updates.append(
+        session.execute(
+            text(
+                f"""
+                UPDATE {table_name} t
+                SET district_id = (
+                    SELECT d.id
+                    FROM districts d
+                    WHERE d.geom IS NOT NULL
+                      AND t.geom IS NOT NULL
+                      AND ST_Intersects(t.geom, d.geom)
+                    ORDER BY ST_Area(d.geom) DESC
+                    LIMIT 1
+                )
+                WHERE t.created_at >= :started_at
+                  AND t.created_at <= :completed_at
+                  AND t.district_id IS NULL
+                  AND t.geom IS NOT NULL
+                """
+            ),
+            params,
+        ).rowcount
+    )
+
+    # TA assignment: strict point-in-polygon first.
+    updates.append(
+        session.execute(
+            text(
+                f"""
+                UPDATE {table_name} t
+                SET ta_id = (
+                    SELECT a.id
+                    FROM admin3_units a
+                    WHERE LOWER(a.type) = 'ta'
+                      AND a.geom IS NOT NULL
+                      AND t.geom IS NOT NULL
+                      AND ST_Within(t.geom, a.geom)
+                    ORDER BY ST_Area(a.geom) ASC
+                    LIMIT 1
+                )
+                WHERE t.created_at >= :started_at
+                  AND t.created_at <= :completed_at
+                  AND t.ta_id IS NULL
+                  AND t.geom IS NOT NULL
+                """
+            ),
+            params,
+        ).rowcount
+    )
+
+    # TA fallback for boundary-touching points.
+    updates.append(
+        session.execute(
+            text(
+                f"""
+                UPDATE {table_name} t
+                SET ta_id = (
+                    SELECT a.id
+                    FROM admin3_units a
+                    WHERE LOWER(a.type) = 'ta'
+                      AND a.geom IS NOT NULL
+                      AND t.geom IS NOT NULL
+                      AND ST_Intersects(t.geom, a.geom)
+                    ORDER BY ST_Area(a.geom) ASC
+                    LIMIT 1
+                )
+                WHERE t.created_at >= :started_at
+                  AND t.created_at <= :completed_at
+                  AND t.ta_id IS NULL
+                  AND t.geom IS NOT NULL
+                """
+            ),
+            params,
+        ).rowcount
+    )
+
+    # Name-based district fallback for rows without usable geometry.
+    updates.append(
+        session.execute(
+            text(
+                f"""
+                UPDATE {table_name} t
+                SET district_id = (
+                    SELECT d.id
+                    FROM districts d
+                    WHERE t.district IS NOT NULL
+                      AND LOWER(TRIM(t.district)) = LOWER(TRIM(d.name))
+                    LIMIT 1
+                )
+                WHERE t.created_at >= :started_at
+                  AND t.created_at <= :completed_at
+                  AND t.district_id IS NULL
+                """
+            ),
+            params,
+        ).rowcount
+    )
+
+    session.commit()
+    return {'enabled': True, 'updated_rows': sum(int(value or 0) for value in updates)}
 
 # This function handles loading indicator data into the unified_indicators table
 def load_unified_indicators(session, indicators_df, source_filename=None):
