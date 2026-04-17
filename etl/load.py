@@ -50,6 +50,7 @@ def fetch_admin_unit_lookup(session):
 
 def assign_ward_ids(df, admin_lookup):
     working = df.copy()
+    ta_ids = []
     ward_ids = []
     district_ids = []
     geo_codes = []
@@ -78,10 +79,12 @@ def assign_ward_ids(df, admin_lookup):
                 district_id = parent['id']
 
         chosen = ward_match or district_match
+        ta_ids.append(ward_id)
         ward_ids.append(ward_id)
         district_ids.append(district_id)
         geo_codes.append(row.get('geo_code') if pd.notna(row.get('geo_code')) else (chosen['code'] if chosen else None))
 
+    working['ta_id'] = ta_ids
     working['ward_id'] = ward_ids
     working['district_id'] = district_ids
     working['geo_code'] = geo_codes

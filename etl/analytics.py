@@ -67,7 +67,7 @@ def fetch_facilities(session, table_name):
         """
     elif table_name == 'health_facilities':
         query = """
-            SELECT id, name, ward_id, district_id, beds_count, patient_visits_total, geom
+            SELECT id, name, COALESCE(ta_id, ward_id) AS ward_id, district_id, beds_count, patient_visits_total, geom
             FROM health_facilities
             WHERE geom IS NOT NULL
         """

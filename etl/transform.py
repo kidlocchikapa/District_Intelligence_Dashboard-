@@ -521,6 +521,16 @@ def normalize_health_dataset(df):
 
     if 'name' not in working.columns:
         working['name'] = pd.NA
+    if 'common_name' not in working.columns:
+        working['common_name'] = pd.NA
+    if 'code' not in working.columns:
+        working['code'] = pd.NA
+    if 'ownership' not in working.columns:
+        working['ownership'] = pd.NA
+    if 'zone' not in working.columns:
+        working['zone'] = pd.NA
+    if 'district' not in working.columns:
+        working['district'] = pd.NA
     if 'type' not in working.columns:
         working['type'] = pd.NA
     if 'services_offered' not in working.columns:
@@ -533,6 +543,12 @@ def normalize_health_dataset(df):
     working['type'] = working['type'].apply(
         lambda value: str(value).replace('_', ' ').title() if pd.notna(value) else pd.NA
     )
+
+    working['common_name'] = working['common_name'].fillna(working.get('name:en'))
+    working['ownership'] = working['ownership'].fillna(working.get('operator:type'))
+    working['zone'] = working['zone'].fillna(working.get('addr:city'))
+    working['district'] = working['district'].fillna(working.get('district_name'))
+    working['code'] = working['code'].fillna(working.get('osm_id'))
 
     working['services_offered'] = working['services_offered'].fillna(working.get('healthcare'))
     working['services_offered'] = working['services_offered'].fillna(working.get('healthcare:speciality'))

@@ -67,25 +67,27 @@ CREATE TABLE IF NOT EXISTS education_facilities (
 -- Health Facilities
 CREATE TABLE IF NOT EXISTS health_facilities (
     id SERIAL PRIMARY KEY,
+    code VARCHAR(100),
     name VARCHAR(255) NOT NULL,
-    "name:en" VARCHAR(225),
-    amenity VARCHAR(100),
-    building VARCHAR(100),
+    common_name VARCHAR(255),
     type VARCHAR(50), -- e.g., 'Clinic', 'Hospital'
-    healthcare VARCHAR(100),
-    "healthcare:speciality" VARCHAR(225),
+    ownership VARCHAR(100),
     "operator:type" VARCHAR(100),
     "capacity:persons" INTEGER,
-    "addr:full" TEXT,
-    "addr:city" VARCHAR(225),
-    source VARCHAR(225),
-    "name:ny" VARCHAR(225),
+    zone VARCHAR(100),
+    district VARCHAR(255),
+    status VARCHAR(100),
+    doctor_count INTEGER,
+    nurse_midwife_count INTEGER,
+    bed_capacity INTEGER,
     beds_count INTEGER,
+    latitude DOUBLE PRECISION,
+    longitude DOUBLE PRECISION,
     patient_visits_total INTEGER,
     services_offered TEXT[],
     osm_id BIGINT UNIQUE,
     osm_type VARCHAR(100),
-    ward_id INTEGER REFERENCES admin3_units(id),
+    ta_id INTEGER REFERENCES admin3_units(id),
     district_id INTEGER REFERENCES districts(id),
     geom GEOMETRY(Point, 4326),
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
@@ -96,7 +98,7 @@ CREATE TABLE IF NOT EXISTS welfare_beneficiaries (
     id SERIAL PRIMARY KEY,
     program_name VARCHAR(100),
     beneficiary_count INTEGER,
-    ward_id INTEGER REFERENCES admin3_units(id),
+    ta_id INTEGER REFERENCES admin3_units(id),
     geom GEOMETRY(Point, 4326), -- Approximate location or center of cluster
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
@@ -241,20 +243,33 @@ ALTER TABLE education_facilities ALTER COLUMN osm_id DROP NOT NULL;
 ALTER TABLE education_facilities ALTER COLUMN osm_type DROP NOT NULL;
 ALTER TABLE health_facilities ADD COLUMN IF NOT EXISTS patient_visits_total INTEGER;
 ALTER TABLE health_facilities ADD COLUMN IF NOT EXISTS district_id INTEGER REFERENCES districts(id);
+ALTER TABLE health_facilities ADD COLUMN IF NOT EXISTS ta_id INTEGER REFERENCES admin3_units(id);
 ALTER TABLE health_facilities ADD COLUMN IF NOT EXISTS ward_id INTEGER REFERENCES admin3_units(id);
+ALTER TABLE health_facilities ADD COLUMN IF NOT EXISTS code VARCHAR(100);
+ALTER TABLE health_facilities ADD COLUMN IF NOT EXISTS common_name VARCHAR(255);
 ALTER TABLE health_facilities ADD COLUMN IF NOT EXISTS "name:en" VARCHAR(225);
 ALTER TABLE health_facilities ADD COLUMN IF NOT EXISTS amenity VARCHAR(100);
 ALTER TABLE health_facilities ADD COLUMN IF NOT EXISTS building VARCHAR(100);
 ALTER TABLE health_facilities ADD COLUMN IF NOT EXISTS healthcare VARCHAR(100);
 ALTER TABLE health_facilities ADD COLUMN IF NOT EXISTS "healthcare:speciality" VARCHAR(225);
+ALTER TABLE health_facilities ADD COLUMN IF NOT EXISTS ownership VARCHAR(100);
 ALTER TABLE health_facilities ADD COLUMN IF NOT EXISTS "operator:type" VARCHAR(100);
 ALTER TABLE health_facilities ADD COLUMN IF NOT EXISTS "capacity:persons" INTEGER;
 ALTER TABLE health_facilities ADD COLUMN IF NOT EXISTS "addr:full" TEXT;
 ALTER TABLE health_facilities ADD COLUMN IF NOT EXISTS "addr:city" VARCHAR(225);
+ALTER TABLE health_facilities ADD COLUMN IF NOT EXISTS zone VARCHAR(100);
+ALTER TABLE health_facilities ADD COLUMN IF NOT EXISTS district VARCHAR(255);
 ALTER TABLE health_facilities ADD COLUMN IF NOT EXISTS source VARCHAR(225);
 ALTER TABLE health_facilities ADD COLUMN IF NOT EXISTS "name:ny" VARCHAR(225);
+ALTER TABLE health_facilities ADD COLUMN IF NOT EXISTS status VARCHAR(100);
+ALTER TABLE health_facilities ADD COLUMN IF NOT EXISTS doctor_count INTEGER;
+ALTER TABLE health_facilities ADD COLUMN IF NOT EXISTS nurse_midwife_count INTEGER;
+ALTER TABLE health_facilities ADD COLUMN IF NOT EXISTS bed_capacity INTEGER;
+ALTER TABLE health_facilities ADD COLUMN IF NOT EXISTS latitude DOUBLE PRECISION;
+ALTER TABLE health_facilities ADD COLUMN IF NOT EXISTS longitude DOUBLE PRECISION;
 ALTER TABLE health_facilities ADD COLUMN IF NOT EXISTS osm_id BIGINT UNIQUE;
 ALTER TABLE health_facilities ADD COLUMN IF NOT EXISTS osm_type VARCHAR(100);
+ALTER TABLE welfare_beneficiaries ADD COLUMN IF NOT EXISTS ta_id INTEGER REFERENCES admin3_units(id);
 ALTER TABLE welfare_beneficiaries ADD COLUMN IF NOT EXISTS ward_id INTEGER REFERENCES admin3_units(id);
 
 ALTER TABLE districts ADD COLUMN IF NOT EXISTS population_total INTEGER DEFAULT 0;
@@ -318,10 +333,12 @@ CREATE INDEX IF NOT EXISTS idx_edu_facilities_ward_id ON education_facilities(wa
 CREATE INDEX IF NOT EXISTS idx_edu_facilities_district_id ON education_facilities(district_id);
 CREATE INDEX IF NOT EXISTS idx_edu_facilities_is_active ON education_facilities(is_active);
 CREATE INDEX IF NOT EXISTS idx_health_facilities_geom ON health_facilities USING GIST(geom);
+CREATE INDEX IF NOT EXISTS idx_health_facilities_ta_id ON health_facilities(ta_id);
 CREATE INDEX IF NOT EXISTS idx_health_facilities_ward_id ON health_facilities(ward_id);
 CREATE INDEX IF NOT EXISTS idx_health_facilities_district_id ON health_facilities(district_id);
 CREATE INDEX IF NOT EXISTS idx_health_facilities_is_active ON health_facilities(is_active);
 CREATE INDEX IF NOT EXISTS idx_welfare_geom ON welfare_beneficiaries USING GIST(geom);
+CREATE INDEX IF NOT EXISTS idx_welfare_ta_id ON welfare_beneficiaries(ta_id);
 CREATE INDEX IF NOT EXISTS idx_welfare_is_active ON welfare_beneficiaries(is_active);
 CREATE INDEX IF NOT EXISTS idx_disaster_zones_geom ON disaster_zones USING GIST(geom);
 CREATE INDEX IF NOT EXISTS idx_disaster_zones_is_active ON disaster_zones(is_active);
