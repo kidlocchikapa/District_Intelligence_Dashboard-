@@ -1,23 +1,38 @@
 -- Enable PostGIS
 CREATE EXTENSION IF NOT EXISTS postgis;
 
--- Administrative Units (Wards/Districts)
-CREATE TABLE IF NOT EXISTS administrative_units (
+-- Normalized boundary tables for non-destructive incremental uploads
+CREATE TABLE IF NOT EXISTS districts (
     id SERIAL PRIMARY KEY,
-    code VARCHAR(100) UNIQUE,
     name VARCHAR(255) NOT NULL,
-    type VARCHAR(50), -- e.g., 'Ward', 'District'
-    parent_id INTEGER REFERENCES administrative_units(id),
+    code VARCHAR(100) UNIQUE,
     source VARCHAR(255),
-    level VARCHAR(50),
+    valid_on DATE,
+    boundary_version VARCHAR(100),
+    reference_name VARCHAR(255),
     population_total INTEGER DEFAULT 0,
-    population_density FLOAT,
+    population_density FLOAT DEFAULT 0,
     area_sq_km DOUBLE PRECISION,
     metadata JSONB DEFAULT '{}'::jsonb,
-    centroid GEOMETRY(Point, 4326),
-    simplified_geom GEOMETRY(MultiPolygon, 4326),
     geom GEOMETRY(MultiPolygon, 4326),
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS admin3_units (
+    id SERIAL PRIMARY KEY,
+    name VARCHAR(255) NOT NULL,
+    code VARCHAR(100) UNIQUE,
+    type VARCHAR(50) NOT NULL CHECK (type IN ('TA', 'Ward', 'Village', 'Admin3')),
+    district_id INTEGER REFERENCES districts(id) ON DELETE SET NULL,
+    source VARCHAR(255),
+    valid_on DATE,
+    boundary_version VARCHAR(100),
+    reference_name VARCHAR(255),
+    metadata JSONB DEFAULT '{}'::jsonb,
+    geom GEOMETRY(MultiPolygon, 4326),
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
 -- Education Facilities / Schools
@@ -43,8 +58,8 @@ CREATE TABLE IF NOT EXISTS education_facilities (
     teacher_count INTEGER,
     osm_id BIGINT UNIQUE,
     osm_type VARCHAR(100),
-    ward_id INTEGER REFERENCES administrative_units(id),
-    district_id INTEGER REFERENCES administrative_units(id),
+    ward_id INTEGER REFERENCES admin3_units(id),
+    district_id INTEGER REFERENCES districts(id),
     geom GEOMETRY(Point, 4326) NOT NULL,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
@@ -70,8 +85,8 @@ CREATE TABLE IF NOT EXISTS health_facilities (
     services_offered TEXT[],
     osm_id BIGINT UNIQUE,
     osm_type VARCHAR(100),
-    ward_id INTEGER REFERENCES administrative_units(id),
-    district_id INTEGER REFERENCES administrative_units(id),
+    ward_id INTEGER REFERENCES admin3_units(id),
+    district_id INTEGER REFERENCES districts(id),
     geom GEOMETRY(Point, 4326),
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
@@ -81,7 +96,7 @@ CREATE TABLE IF NOT EXISTS welfare_beneficiaries (
     id SERIAL PRIMARY KEY,
     program_name VARCHAR(100),
     beneficiary_count INTEGER,
-    ward_id INTEGER REFERENCES administrative_units(id),
+    ward_id INTEGER REFERENCES admin3_units(id),
     geom GEOMETRY(Point, 4326), -- Approximate location or center of cluster
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
@@ -127,7 +142,7 @@ CREATE TABLE IF NOT EXISTS unified_indicators (
 -- WorldPop age-sex responses stored per administrative unit and class for direct querying
 CREATE TABLE IF NOT EXISTS worldpop_age_sex (
     id SERIAL PRIMARY KEY,
-    admin_unit_id INTEGER NOT NULL REFERENCES administrative_units(id) ON DELETE CASCADE,
+    admin_unit_id INTEGER NOT NULL,
     admin_unit_code VARCHAR(100),
     admin_unit_name VARCHAR(255) NOT NULL,
     admin_unit_type VARCHAR(50) NOT NULL,
@@ -150,7 +165,7 @@ CREATE TABLE IF NOT EXISTS worldpop_age_sex (
 CREATE TABLE IF NOT EXISTS analysis_results (
     id SERIAL PRIMARY KEY,
     analysis_type VARCHAR(100) NOT NULL,
-    admin_unit_id INTEGER NOT NULL REFERENCES administrative_units(id) ON DELETE CASCADE,
+    admin_unit_id INTEGER NOT NULL,
     admin_unit_code VARCHAR(100),
     admin_unit_name VARCHAR(255) NOT NULL,
     admin_unit_type VARCHAR(50) NOT NULL,
@@ -212,16 +227,10 @@ CREATE TABLE IF NOT EXISTS data_load_log (
     processed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
-ALTER TABLE administrative_units ADD COLUMN IF NOT EXISTS code VARCHAR(100) UNIQUE;
-ALTER TABLE administrative_units ADD COLUMN IF NOT EXISTS source VARCHAR(255);
-ALTER TABLE administrative_units ADD COLUMN IF NOT EXISTS level VARCHAR(50);
-ALTER TABLE administrative_units ADD COLUMN IF NOT EXISTS area_sq_km DOUBLE PRECISION;
-ALTER TABLE administrative_units ADD COLUMN IF NOT EXISTS metadata JSONB DEFAULT '{}'::jsonb;
-ALTER TABLE administrative_units ADD COLUMN IF NOT EXISTS centroid GEOMETRY(Point, 4326);
-ALTER TABLE administrative_units ADD COLUMN IF NOT EXISTS simplified_geom GEOMETRY(MultiPolygon, 4326);
 ALTER TABLE education_facilities ADD COLUMN IF NOT EXISTS student_enrollment_total INTEGER;
 ALTER TABLE education_facilities ADD COLUMN IF NOT EXISTS teacher_count INTEGER;
-ALTER TABLE education_facilities ADD COLUMN IF NOT EXISTS district_id INTEGER REFERENCES administrative_units(id);
+ALTER TABLE education_facilities ADD COLUMN IF NOT EXISTS district_id INTEGER REFERENCES districts(id);
+ALTER TABLE education_facilities ADD COLUMN IF NOT EXISTS ward_id INTEGER REFERENCES admin3_units(id);
 ALTER TABLE education_facilities ADD COLUMN IF NOT EXISTS source_school_id BIGINT;
 ALTER TABLE education_facilities ADD COLUMN IF NOT EXISTS source_gid BIGINT;
 ALTER TABLE education_facilities ADD COLUMN IF NOT EXISTS status VARCHAR(100);
@@ -231,7 +240,8 @@ ALTER TABLE education_facilities ADD COLUMN IF NOT EXISTS osm_type VARCHAR(100);
 ALTER TABLE education_facilities ALTER COLUMN osm_id DROP NOT NULL;
 ALTER TABLE education_facilities ALTER COLUMN osm_type DROP NOT NULL;
 ALTER TABLE health_facilities ADD COLUMN IF NOT EXISTS patient_visits_total INTEGER;
-ALTER TABLE health_facilities ADD COLUMN IF NOT EXISTS district_id INTEGER REFERENCES administrative_units(id);
+ALTER TABLE health_facilities ADD COLUMN IF NOT EXISTS district_id INTEGER REFERENCES districts(id);
+ALTER TABLE health_facilities ADD COLUMN IF NOT EXISTS ward_id INTEGER REFERENCES admin3_units(id);
 ALTER TABLE health_facilities ADD COLUMN IF NOT EXISTS "name:en" VARCHAR(225);
 ALTER TABLE health_facilities ADD COLUMN IF NOT EXISTS amenity VARCHAR(100);
 ALTER TABLE health_facilities ADD COLUMN IF NOT EXISTS building VARCHAR(100);
@@ -245,6 +255,11 @@ ALTER TABLE health_facilities ADD COLUMN IF NOT EXISTS source VARCHAR(225);
 ALTER TABLE health_facilities ADD COLUMN IF NOT EXISTS "name:ny" VARCHAR(225);
 ALTER TABLE health_facilities ADD COLUMN IF NOT EXISTS osm_id BIGINT UNIQUE;
 ALTER TABLE health_facilities ADD COLUMN IF NOT EXISTS osm_type VARCHAR(100);
+ALTER TABLE welfare_beneficiaries ADD COLUMN IF NOT EXISTS ward_id INTEGER REFERENCES admin3_units(id);
+
+ALTER TABLE districts ADD COLUMN IF NOT EXISTS population_total INTEGER DEFAULT 0;
+ALTER TABLE districts ADD COLUMN IF NOT EXISTS population_density FLOAT DEFAULT 0;
+ALTER TABLE districts ADD COLUMN IF NOT EXISTS area_sq_km DOUBLE PRECISION;
 
 ALTER TABLE data_load_log ADD COLUMN IF NOT EXISTS source_type VARCHAR(50);
 ALTER TABLE data_load_log ADD COLUMN IF NOT EXISTS dataset_type VARCHAR(100);
@@ -255,7 +270,7 @@ ALTER TABLE data_load_log ADD COLUMN IF NOT EXISTS started_at TIMESTAMP DEFAULT 
 ALTER TABLE data_load_log ADD COLUMN IF NOT EXISTS completed_at TIMESTAMP;
 ALTER TABLE data_load_log ADD COLUMN IF NOT EXISTS run_metadata JSONB DEFAULT '{}'::jsonb;
 
-ALTER TABLE worldpop_age_sex ADD COLUMN IF NOT EXISTS admin_unit_id INTEGER REFERENCES administrative_units(id) ON DELETE CASCADE;
+ALTER TABLE worldpop_age_sex ADD COLUMN IF NOT EXISTS admin_unit_id INTEGER;
 ALTER TABLE worldpop_age_sex ADD COLUMN IF NOT EXISTS admin_unit_code VARCHAR(100);
 ALTER TABLE worldpop_age_sex ADD COLUMN IF NOT EXISTS admin_unit_name VARCHAR(255);
 ALTER TABLE worldpop_age_sex ADD COLUMN IF NOT EXISTS admin_unit_type VARCHAR(50);
@@ -294,9 +309,10 @@ CREATE TABLE IF NOT EXISTS admin_data_edits (
 );
 
 -- Spatial Indexes
-CREATE INDEX IF NOT EXISTS idx_admin_units_geom ON administrative_units USING GIST(geom);
-CREATE INDEX IF NOT EXISTS idx_admin_units_centroid ON administrative_units USING GIST(centroid);
-CREATE INDEX IF NOT EXISTS idx_admin_units_simplified_geom ON administrative_units USING GIST(simplified_geom);
+CREATE INDEX IF NOT EXISTS idx_districts_geom ON districts USING GIST(geom);
+CREATE INDEX IF NOT EXISTS idx_districts_name ON districts(name);
+CREATE INDEX IF NOT EXISTS idx_admin3_units_geom ON admin3_units USING GIST(geom);
+CREATE INDEX IF NOT EXISTS idx_admin3_units_district_id ON admin3_units(district_id);
 CREATE INDEX IF NOT EXISTS idx_edu_facilities_geom ON education_facilities USING GIST(geom);
 CREATE INDEX IF NOT EXISTS idx_edu_facilities_ward_id ON education_facilities(ward_id);
 CREATE INDEX IF NOT EXISTS idx_edu_facilities_district_id ON education_facilities(district_id);
@@ -310,10 +326,11 @@ CREATE INDEX IF NOT EXISTS idx_welfare_is_active ON welfare_beneficiaries(is_act
 CREATE INDEX IF NOT EXISTS idx_disaster_zones_geom ON disaster_zones USING GIST(geom);
 CREATE INDEX IF NOT EXISTS idx_disaster_zones_is_active ON disaster_zones(is_active);
 CREATE INDEX IF NOT EXISTS idx_master_gazetteer_geom ON master_gazetteer USING GIST(geom);
-CREATE INDEX IF NOT EXISTS idx_admin_units_code ON administrative_units(code);
 CREATE INDEX IF NOT EXISTS idx_master_gazetteer_names ON master_gazetteer(normalized_district_name, normalized_ward_name, normalized_village_name);
 CREATE INDEX IF NOT EXISTS idx_unified_indicators_lookup ON unified_indicators(dataset_type, indicator_name, geographic_level, geographic_name);
 CREATE INDEX IF NOT EXISTS idx_worldpop_age_sex_lookup ON worldpop_age_sex(admin_unit_id, worldpop_year, age_class);
 CREATE INDEX IF NOT EXISTS idx_analysis_results_lookup ON analysis_results(analysis_type, metric_name, admin_unit_id);
 CREATE INDEX IF NOT EXISTS idx_analysis_results_geom ON analysis_results USING GIST(geom);
 CREATE INDEX IF NOT EXISTS idx_admin_data_edits_lookup ON admin_data_edits(table_name, record_id, changed_at DESC);
+
+DROP TABLE IF EXISTS administrative_units CASCADE;
