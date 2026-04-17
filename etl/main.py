@@ -6,10 +6,17 @@ from datetime import datetime
 import pandas as pd
 
 ##import third-party libraries
-from db_utils import get_session, log_etl_run, read_table
+from db_utils import get_session, log_etl_run
 from analytics import ANALYSIS_TYPES, run_spatial_analyses
 from ingest import extract_source, load_reference_gazetteer
-from load import assign_ward_ids, fetch_admin_unit_lookup, load_analysis_results, load_to_postgis, load_unified_indicators
+from load import (
+    assign_ward_ids,
+    fetch_admin_unit_lookup,
+    fetch_admin_units_for_indicators,
+    load_analysis_results,
+    load_to_postgis,
+    load_unified_indicators,
+)
 from load import load_worldpop_age_sex
 from pipeline_config import DATASET_CONFIG
 from transform import (
@@ -73,7 +80,7 @@ def process_tabular_dataset(
 
         metadata = {
             'source_name': source_name,
-            'accepted_types': ['District', 'Ward', 'Village'],
+            'accepted_types': ['District', 'TA', 'Ward', 'Village'],
         }
 
 ##logging the ETL run for boundary datasets without indicator derivation
@@ -108,7 +115,7 @@ def process_tabular_dataset(
         rows_processed = len(disaster_gdf)
         rows_loaded, table_name = load_to_postgis(session, disaster_gdf, dataset_type)
 
-        indicators_df = derive_indicators(disaster_gdf, dataset_type, read_table(session, 'administrative_units', columns='id, code, name, type, population_total'))
+        indicators_df = derive_indicators(disaster_gdf, dataset_type, fetch_admin_units_for_indicators(session))
         indicators_loaded = load_unified_indicators(session, indicators_df, source_filename=source_name)
 
         metadata = {
@@ -159,7 +166,7 @@ def process_tabular_dataset(
     if dataset_type == 'health':
         transformed_df = normalize_health_dataset(transformed_df)
 
-    admin_units_df = read_table(session, 'administrative_units', columns='id, code, name, type, population_total')
+    admin_units_df = fetch_admin_units_for_indicators(session)
     admin_lookup = fetch_admin_unit_lookup(session)
     transformed_df = assign_ward_ids(transformed_df, admin_lookup)
     gdf = to_gdf(transformed_df)
@@ -237,7 +244,7 @@ def process_worldpop_dataset(
         rows_loaded = update_population_metrics(session, population_gdf)
         indicators_df = build_population_indicators(population_gdf, source_filename=source_name)
         indicators_loaded = load_unified_indicators(session, indicators_df, source_filename=source_name)
-        table_name = 'administrative_units'
+        table_name = 'districts'
         row_count = len(population_gdf)
         metadata = {
             'district_name': district_name,
@@ -262,7 +269,7 @@ def process_worldpop_dataset(
         rows_loaded = update_population_metrics(session, population_gdf)
         indicators_df = build_population_indicators(population_gdf, source_filename=source_name)
         indicators_loaded = load_unified_indicators(session, indicators_df, source_filename=source_name)
-        table_name = 'administrative_units'
+        table_name = 'districts'
         row_count = len(population_gdf)
         metadata = {
             'district_name': district_name,
