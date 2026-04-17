@@ -294,7 +294,6 @@ def ensure_normalized_boundary_tables(session):
                 id SERIAL PRIMARY KEY,
                 name VARCHAR(255) NOT NULL,
                 code VARCHAR(100) UNIQUE,
-                source VARCHAR(255),
                 valid_on DATE,
                 boundary_version VARCHAR(100),
                 reference_name VARCHAR(255),
@@ -318,7 +317,6 @@ def ensure_normalized_boundary_tables(session):
                 code VARCHAR(100) UNIQUE,
                 type VARCHAR(50) NOT NULL CHECK (type IN ('TA', 'Ward', 'Village', 'Admin3')),
                 district_id INTEGER REFERENCES districts(id) ON DELETE SET NULL,
-                source VARCHAR(255),
                 valid_on DATE,
                 boundary_version VARCHAR(100),
                 reference_name VARCHAR(255),
@@ -374,7 +372,6 @@ def load_boundaries_normalized(session, gdf):
             [
                 'code',
                 'name',
-                'source',
                 'valid_on',
                 'boundary_version',
                 'reference_name',
@@ -401,7 +398,6 @@ def load_boundaries_normalized(session, gdf):
                 INSERT INTO districts (
                     code,
                     name,
-                    source,
                     valid_on,
                     boundary_version,
                     reference_name,
@@ -415,7 +411,6 @@ def load_boundaries_normalized(session, gdf):
                 SELECT
                     NULLIF(TRIM(code), ''),
                     name,
-                    source,
                     valid_on,
                     boundary_version,
                     reference_name,
@@ -430,7 +425,6 @@ def load_boundaries_normalized(session, gdf):
                 ON CONFLICT (code) DO UPDATE
                 SET
                     name = EXCLUDED.name,
-                    source = EXCLUDED.source,
                     valid_on = EXCLUDED.valid_on,
                     boundary_version = EXCLUDED.boundary_version,
                     reference_name = EXCLUDED.reference_name,
@@ -456,7 +450,6 @@ def load_boundaries_normalized(session, gdf):
                 'type',
                 'parent_code',
                 'district_name',
-                'source',
                 'valid_on',
                 'boundary_version',
                 'reference_name',
@@ -482,11 +475,11 @@ def load_boundaries_normalized(session, gdf):
                         NULLIF(TRIM(t.code), '') AS code,
                         t.name,
                         CASE
-                            WHEN t.type IN ('TA', 'Ward', 'Village', 'Admin3') THEN t.type
+                            WHEN LOWER(t.type) = 'ward' THEN 'TA'
+                            WHEN t.type IN ('TA', 'Village', 'Admin3') THEN t.type
                             ELSE 'TA'
                         END AS type,
                         d.id AS district_id,
-                        t.source,
                         t.valid_on,
                         t.boundary_version,
                         t.reference_name,
@@ -502,7 +495,6 @@ def load_boundaries_normalized(session, gdf):
                     name,
                     type,
                     district_id,
-                    source,
                     valid_on,
                     boundary_version,
                     reference_name,
@@ -515,7 +507,6 @@ def load_boundaries_normalized(session, gdf):
                     name,
                     type,
                     district_id,
-                    source,
                     valid_on,
                     boundary_version,
                     reference_name,
@@ -529,7 +520,6 @@ def load_boundaries_normalized(session, gdf):
                     name = EXCLUDED.name,
                     type = EXCLUDED.type,
                     district_id = COALESCE(EXCLUDED.district_id, admin3_units.district_id),
-                    source = EXCLUDED.source,
                     valid_on = EXCLUDED.valid_on,
                     boundary_version = EXCLUDED.boundary_version,
                     reference_name = EXCLUDED.reference_name,

@@ -6,7 +6,6 @@ CREATE TABLE IF NOT EXISTS districts (
     id SERIAL PRIMARY KEY,
     name VARCHAR(255) NOT NULL,
     code VARCHAR(100) UNIQUE,
-    source VARCHAR(255),
     valid_on DATE,
     boundary_version VARCHAR(100),
     reference_name VARCHAR(255),
@@ -23,9 +22,8 @@ CREATE TABLE IF NOT EXISTS admin3_units (
     id SERIAL PRIMARY KEY,
     name VARCHAR(255) NOT NULL,
     code VARCHAR(100) UNIQUE,
-    type VARCHAR(50) NOT NULL CHECK (type IN ('TA', 'Ward', 'Village', 'Admin3')),
+    type VARCHAR(50) NOT NULL CHECK (type IN ('TA', 'Village', 'Admin3')),
     district_id INTEGER REFERENCES districts(id) ON DELETE SET NULL,
-    source VARCHAR(255),
     valid_on DATE,
     boundary_version VARCHAR(100),
     reference_name VARCHAR(255),
@@ -34,6 +32,20 @@ CREATE TABLE IF NOT EXISTS admin3_units (
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
+
+ALTER TABLE IF EXISTS districts DROP COLUMN IF EXISTS source;
+ALTER TABLE IF EXISTS admin3_units DROP COLUMN IF EXISTS source;
+
+UPDATE admin3_units
+SET type = 'TA'
+WHERE LOWER(type) = 'ward';
+
+ALTER TABLE IF EXISTS admin3_units
+DROP CONSTRAINT IF EXISTS admin3_units_type_check;
+
+ALTER TABLE IF EXISTS admin3_units
+ADD CONSTRAINT admin3_units_type_check
+CHECK (type IN ('TA', 'Village', 'Admin3'));
 
 -- Education Facilities / Schools
 CREATE TABLE IF NOT EXISTS education_facilities (
@@ -227,102 +239,6 @@ CREATE TABLE IF NOT EXISTS data_load_log (
     processed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
-ALTER TABLE education_facilities ADD COLUMN IF NOT EXISTS student_enrollment_total INTEGER;
-ALTER TABLE education_facilities ADD COLUMN IF NOT EXISTS teacher_count INTEGER;
-ALTER TABLE education_facilities ADD COLUMN IF NOT EXISTS district_id INTEGER REFERENCES districts(id);
-ALTER TABLE education_facilities ADD COLUMN IF NOT EXISTS ta_id INTEGER REFERENCES admin3_units(id);
-ALTER TABLE education_facilities ADD COLUMN IF NOT EXISTS school_name VARCHAR(225);
-ALTER TABLE education_facilities ADD COLUMN IF NOT EXISTS district VARCHAR(255);
-ALTER TABLE education_facilities ADD COLUMN IF NOT EXISTS operator VARCHAR(100);
-ALTER TABLE education_facilities ADD COLUMN IF NOT EXISTS student_classroom_ratio DOUBLE PRECISION;
-ALTER TABLE education_facilities ADD COLUMN IF NOT EXISTS special_needs_students INTEGER;
-ALTER TABLE education_facilities ADD COLUMN IF NOT EXISTS blocks_count INTEGER;
-ALTER TABLE education_facilities ADD COLUMN IF NOT EXISTS water_equipment_facility_count INTEGER;
-ALTER TABLE education_facilities ADD COLUMN IF NOT EXISTS toilets_count INTEGER;
-ALTER TABLE education_facilities ADD COLUMN IF NOT EXISTS classroom_pressure DOUBLE PRECISION;
-ALTER TABLE education_facilities ADD COLUMN IF NOT EXISTS teacher_pressure DOUBLE PRECISION;
-ALTER TABLE education_facilities ADD COLUMN IF NOT EXISTS x_coordinate DOUBLE PRECISION;
-ALTER TABLE education_facilities ADD COLUMN IF NOT EXISTS y_coordinate DOUBLE PRECISION;
-ALTER TABLE education_facilities ADD COLUMN IF NOT EXISTS source_school_id BIGINT;
-ALTER TABLE education_facilities ADD COLUMN IF NOT EXISTS source_gid BIGINT;
-ALTER TABLE education_facilities ADD COLUMN IF NOT EXISTS status VARCHAR(100);
-ALTER TABLE education_facilities ADD COLUMN IF NOT EXISTS comments TEXT;
-ALTER TABLE education_facilities ADD COLUMN IF NOT EXISTS osm_id BIGINT;
-ALTER TABLE education_facilities ADD COLUMN IF NOT EXISTS osm_type VARCHAR(100);
-ALTER TABLE education_facilities ALTER COLUMN osm_id DROP NOT NULL;
-ALTER TABLE education_facilities ALTER COLUMN osm_type DROP NOT NULL;
-ALTER TABLE education_facilities DROP COLUMN IF EXISTS name;
-ALTER TABLE education_facilities DROP COLUMN IF EXISTS ward_id;
-ALTER TABLE education_facilities DROP COLUMN IF EXISTS student_count;
-ALTER TABLE health_facilities ADD COLUMN IF NOT EXISTS patient_visits_total INTEGER;
-ALTER TABLE health_facilities ADD COLUMN IF NOT EXISTS district_id INTEGER REFERENCES districts(id);
-ALTER TABLE health_facilities ADD COLUMN IF NOT EXISTS ta_id INTEGER REFERENCES admin3_units(id);
-ALTER TABLE health_facilities ADD COLUMN IF NOT EXISTS ward_id INTEGER REFERENCES admin3_units(id);
-ALTER TABLE health_facilities ADD COLUMN IF NOT EXISTS code VARCHAR(100);
-ALTER TABLE health_facilities ADD COLUMN IF NOT EXISTS common_name VARCHAR(255);
-ALTER TABLE health_facilities ADD COLUMN IF NOT EXISTS "name:en" VARCHAR(225);
-ALTER TABLE health_facilities ADD COLUMN IF NOT EXISTS amenity VARCHAR(100);
-ALTER TABLE health_facilities ADD COLUMN IF NOT EXISTS building VARCHAR(100);
-ALTER TABLE health_facilities ADD COLUMN IF NOT EXISTS healthcare VARCHAR(100);
-ALTER TABLE health_facilities ADD COLUMN IF NOT EXISTS "healthcare:speciality" VARCHAR(225);
-ALTER TABLE health_facilities ADD COLUMN IF NOT EXISTS ownership VARCHAR(100);
-ALTER TABLE health_facilities ADD COLUMN IF NOT EXISTS "operator:type" VARCHAR(100);
-ALTER TABLE health_facilities ADD COLUMN IF NOT EXISTS "capacity:persons" INTEGER;
-ALTER TABLE health_facilities ADD COLUMN IF NOT EXISTS "addr:full" TEXT;
-ALTER TABLE health_facilities ADD COLUMN IF NOT EXISTS "addr:city" VARCHAR(225);
-ALTER TABLE health_facilities ADD COLUMN IF NOT EXISTS zone VARCHAR(100);
-ALTER TABLE health_facilities ADD COLUMN IF NOT EXISTS district VARCHAR(255);
-ALTER TABLE health_facilities ADD COLUMN IF NOT EXISTS source VARCHAR(225);
-ALTER TABLE health_facilities ADD COLUMN IF NOT EXISTS "name:ny" VARCHAR(225);
-ALTER TABLE health_facilities ADD COLUMN IF NOT EXISTS status VARCHAR(100);
-ALTER TABLE health_facilities ADD COLUMN IF NOT EXISTS doctor_count INTEGER;
-ALTER TABLE health_facilities ADD COLUMN IF NOT EXISTS nurse_midwife_count INTEGER;
-ALTER TABLE health_facilities ADD COLUMN IF NOT EXISTS bed_capacity INTEGER;
-ALTER TABLE health_facilities ADD COLUMN IF NOT EXISTS latitude DOUBLE PRECISION;
-ALTER TABLE health_facilities ADD COLUMN IF NOT EXISTS longitude DOUBLE PRECISION;
-ALTER TABLE health_facilities ADD COLUMN IF NOT EXISTS osm_id BIGINT UNIQUE;
-ALTER TABLE health_facilities ADD COLUMN IF NOT EXISTS osm_type VARCHAR(100);
-ALTER TABLE welfare_beneficiaries ADD COLUMN IF NOT EXISTS ta_id INTEGER REFERENCES admin3_units(id);
-ALTER TABLE welfare_beneficiaries ADD COLUMN IF NOT EXISTS ward_id INTEGER REFERENCES admin3_units(id);
-
-ALTER TABLE districts ADD COLUMN IF NOT EXISTS population_total INTEGER DEFAULT 0;
-ALTER TABLE districts ADD COLUMN IF NOT EXISTS population_density FLOAT DEFAULT 0;
-ALTER TABLE districts ADD COLUMN IF NOT EXISTS area_sq_km DOUBLE PRECISION;
-
-ALTER TABLE data_load_log ADD COLUMN IF NOT EXISTS source_type VARCHAR(50);
-ALTER TABLE data_load_log ADD COLUMN IF NOT EXISTS dataset_type VARCHAR(100);
-ALTER TABLE data_load_log ADD COLUMN IF NOT EXISTS rows_read INTEGER DEFAULT 0;
-ALTER TABLE data_load_log ADD COLUMN IF NOT EXISTS rows_loaded INTEGER DEFAULT 0;
-ALTER TABLE data_load_log ADD COLUMN IF NOT EXISTS rows_flagged INTEGER DEFAULT 0;
-ALTER TABLE data_load_log ADD COLUMN IF NOT EXISTS started_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP;
-ALTER TABLE data_load_log ADD COLUMN IF NOT EXISTS completed_at TIMESTAMP;
-ALTER TABLE data_load_log ADD COLUMN IF NOT EXISTS run_metadata JSONB DEFAULT '{}'::jsonb;
-
-ALTER TABLE worldpop_age_sex ADD COLUMN IF NOT EXISTS admin_unit_id INTEGER;
-ALTER TABLE worldpop_age_sex ADD COLUMN IF NOT EXISTS admin_unit_code VARCHAR(100);
-ALTER TABLE worldpop_age_sex ADD COLUMN IF NOT EXISTS admin_unit_name VARCHAR(255);
-ALTER TABLE worldpop_age_sex ADD COLUMN IF NOT EXISTS admin_unit_type VARCHAR(50);
-ALTER TABLE worldpop_age_sex ADD COLUMN IF NOT EXISTS worldpop_year INTEGER;
-ALTER TABLE worldpop_age_sex ADD COLUMN IF NOT EXISTS dataset_name VARCHAR(50) DEFAULT 'wpgpas';
-ALTER TABLE worldpop_age_sex ADD COLUMN IF NOT EXISTS age_class VARCHAR(20);
-ALTER TABLE worldpop_age_sex ADD COLUMN IF NOT EXISTS age_label VARCHAR(100);
-ALTER TABLE worldpop_age_sex ADD COLUMN IF NOT EXISTS male_population DOUBLE PRECISION DEFAULT 0;
-ALTER TABLE worldpop_age_sex ADD COLUMN IF NOT EXISTS female_population DOUBLE PRECISION DEFAULT 0;
-ALTER TABLE worldpop_age_sex ADD COLUMN IF NOT EXISTS total_population DOUBLE PRECISION DEFAULT 0;
-ALTER TABLE worldpop_age_sex ADD COLUMN IF NOT EXISTS task_id VARCHAR(100);
-ALTER TABLE worldpop_age_sex ADD COLUMN IF NOT EXISTS start_time TIMESTAMP;
-ALTER TABLE worldpop_age_sex ADD COLUMN IF NOT EXISTS end_time TIMESTAMP;
-ALTER TABLE worldpop_age_sex ADD COLUMN IF NOT EXISTS execution_time DOUBLE PRECISION;
-ALTER TABLE worldpop_age_sex ADD COLUMN IF NOT EXISTS metadata JSONB DEFAULT '{}'::jsonb;
-
-ALTER TABLE education_facilities ADD COLUMN IF NOT EXISTS is_active BOOLEAN NOT NULL DEFAULT TRUE;
-ALTER TABLE education_facilities ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP;
-ALTER TABLE health_facilities ADD COLUMN IF NOT EXISTS is_active BOOLEAN NOT NULL DEFAULT TRUE;
-ALTER TABLE health_facilities ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP;
-ALTER TABLE welfare_beneficiaries ADD COLUMN IF NOT EXISTS is_active BOOLEAN NOT NULL DEFAULT TRUE;
-ALTER TABLE welfare_beneficiaries ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP;
-ALTER TABLE disaster_zones ADD COLUMN IF NOT EXISTS is_active BOOLEAN NOT NULL DEFAULT TRUE;
-ALTER TABLE disaster_zones ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP;
 
 CREATE TABLE IF NOT EXISTS admin_data_edits (
     id SERIAL PRIMARY KEY,
@@ -342,19 +258,11 @@ CREATE INDEX IF NOT EXISTS idx_districts_name ON districts(name);
 CREATE INDEX IF NOT EXISTS idx_admin3_units_geom ON admin3_units USING GIST(geom);
 CREATE INDEX IF NOT EXISTS idx_admin3_units_district_id ON admin3_units(district_id);
 CREATE INDEX IF NOT EXISTS idx_edu_facilities_geom ON education_facilities USING GIST(geom);
-CREATE INDEX IF NOT EXISTS idx_edu_facilities_ta_id ON education_facilities(ta_id);
 CREATE INDEX IF NOT EXISTS idx_edu_facilities_district_id ON education_facilities(district_id);
-CREATE INDEX IF NOT EXISTS idx_edu_facilities_is_active ON education_facilities(is_active);
 CREATE INDEX IF NOT EXISTS idx_health_facilities_geom ON health_facilities USING GIST(geom);
-CREATE INDEX IF NOT EXISTS idx_health_facilities_ta_id ON health_facilities(ta_id);
-CREATE INDEX IF NOT EXISTS idx_health_facilities_ward_id ON health_facilities(ward_id);
 CREATE INDEX IF NOT EXISTS idx_health_facilities_district_id ON health_facilities(district_id);
-CREATE INDEX IF NOT EXISTS idx_health_facilities_is_active ON health_facilities(is_active);
 CREATE INDEX IF NOT EXISTS idx_welfare_geom ON welfare_beneficiaries USING GIST(geom);
-CREATE INDEX IF NOT EXISTS idx_welfare_ta_id ON welfare_beneficiaries(ta_id);
-CREATE INDEX IF NOT EXISTS idx_welfare_is_active ON welfare_beneficiaries(is_active);
 CREATE INDEX IF NOT EXISTS idx_disaster_zones_geom ON disaster_zones USING GIST(geom);
-CREATE INDEX IF NOT EXISTS idx_disaster_zones_is_active ON disaster_zones(is_active);
 CREATE INDEX IF NOT EXISTS idx_master_gazetteer_geom ON master_gazetteer USING GIST(geom);
 CREATE INDEX IF NOT EXISTS idx_master_gazetteer_names ON master_gazetteer(normalized_district_name, normalized_ward_name, normalized_village_name);
 CREATE INDEX IF NOT EXISTS idx_unified_indicators_lookup ON unified_indicators(dataset_type, indicator_name, geographic_level, geographic_name);
@@ -362,5 +270,79 @@ CREATE INDEX IF NOT EXISTS idx_worldpop_age_sex_lookup ON worldpop_age_sex(admin
 CREATE INDEX IF NOT EXISTS idx_analysis_results_lookup ON analysis_results(analysis_type, metric_name, admin_unit_id);
 CREATE INDEX IF NOT EXISTS idx_analysis_results_geom ON analysis_results USING GIST(geom);
 CREATE INDEX IF NOT EXISTS idx_admin_data_edits_lookup ON admin_data_edits(table_name, record_id, changed_at DESC);
+
+-- Compatibility indexes for environments that may have legacy/newer table variants.
+DO $$
+BEGIN
+    IF EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_schema = 'public' AND table_name = 'education_facilities' AND column_name = 'ta_id'
+    ) THEN
+        CREATE INDEX IF NOT EXISTS idx_edu_facilities_ta_id ON education_facilities(ta_id);
+    END IF;
+
+    IF EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_schema = 'public' AND table_name = 'education_facilities' AND column_name = 'ward_id'
+    ) THEN
+        CREATE INDEX IF NOT EXISTS idx_edu_facilities_ward_id ON education_facilities(ward_id);
+    END IF;
+
+    IF EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_schema = 'public' AND table_name = 'education_facilities' AND column_name = 'is_active'
+    ) THEN
+        CREATE INDEX IF NOT EXISTS idx_edu_facilities_is_active ON education_facilities(is_active);
+    END IF;
+
+    IF EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_schema = 'public' AND table_name = 'health_facilities' AND column_name = 'ta_id'
+    ) THEN
+        CREATE INDEX IF NOT EXISTS idx_health_facilities_ta_id ON health_facilities(ta_id);
+    END IF;
+
+    IF EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_schema = 'public' AND table_name = 'health_facilities' AND column_name = 'ward_id'
+    ) THEN
+        CREATE INDEX IF NOT EXISTS idx_health_facilities_ward_id ON health_facilities(ward_id);
+    END IF;
+
+    IF EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_schema = 'public' AND table_name = 'health_facilities' AND column_name = 'is_active'
+    ) THEN
+        CREATE INDEX IF NOT EXISTS idx_health_facilities_is_active ON health_facilities(is_active);
+    END IF;
+
+    IF EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_schema = 'public' AND table_name = 'welfare_beneficiaries' AND column_name = 'ta_id'
+    ) THEN
+        CREATE INDEX IF NOT EXISTS idx_welfare_ta_id ON welfare_beneficiaries(ta_id);
+    END IF;
+
+    IF EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_schema = 'public' AND table_name = 'welfare_beneficiaries' AND column_name = 'ward_id'
+    ) THEN
+        CREATE INDEX IF NOT EXISTS idx_welfare_ward_id ON welfare_beneficiaries(ward_id);
+    END IF;
+
+    IF EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_schema = 'public' AND table_name = 'welfare_beneficiaries' AND column_name = 'is_active'
+    ) THEN
+        CREATE INDEX IF NOT EXISTS idx_welfare_is_active ON welfare_beneficiaries(is_active);
+    END IF;
+
+    IF EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_schema = 'public' AND table_name = 'disaster_zones' AND column_name = 'is_active'
+    ) THEN
+        CREATE INDEX IF NOT EXISTS idx_disaster_zones_is_active ON disaster_zones(is_active);
+    END IF;
+END $$;
 
 DROP TABLE IF EXISTS administrative_units CASCADE;

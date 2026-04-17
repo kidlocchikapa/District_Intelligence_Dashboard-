@@ -107,7 +107,8 @@ def infer_boundary_schema(df, matched_columns, original_columns=None):
         if 'type' in source_columns and working['type'].notna().any():
             matched_columns.add('type')
         elif 'adm3_pcode' in all_columns or 'adm3_name' in all_columns or ('ward_name' in source_columns and working['ward_name'].notna().any()):
-            working['type'] = 'Ward'
+            # This project uses TA as the ADM3 operational unit.
+            working['type'] = 'TA'
             matched_columns.add('type')
         elif 'adm2_pcode' in all_columns or 'adm2_name' in all_columns or ('district_name' in source_columns and working['district_name'].notna().any()):
             working['type'] = 'District'
