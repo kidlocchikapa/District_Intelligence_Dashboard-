@@ -8,7 +8,7 @@ DATASET_CONFIG = {
         'indicator_rules': [],
     },
     'boundaries': {
-        'table_name': 'administrative_units',
+        'table_name': 'districts',
         'required_columns': ['code', 'name'],
         'canonical_columns': {
             'code': ['code', 'adm_code', 'gid', 'id_code', 'adm3_pcode', 'adm2_pcode', 'adm1_pcode'],
@@ -16,10 +16,13 @@ DATASET_CONFIG = {
             'type': ['type', 'adm_level', 'admin_type', 'boundary_type'],
             'parent_code': ['parent_code', 'district_code', 'ward_code', 'parentid', 'adm1_pcode'],
             'source': ['source'],
-            'level': ['level', 'admin_level', 'adm_level_name', 'version'],
+            'level': ['level', 'admin_level', 'adm_level_name'],
             'district_name': ['district_name', 'district'],
             'ward_name': ['ward_name', 'ward'],
             'village_name': ['village_name', 'village'],
+            'valid_on': ['valid_on', 'date_valid', 'effective_date'],
+            'boundary_version': ['boundary_version', 'version'],
+            'reference_name': ['reference_name'],
         },
         'numeric_columns': [],
         'load_columns': [
@@ -28,7 +31,9 @@ DATASET_CONFIG = {
             'type',
             'parent_id',
             'source',
-            'level',
+            'valid_on',
+            'boundary_version',
+            'reference_name',
             'population_total',
             'population_density',
             'area_sq_km',
@@ -183,7 +188,7 @@ DATASET_CONFIG = {
         'indicator_rules': ['population_at_risk_total'],
     },
     'worldpop': {
-        'table_name': 'administrative_units',
+        'table_name': 'districts',
         'required_columns': [],
         'canonical_columns': {},
         'numeric_columns': [],
