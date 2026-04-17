@@ -774,8 +774,9 @@ def derive_indicators(df, dataset_type, admin_units_df):
         return pd.DataFrame(indicators)
 
     if dataset_type == 'education':
+        facility_name_column = 'school_name' if 'school_name' in working.columns else 'name'
         grouped = working.groupby(geographic_column, dropna=True).agg(
-            facilities=('name', 'count'),
+            facilities=(facility_name_column, 'count'),
             student_enrollment_total=('student_enrollment_total', 'sum'),
             teacher_count=('teacher_count', 'sum'),
         )

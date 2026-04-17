@@ -38,27 +38,25 @@ CREATE TABLE IF NOT EXISTS admin3_units (
 -- Education Facilities / Schools
 CREATE TABLE IF NOT EXISTS education_facilities (
     school_id SERIAL PRIMARY KEY NOT NULL,
-    name VARCHAR(225),
-    "name:en" VARCHAR(225),
-    amenity VARCHAR(100),
-    building VARCHAR(100),
-    "operator:type" VARCHAR(100),
-    "capacity:persons" INTEGER,
-    "addr:full" TEXT,
-    "addr:city" VARCHAR(225),
-    source VARCHAR(225),
-    "name:ny" VARCHAR(225),
-    source_school_id BIGINT,
-    source_gid BIGINT,
+    school_name VARCHAR(225),
+    district VARCHAR(255),
+    operator VARCHAR(100),
     status VARCHAR(100),
-    comments TEXT,
-    student_enrollment TEXT,
     student_enrollment_total INTEGER,
-    teacher_distribution TEXT,
+    student_classroom_ratio DOUBLE PRECISION,
+    special_needs_students INTEGER,
+    teacher_distribution INTEGER,
     teacher_count INTEGER,
+    blocks_count INTEGER,
+    water_equipment_facility_count INTEGER,
+    toilets_count INTEGER,
+    classroom_pressure DOUBLE PRECISION,
+    teacher_pressure DOUBLE PRECISION,
+    x_coordinate DOUBLE PRECISION,
+    y_coordinate DOUBLE PRECISION,
     osm_id BIGINT UNIQUE,
     osm_type VARCHAR(100),
-    ward_id INTEGER REFERENCES admin3_units(id),
+    ta_id INTEGER REFERENCES admin3_units(id),
     district_id INTEGER REFERENCES districts(id),
     geom GEOMETRY(Point, 4326) NOT NULL,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
@@ -232,7 +230,19 @@ CREATE TABLE IF NOT EXISTS data_load_log (
 ALTER TABLE education_facilities ADD COLUMN IF NOT EXISTS student_enrollment_total INTEGER;
 ALTER TABLE education_facilities ADD COLUMN IF NOT EXISTS teacher_count INTEGER;
 ALTER TABLE education_facilities ADD COLUMN IF NOT EXISTS district_id INTEGER REFERENCES districts(id);
-ALTER TABLE education_facilities ADD COLUMN IF NOT EXISTS ward_id INTEGER REFERENCES admin3_units(id);
+ALTER TABLE education_facilities ADD COLUMN IF NOT EXISTS ta_id INTEGER REFERENCES admin3_units(id);
+ALTER TABLE education_facilities ADD COLUMN IF NOT EXISTS school_name VARCHAR(225);
+ALTER TABLE education_facilities ADD COLUMN IF NOT EXISTS district VARCHAR(255);
+ALTER TABLE education_facilities ADD COLUMN IF NOT EXISTS operator VARCHAR(100);
+ALTER TABLE education_facilities ADD COLUMN IF NOT EXISTS student_classroom_ratio DOUBLE PRECISION;
+ALTER TABLE education_facilities ADD COLUMN IF NOT EXISTS special_needs_students INTEGER;
+ALTER TABLE education_facilities ADD COLUMN IF NOT EXISTS blocks_count INTEGER;
+ALTER TABLE education_facilities ADD COLUMN IF NOT EXISTS water_equipment_facility_count INTEGER;
+ALTER TABLE education_facilities ADD COLUMN IF NOT EXISTS toilets_count INTEGER;
+ALTER TABLE education_facilities ADD COLUMN IF NOT EXISTS classroom_pressure DOUBLE PRECISION;
+ALTER TABLE education_facilities ADD COLUMN IF NOT EXISTS teacher_pressure DOUBLE PRECISION;
+ALTER TABLE education_facilities ADD COLUMN IF NOT EXISTS x_coordinate DOUBLE PRECISION;
+ALTER TABLE education_facilities ADD COLUMN IF NOT EXISTS y_coordinate DOUBLE PRECISION;
 ALTER TABLE education_facilities ADD COLUMN IF NOT EXISTS source_school_id BIGINT;
 ALTER TABLE education_facilities ADD COLUMN IF NOT EXISTS source_gid BIGINT;
 ALTER TABLE education_facilities ADD COLUMN IF NOT EXISTS status VARCHAR(100);
@@ -241,6 +251,9 @@ ALTER TABLE education_facilities ADD COLUMN IF NOT EXISTS osm_id BIGINT;
 ALTER TABLE education_facilities ADD COLUMN IF NOT EXISTS osm_type VARCHAR(100);
 ALTER TABLE education_facilities ALTER COLUMN osm_id DROP NOT NULL;
 ALTER TABLE education_facilities ALTER COLUMN osm_type DROP NOT NULL;
+ALTER TABLE education_facilities DROP COLUMN IF EXISTS name;
+ALTER TABLE education_facilities DROP COLUMN IF EXISTS ward_id;
+ALTER TABLE education_facilities DROP COLUMN IF EXISTS student_count;
 ALTER TABLE health_facilities ADD COLUMN IF NOT EXISTS patient_visits_total INTEGER;
 ALTER TABLE health_facilities ADD COLUMN IF NOT EXISTS district_id INTEGER REFERENCES districts(id);
 ALTER TABLE health_facilities ADD COLUMN IF NOT EXISTS ta_id INTEGER REFERENCES admin3_units(id);
@@ -329,7 +342,7 @@ CREATE INDEX IF NOT EXISTS idx_districts_name ON districts(name);
 CREATE INDEX IF NOT EXISTS idx_admin3_units_geom ON admin3_units USING GIST(geom);
 CREATE INDEX IF NOT EXISTS idx_admin3_units_district_id ON admin3_units(district_id);
 CREATE INDEX IF NOT EXISTS idx_edu_facilities_geom ON education_facilities USING GIST(geom);
-CREATE INDEX IF NOT EXISTS idx_edu_facilities_ward_id ON education_facilities(ward_id);
+CREATE INDEX IF NOT EXISTS idx_edu_facilities_ta_id ON education_facilities(ta_id);
 CREATE INDEX IF NOT EXISTS idx_edu_facilities_district_id ON education_facilities(district_id);
 CREATE INDEX IF NOT EXISTS idx_edu_facilities_is_active ON education_facilities(is_active);
 CREATE INDEX IF NOT EXISTS idx_health_facilities_geom ON health_facilities USING GIST(geom);
