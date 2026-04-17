@@ -605,8 +605,8 @@ def get_zonal_stats(raster_path, polygons_gdf, stat='sum'):
 ## and returning the results as a GeoDataFrame with geometry column named 'geom'
 def fetch_admin_units(session, district_name=None):
     query = """
-        SELECT id, code, name, type, population_total, geom
-        FROM administrative_units
+        SELECT id, code, name, 'District' AS type, population_total, geom
+        FROM districts
         WHERE geom IS NOT NULL
     """
     params = {}
@@ -641,7 +641,7 @@ def update_population_metrics(session, population_gdf):
         session.execute(
             text(
                 """
-                UPDATE administrative_units
+                UPDATE districts
                 SET population_total = :population_total,
                     population_density = :population_density
                 WHERE id = :id

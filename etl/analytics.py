@@ -22,7 +22,32 @@ ANALYSIS_TYPES = {
 def fetch_admin_units_for_analysis(session, admin_level=None):
     query = """
         SELECT id, code, name, type, geom, area_sq_km, population_total
-        FROM administrative_units
+        FROM (
+            SELECT
+                id,
+                code,
+                name,
+                'District'::VARCHAR AS type,
+                geom,
+                area_sq_km,
+                population_total
+            FROM districts
+            UNION ALL
+            SELECT
+                id,
+                code,
+                name,
+                CASE
+                    WHEN LOWER(type) = 'ta' THEN 'TA'
+                    WHEN LOWER(type) = 'ward' THEN 'Ward'
+                    WHEN LOWER(type) = 'village' THEN 'Village'
+                    ELSE INITCAP(type)
+                END AS type,
+                geom,
+                (ST_Area(ST_Transform(geom, 3857)) / 1000000.0) AS area_sq_km,
+                0::INTEGER AS population_total
+            FROM admin3_units
+        ) admin_units
         WHERE geom IS NOT NULL
     """
     params = {}

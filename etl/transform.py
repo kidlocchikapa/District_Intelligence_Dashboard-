@@ -42,7 +42,7 @@ def standardize_schema(df, dataset_config):
 
     working = working.rename(columns=rename_map)
 
-    if dataset_config.get('table_name') == 'administrative_units':
+    if {'parent_code', 'valid_on', 'boundary_version'}.issubset(set(dataset_config.get('canonical_columns', {}).keys())):
         working, matched_columns = infer_boundary_schema(working, matched_columns, original_columns)
 
     for column in dataset_config['canonical_columns']:
@@ -393,6 +393,106 @@ def _clean_text_or_na(value):
     return text if text else pd.NA
 
 
+def _first_present(*values):
+    for value in values:
+        cleaned = _clean_text_or_na(value)
+        if pd.notna(cleaned):
+            return cleaned
+    return pd.NA
+
+
+def _coerce_boundary_date(value):
+    cleaned = _clean_text_or_na(value)
+    if pd.isna(cleaned):
+        return pd.NA
+
+    parsed = pd.to_datetime(cleaned, errors='coerce')
+    if pd.isna(parsed):
+        return pd.NA
+
+    return parsed.date()
+
+
+def _serialize_boundary_date(value):
+    if value is None or value is pd.NA:
+        return None
+
+    try:
+        if pd.isna(value):
+            return None
+    except TypeError:
+        pass
+
+    if hasattr(value, 'isoformat'):
+        return value.isoformat()
+
+    parsed = pd.to_datetime(value, errors='coerce')
+    if pd.isna(parsed):
+        return None
+
+    return parsed.date().isoformat()
+
+
+def _build_boundary_metadata(row):
+    unit_type = row.get('type')
+    traditional_authority = _first_present(row.get('reference_name'), row.get('adm3_ref_n'))
+    district_name = _first_present(
+        row.get('district_name'),
+        row.get('adm2_name'),
+        row.get('name') if unit_type == 'District' else pd.NA,
+    )
+    district_code = _first_present(
+        row.get('adm2_pcode'),
+        row.get('code') if unit_type == 'District' else pd.NA,
+    )
+    ward_name = _first_present(
+        row.get('adm3_name'),
+    )
+    ward_code = _first_present(
+        row.get('adm3_pcode'),
+        row.get('code') if unit_type == 'Ward' else pd.NA,
+    )
+    village_name = _first_present(
+        row.get('village_name'),
+        row.get('adm4_name'),
+        row.get('name') if unit_type == 'Village' else pd.NA,
+    )
+    if pd.isna(ward_name) and unit_type == 'Ward':
+        fallback_ward_name = _first_present(row.get('ward_name'), row.get('name'))
+        if pd.notna(fallback_ward_name):
+            if pd.isna(traditional_authority) or normalize_text(fallback_ward_name) != normalize_text(traditional_authority):
+                ward_name = fallback_ward_name
+
+    metadata = {
+        'parent_code': _first_present(row.get('parent_code')),
+        'country': _first_present(row.get('adm0_name')),
+        'country_code': _first_present(row.get('adm0_pcode')),
+        'region': _first_present(row.get('adm1_name')),
+        'region_code': _first_present(
+            row.get('adm1_pcode'),
+            row.get('parent_code') if unit_type == 'District' else pd.NA,
+        ),
+        'district': district_name,
+        'district_code': district_code,
+        'traditional_authority': traditional_authority,
+        'ward': ward_name,
+        'ward_code': ward_code,
+        'village': village_name,
+        'district_name': district_name,
+        'ward_name': ward_name,
+        'village_name': village_name,
+        'reference_name': traditional_authority,
+        'valid_on': _serialize_boundary_date(row.get('valid_on')),
+        'boundary_version': _first_present(row.get('boundary_version'), row.get('version')),
+    }
+
+    return {
+        key: value
+        for key, value in metadata.items()
+        if value is not None and pd.notna(value)
+    }
+
+
 def _derive_health_name(row):
     for candidate in [row.get('name'), row.get('name:en'), row.get('name:ny')]:
         cleaned = _clean_text_or_na(candidate)
@@ -458,6 +558,9 @@ def normalize_admin_unit_type(value):
     normalized = normalize_text(value)
     mapping = {
         'district': 'District',
+        'ta': 'TA',
+        'traditional_authority': 'TA',
+        'traditional authority': 'TA',
         'ward': 'Ward',
         'village': 'Village',
         'adm1': 'District',
@@ -474,23 +577,36 @@ def normalize_admin_unit_type(value):
 
 def infer_boundary_type(row):
     direct_type = normalize_admin_unit_type(row.get('type'))
-    if isinstance(direct_type, str) and direct_type in {'District', 'Ward', 'Village'}:
+    if isinstance(direct_type, str) and direct_type in {'District', 'TA', 'Ward', 'Village'}:
         return direct_type
 
     level_type = normalize_admin_unit_type(row.get('level'))
-    if isinstance(level_type, str) and level_type in {'District', 'Ward', 'Village'}:
+    if isinstance(level_type, str) and level_type in {'District', 'TA', 'Ward', 'Village'}:
         return level_type
 
     district_name = row.get('district_name')
     ward_name = row.get('ward_name')
     parent_code = row.get('parent_code')
     name = row.get('name')
+    reference_name = _first_present(row.get('reference_name'), row.get('adm3_ref_n'))
+
+    if pd.notna(reference_name):
+        normalized_reference = normalize_text(reference_name)
+        normalized_name = normalize_text(name)
+        normalized_ward_name = normalize_text(ward_name)
+        if normalized_reference and normalized_reference != normalized_ward_name:
+            if normalized_name == normalized_reference or pd.isna(ward_name):
+                return 'TA'
 
     if pd.notna(ward_name) and pd.notna(district_name):
         if pd.notna(name) and str(name).strip().lower() == str(ward_name).strip().lower():
             return 'Ward'
 
     if pd.notna(parent_code):
+        if pd.notna(reference_name) and (
+            pd.isna(ward_name) or normalize_text(reference_name) != normalize_text(ward_name)
+        ):
+            return 'TA'
         return 'Ward'
 
     return 'District'
@@ -520,7 +636,7 @@ def transform_boundary_dataset(df):
         working = working.to_crs('EPSG:4326')
 
     working['type'] = working.apply(infer_boundary_type, axis=1)
-    valid_types = {'District', 'Ward', 'Village'}
+    valid_types = {'District', 'TA', 'Ward', 'Village'}
     invalid_types = working['type'].isin(valid_types) == False
     if invalid_types.any():
         bad_types = sorted(set(working.loc[invalid_types, 'type'].dropna().astype(str)))
@@ -537,7 +653,20 @@ def transform_boundary_dataset(df):
         'None': pd.NA,
         'null': pd.NA,
     })
+    for column in ['parent_code', 'valid_on', 'boundary_version', 'reference_name']:
+        if column not in working.columns:
+            working[column] = pd.NA
+
     working['parent_code'] = working['parent_code'].apply(lambda value: str(value).strip() if pd.notna(value) else pd.NA)
+    working['valid_on'] = working['valid_on'].apply(_coerce_boundary_date)
+    working['boundary_version'] = working.apply(
+        lambda row: _first_present(row.get('boundary_version'), row.get('version')),
+        axis=1,
+    )
+    working['reference_name'] = working.apply(
+        lambda row: _first_present(row.get('reference_name'), row.get('adm3_ref_n')),
+        axis=1,
+    )
     if 'name' not in working.columns:
         working['name'] = pd.NA
 
@@ -571,15 +700,7 @@ def transform_boundary_dataset(df):
     working['simplified_geom'] = projected.geometry.simplify(30).to_crs('EPSG:4326').apply(ensure_valid_multipolygon)
     working['population_total'] = 0
     working['population_density'] = 0.0
-    working['metadata'] = working.apply(
-        lambda row: {
-            'parent_code': row.get('parent_code'),
-            'district_name': row.get('district_name'),
-            'ward_name': row.get('ward_name'),
-            'village_name': row.get('village_name'),
-        },
-        axis=1,
-    )
+    working['metadata'] = working.apply(_build_boundary_metadata, axis=1)
 
     return working
 
