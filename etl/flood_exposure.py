@@ -2,12 +2,13 @@
 import argparse
 import datetime as dt
 import os
+from collections import defaultdict
 
 import numpy as np
 import rasterio
 from rasterio.features import geometry_mask
 from rasterio.mask import mask
-from rasterio.warp import Resampling, reproject, transform_geom
+from rasterio.warp import Resampling, reproject, transform, transform_geom
 from shapely import wkb
 from shapely.ops import unary_union
 from sqlalchemy import text
@@ -49,6 +50,70 @@ def ensure_flood_zones_table(session):
             """
             CREATE INDEX IF NOT EXISTS idx_flood_zones_analysis_date
             ON flood_zones (analysis_date)
+            """
+        )
+    )
+    session.commit()
+
+
+def ensure_flood_facility_tables(session):
+    session.execute(
+        text(
+            """
+            CREATE TABLE IF NOT EXISTS flood_facility_exposure (
+                analysis_date DATE NOT NULL,
+                district_id INTEGER NOT NULL,
+                district_name VARCHAR(255) NOT NULL,
+                ta_id INTEGER NOT NULL DEFAULT 0,
+                ta_name VARCHAR(255) NOT NULL,
+                facility_type VARCHAR(20) NOT NULL,
+                facility_id BIGINT NOT NULL,
+                facility_name VARCHAR(255),
+                flood_value DOUBLE PRECISION,
+                risk_class VARCHAR(20) NOT NULL,
+                is_exposed BOOLEAN NOT NULL DEFAULT FALSE,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                PRIMARY KEY (analysis_date, facility_type, facility_id)
+            )
+            """
+        )
+    )
+    session.execute(
+        text(
+            """
+            CREATE TABLE IF NOT EXISTS flood_facility_exposure_summary (
+                analysis_date DATE NOT NULL,
+                district_id INTEGER NOT NULL,
+                district_name VARCHAR(255) NOT NULL,
+                ta_id INTEGER NOT NULL DEFAULT 0,
+                ta_name VARCHAR(255) NOT NULL,
+                facility_type VARCHAR(20) NOT NULL,
+                total_facilities INTEGER NOT NULL DEFAULT 0,
+                exposed_facilities INTEGER NOT NULL DEFAULT 0,
+                low_risk_count INTEGER NOT NULL DEFAULT 0,
+                medium_risk_count INTEGER NOT NULL DEFAULT 0,
+                high_risk_count INTEGER NOT NULL DEFAULT 0,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                PRIMARY KEY (analysis_date, district_id, ta_id, facility_type)
+            )
+            """
+        )
+    )
+    session.execute(
+        text(
+            """
+            CREATE INDEX IF NOT EXISTS idx_flood_facility_exposure_lookup
+            ON flood_facility_exposure (analysis_date, facility_type, district_id, ta_id)
+            """
+        )
+    )
+    session.execute(
+        text(
+            """
+            CREATE INDEX IF NOT EXISTS idx_flood_facility_exposure_summary_lookup
+            ON flood_facility_exposure_summary (analysis_date, facility_type, district_id, ta_id)
             """
         )
     )
@@ -128,6 +193,290 @@ def _to_raster_crs(geometry, src_crs, dst_crs):
     if src_crs == dst_crs:
         return geometry.__geo_interface__
     return transform_geom(src_crs, dst_crs, geometry.__geo_interface__)
+
+# Classify flood risk based on sampled flood value, returning risk class and exposure status
+def _classify_flood_risk(flood_value):
+    if flood_value is None or (isinstance(flood_value, float) and np.isnan(flood_value)):
+        return 'none', False
+    if flood_value <= 0:
+        return 'none', False
+    if flood_value <= 0.5:
+        return 'low', True
+    if flood_value <= 1.5:
+        return 'medium', True
+    return 'high', True
+
+# find the matching TA ID for a given point geometry by checking 
+# if it falls within or intersects any TA geometries
+def _find_matching_ta_id(point_geom, ta_units):
+    if point_geom is None:
+        return None
+
+    for ta in ta_units:
+        geom = ta.get('geom')
+        if geom is not None and point_geom.within(geom):
+            return ta['id']
+
+    for ta in ta_units:
+        geom = ta.get('geom')
+        if geom is not None and point_geom.intersects(geom):
+            return ta['id']
+
+    return None
+
+# Fetch facilities (schools and health centers) that fall within the district geometry
+def fetch_facilities_for_flood(session, boundaries):
+    district_geom_wkt = boundaries['district_geom'].wkt
+    ta_units = boundaries['ta_units']
+
+    facility_specs = {
+        'education': {
+            'table': 'education_facilities',
+            'id_col': 'school_id',
+            'name_col': 'school_name',
+        },
+        'health': {
+            'table': 'health_facilities',
+            'id_col': 'id',
+            'name_col': 'name',
+        },
+    }
+
+    facilities = []
+    for facility_type, spec in facility_specs.items():
+        rows = session.execute(
+            text(
+                f"""
+                SELECT
+                    {spec['id_col']} AS facility_id,
+                    {spec['name_col']} AS facility_name,
+                    district_id,
+                    ta_id,
+                    ST_AsBinary(geom) AS geom_wkb
+                FROM {spec['table']}
+                WHERE geom IS NOT NULL
+                  AND ST_Intersects(geom, ST_GeomFromText(:district_geom_wkt, 4326))
+                """
+            ),
+            {'district_geom_wkt': district_geom_wkt},
+        ).mappings().all()
+
+        for row in rows:
+            geom = wkb.loads(bytes(row['geom_wkb'])) if row['geom_wkb'] else None
+            resolved_ta_id = row['ta_id']
+            if resolved_ta_id is None:
+                resolved_ta_id = _find_matching_ta_id(geom, ta_units)
+            facilities.append(
+                {
+                    'facility_type': facility_type,
+                    'facility_id': int(row['facility_id']),
+                    'facility_name': row['facility_name'],
+                    'district_id': row['district_id'] or boundaries['district_id'],
+                    'ta_id': resolved_ta_id,
+                    'geom': geom,
+                }
+            )
+
+    return facilities
+
+# Store detailed flood exposure results for each facility into the database,
+# using an upsert strategy to handle existing records and ensure data integrity
+def upsert_flood_facility_exposure(session, rows):
+    if not rows:
+        return
+
+    session.execute(
+        text(
+            """
+            INSERT INTO flood_facility_exposure (
+                analysis_date,
+                district_id,
+                district_name,
+                ta_id,
+                ta_name,
+                facility_type,
+                facility_id,
+                facility_name,
+                flood_value,
+                risk_class,
+                is_exposed
+            )
+            VALUES (
+                :analysis_date,
+                :district_id,
+                :district_name,
+                :ta_id,
+                :ta_name,
+                :facility_type,
+                :facility_id,
+                :facility_name,
+                :flood_value,
+                :risk_class,
+                :is_exposed
+            )
+            ON CONFLICT (analysis_date, facility_type, facility_id)
+            DO UPDATE SET
+                district_id = EXCLUDED.district_id,
+                district_name = EXCLUDED.district_name,
+                ta_id = EXCLUDED.ta_id,
+                ta_name = EXCLUDED.ta_name,
+                facility_name = EXCLUDED.facility_name,
+                flood_value = EXCLUDED.flood_value,
+                risk_class = EXCLUDED.risk_class,
+                is_exposed = EXCLUDED.is_exposed,
+                updated_at = CURRENT_TIMESTAMP
+            """
+        ),
+        rows,
+    )
+    session.commit()
+
+# Upsert summary statistics for flood exposure by district, TA, and facility type
+def upsert_flood_facility_exposure_summary(session, rows):
+    if not rows:
+        return
+
+    session.execute(
+        text(
+            """
+            INSERT INTO flood_facility_exposure_summary (
+                analysis_date,
+                district_id,
+                district_name,
+                ta_id,
+                ta_name,
+                facility_type,
+                total_facilities,
+                exposed_facilities,
+                low_risk_count,
+                medium_risk_count,
+                high_risk_count
+            )
+            VALUES (
+                :analysis_date,
+                :district_id,
+                :district_name,
+                :ta_id,
+                :ta_name,
+                :facility_type,
+                :total_facilities,
+                :exposed_facilities,
+                :low_risk_count,
+                :medium_risk_count,
+                :high_risk_count
+            )
+            ON CONFLICT (analysis_date, district_id, ta_id, facility_type)
+            DO UPDATE SET
+                district_name = EXCLUDED.district_name,
+                ta_name = EXCLUDED.ta_name,
+                total_facilities = EXCLUDED.total_facilities,
+                exposed_facilities = EXCLUDED.exposed_facilities,
+                low_risk_count = EXCLUDED.low_risk_count,
+                medium_risk_count = EXCLUDED.medium_risk_count,
+                high_risk_count = EXCLUDED.high_risk_count,
+                updated_at = CURRENT_TIMESTAMP
+            """
+        ),
+        rows,
+    )
+    session.commit()
+
+# Compute flood exposure for facilities by sampling the flood raster at their locations, 
+# classifying risk levels, and aggregating results by district and TA
+def compute_facility_flood_exposure(session, flood_src, boundaries, analysis_date):
+    facilities = fetch_facilities_for_flood(session, boundaries)
+    if not facilities:
+        return {'detail_rows': 0, 'summary_rows': 0, 'by_type': {}}
+
+    ta_name_map = {ta['id']: ta['name'] for ta in boundaries['ta_units']}
+
+    lon_values = [facility['geom'].x for facility in facilities]
+    lat_values = [facility['geom'].y for facility in facilities]
+    xs, ys = transform('EPSG:4326', flood_src.crs, lon_values, lat_values)
+
+    sampled_values = []
+    for sample in flood_src.sample(zip(xs, ys)):
+        value = sample[0] if sample is not None and len(sample) > 0 else np.nan
+        if flood_src.nodata is not None and value == flood_src.nodata:
+            value = np.nan
+        sampled_values.append(value)
+
+    detail_rows = []
+    summary_counter = defaultdict(lambda: {'total': 0, 'exposed': 0, 'low': 0, 'medium': 0, 'high': 0})
+    by_type_counter = defaultdict(lambda: {'total': 0, 'exposed': 0, 'low': 0, 'medium': 0, 'high': 0})
+
+    for facility, sampled_value in zip(facilities, sampled_values):
+        ta_id = int(facility['ta_id']) if facility.get('ta_id') is not None else 0
+        ta_name = ta_name_map.get(ta_id, 'Unknown TA') if ta_id else 'District Total'
+        risk_class, is_exposed = _classify_flood_risk(float(sampled_value) if np.isfinite(sampled_value) else np.nan)
+
+        detail_rows.append(
+            {
+                'analysis_date': analysis_date,
+                'district_id': boundaries['district_id'],
+                'district_name': boundaries['district_name'],
+                'ta_id': ta_id,
+                'ta_name': ta_name,
+                'facility_type': facility['facility_type'],
+                'facility_id': facility['facility_id'],
+                'facility_name': facility['facility_name'],
+                'flood_value': float(sampled_value) if np.isfinite(sampled_value) else None,
+                'risk_class': risk_class,
+                'is_exposed': bool(is_exposed),
+            }
+        )
+
+        district_key = (boundaries['district_id'], 0, 'District Total', facility['facility_type'])
+        ta_key = (boundaries['district_id'], ta_id, ta_name, facility['facility_type'])
+        for key in [district_key, ta_key]:
+            summary_counter[key]['total'] += 1
+            if is_exposed:
+                summary_counter[key]['exposed'] += 1
+            if risk_class == 'low':
+                summary_counter[key]['low'] += 1
+            elif risk_class == 'medium':
+                summary_counter[key]['medium'] += 1
+            elif risk_class == 'high':
+                summary_counter[key]['high'] += 1
+
+        by_type_counter[facility['facility_type']]['total'] += 1
+        if is_exposed:
+            by_type_counter[facility['facility_type']]['exposed'] += 1
+        if risk_class in {'low', 'medium', 'high'}:
+            by_type_counter[facility['facility_type']][risk_class] += 1
+
+    summary_rows = []
+    for (district_id, ta_id, ta_name, facility_type), counts in summary_counter.items():
+        summary_rows.append(
+            {
+                'analysis_date': analysis_date,
+                'district_id': district_id,
+                'district_name': boundaries['district_name'],
+                'ta_id': ta_id,
+                'ta_name': ta_name,
+                'facility_type': facility_type,
+                'total_facilities': counts['total'],
+                'exposed_facilities': counts['exposed'],
+                'low_risk_count': counts['low'],
+                'medium_risk_count': counts['medium'],
+                'high_risk_count': counts['high'],
+            }
+        )
+
+    upsert_flood_facility_exposure(session, detail_rows)
+    upsert_flood_facility_exposure_summary(session, summary_rows)
+
+    for facility_type, counts in sorted(by_type_counter.items()):
+        print(
+            f"Facilities {facility_type}: total={counts['total']}, exposed={counts['exposed']}, "
+            f"low={counts['low']}, medium={counts['medium']}, high={counts['high']}"
+        )
+
+    return {
+        'detail_rows': len(detail_rows),
+        'summary_rows': len(summary_rows),
+        'by_type': dict(by_type_counter),
+    }
 
 # Compute population stats for a given geometry by clipping the flood raster
 def _compute_population_stats_for_geom(flood_src, pop_src, geom_geojson):
@@ -266,6 +615,7 @@ def run_flood_exposure_analysis(
     analysis_date,
 ):
     ensure_flood_zones_table(session)
+    ensure_flood_facility_tables(session)
     boundaries = fetch_district_and_ta_geometries(
         session,
         district_name=district_name,
@@ -321,6 +671,17 @@ def run_flood_exposure_analysis(
                 f"[{idx + 1}/{1 + len(boundaries['ta_units'])}] Processed TA {ta['name']} "
                 f"(total_pop={ta_stats['total_population']:.2f}, exposed={ta_stats['exposed_population']:.2f})"
             )
+
+        facility_stats = compute_facility_flood_exposure(
+            session=session,
+            flood_src=flood_src,
+            boundaries=boundaries,
+            analysis_date=analysis_date,
+        )
+        print(
+            f"Facility exposure persisted: detail_rows={facility_stats['detail_rows']}, "
+            f"summary_rows={facility_stats['summary_rows']}"
+        )
 
     upsert_flood_zone_rows(session, rows)
     return processed_count

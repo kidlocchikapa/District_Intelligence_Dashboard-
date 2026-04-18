@@ -121,15 +121,58 @@ CREATE TABLE IF NOT EXISTS welfare_beneficiaries (
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
--- Disaster Zones
-CREATE TABLE IF NOT EXISTS disaster_zones (
-    id SERIAL PRIMARY KEY,
-    event_type VARCHAR(100), -- e.g., 'Flood', 'Drought'
-    risk_level VARCHAR(20), -- 'Low', 'Medium', 'High'
-    population_at_risk INTEGER,
-    geom GEOMETRY(MultiPolygon, 4326),
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+-- Flood exposure outputs for district and TA units
+CREATE TABLE IF NOT EXISTS flood_zones (
+    district_id INTEGER NOT NULL REFERENCES districts(id) ON DELETE CASCADE,
+    district_name VARCHAR(255) NOT NULL,
+    ta_id INTEGER NOT NULL DEFAULT 0,
+    ta_name VARCHAR(255) NOT NULL,
+    total_population DOUBLE PRECISION NOT NULL DEFAULT 0,
+    exposed_population DOUBLE PRECISION NOT NULL DEFAULT 0,
+    low_risk_population DOUBLE PRECISION NOT NULL DEFAULT 0,
+    medium_risk_population DOUBLE PRECISION NOT NULL DEFAULT 0,
+    high_risk_population DOUBLE PRECISION NOT NULL DEFAULT 0,
+    analysis_date DATE NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (district_id, ta_id, analysis_date)
 );
+
+CREATE TABLE IF NOT EXISTS flood_facility_exposure (
+    analysis_date DATE NOT NULL,
+    district_id INTEGER NOT NULL,
+    district_name VARCHAR(255) NOT NULL,
+    ta_id INTEGER NOT NULL DEFAULT 0,
+    ta_name VARCHAR(255) NOT NULL,
+    facility_type VARCHAR(20) NOT NULL,
+    facility_id BIGINT NOT NULL,
+    facility_name VARCHAR(255),
+    flood_value DOUBLE PRECISION,
+    risk_class VARCHAR(20) NOT NULL,
+    is_exposed BOOLEAN NOT NULL DEFAULT FALSE,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (analysis_date, facility_type, facility_id)
+);
+
+CREATE TABLE IF NOT EXISTS flood_facility_exposure_summary (
+    analysis_date DATE NOT NULL,
+    district_id INTEGER NOT NULL,
+    district_name VARCHAR(255) NOT NULL,
+    ta_id INTEGER NOT NULL DEFAULT 0,
+    ta_name VARCHAR(255) NOT NULL,
+    facility_type VARCHAR(20) NOT NULL,
+    total_facilities INTEGER NOT NULL DEFAULT 0,
+    exposed_facilities INTEGER NOT NULL DEFAULT 0,
+    low_risk_count INTEGER NOT NULL DEFAULT 0,
+    medium_risk_count INTEGER NOT NULL DEFAULT 0,
+    high_risk_count INTEGER NOT NULL DEFAULT 0,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (analysis_date, district_id, ta_id, facility_type)
+);
+
+DROP TABLE IF EXISTS disaster_zones;
 
 -- Master Gazetteer used to normalize district / ward / village names across sources
 CREATE TABLE IF NOT EXISTS master_gazetteer (
@@ -270,7 +313,9 @@ CREATE INDEX IF NOT EXISTS idx_edu_facilities_district_id ON education_facilitie
 CREATE INDEX IF NOT EXISTS idx_health_facilities_geom ON health_facilities USING GIST(geom);
 CREATE INDEX IF NOT EXISTS idx_health_facilities_district_id ON health_facilities(district_id);
 CREATE INDEX IF NOT EXISTS idx_welfare_geom ON welfare_beneficiaries USING GIST(geom);
-CREATE INDEX IF NOT EXISTS idx_disaster_zones_geom ON disaster_zones USING GIST(geom);
+CREATE INDEX IF NOT EXISTS idx_flood_zones_analysis_date ON flood_zones(analysis_date);
+CREATE INDEX IF NOT EXISTS idx_flood_facility_exposure_lookup ON flood_facility_exposure(analysis_date, facility_type, district_id, ta_id);
+CREATE INDEX IF NOT EXISTS idx_flood_facility_exposure_summary_lookup ON flood_facility_exposure_summary(analysis_date, facility_type, district_id, ta_id);
 CREATE INDEX IF NOT EXISTS idx_master_gazetteer_geom ON master_gazetteer USING GIST(geom);
 CREATE INDEX IF NOT EXISTS idx_master_gazetteer_names ON master_gazetteer(normalized_district_name, normalized_ward_name, normalized_village_name);
 CREATE INDEX IF NOT EXISTS idx_unified_indicators_lookup ON unified_indicators(dataset_type, indicator_name, geographic_level, geographic_name);
@@ -345,12 +390,6 @@ BEGIN
         CREATE INDEX IF NOT EXISTS idx_welfare_is_active ON welfare_beneficiaries(is_active);
     END IF;
 
-    IF EXISTS (
-        SELECT 1 FROM information_schema.columns
-        WHERE table_schema = 'public' AND table_name = 'disaster_zones' AND column_name = 'is_active'
-    ) THEN
-        CREATE INDEX IF NOT EXISTS idx_disaster_zones_is_active ON disaster_zones(is_active);
-    END IF;
 END $$;
 
 DROP TABLE IF EXISTS administrative_units CASCADE;
