@@ -1,5 +1,6 @@
 # importing libraries
 import json
+import logging
 
 import pandas as pd
 from geoalchemy2 import Geometry, WKTElement
@@ -9,6 +10,39 @@ from shapely.geometry import Point
 from shapely import wkt
 
 from pipeline_config import DATASET_CONFIG
+
+
+LOGGER = logging.getLogger('etl.load')
+
+
+class LoadError(Exception):
+    def __init__(self, user_message, step_name, original_error=None):
+        self.user_message = user_message
+        self.step_name = step_name
+        self.original_error = original_error
+        super().__init__(f"{user_message} (step: {step_name})")
+
+
+def log_step(step_name, message, level='info'):
+    log_method = getattr(LOGGER, level, LOGGER.info)
+    log_method(f"[{step_name}] {message}")
+
+
+def run_step(step_name, user_message_on_error, fn, *args, **kwargs):
+    log_step(step_name, 'started')
+    try:
+        result = fn(*args, **kwargs)
+    except LoadError:
+        raise
+    except Exception as exc:
+        log_step(step_name, f"failed: {exc}", level='error')
+        raise LoadError(
+            user_message=user_message_on_error,
+            step_name=step_name,
+            original_error=exc,
+        ) from exc
+    log_step(step_name, 'completed')
+    return result
 
 #This function handles fetching administrative unit data from the database and create a lookup structure
 def fetch_admin_unit_lookup(session):
@@ -301,35 +335,55 @@ def _coerce_array(value):
 # This function handles loading a GeoDataFrame into PostGIS, with special handling for boundary d
 # atasets to load them into normalized tables
 def load_to_postgis(session, gdf, dataset_type, if_exists='append'):
-    engine = session.bind
-    table_name = DATASET_CONFIG[dataset_type]['table_name']
-    load_df = prepare_dataframe_for_load(gdf, dataset_type)
+    try:
+        engine = session.bind
+        table_name = DATASET_CONFIG[dataset_type]['table_name']
+        log_step('load_to_postgis', f'dataset_type={dataset_type}, table={table_name}')
+        load_df = run_step(
+            step_name='prepare_dataframe_for_load',
+            user_message_on_error='Could not prepare data for database loading.',
+            fn=prepare_dataframe_for_load,
+            df=gdf,
+            dataset_type=dataset_type,
+        )
 
-    if dataset_type == 'boundaries':
-        rows_loaded, normalized_table_names = load_boundaries_normalized(session, gdf)
-        return rows_loaded, normalized_table_names
+        if dataset_type == 'boundaries':
+            return run_step(
+                step_name='load_boundaries_normalized',
+                user_message_on_error='Could not load boundary data into normalized tables.',
+                fn=load_boundaries_normalized,
+                session=session,
+                gdf=gdf,
+            )
 
-    geom_type = 'POINT'
+        geom_type = 'POINT'
+        requires_non_null_geom = dataset_type in {'education'}
 
-    requires_non_null_geom = dataset_type in {'education'}
+        if geom_type == 'POINT' and 'geom' in load_df.columns and requires_non_null_geom:
+            valid_geom_mask = load_df['geom'].notna()
+            dropped = int((~valid_geom_mask).sum())
+            if dropped > 0:
+                log_step('load_to_postgis', f'skipping {dropped} rows with missing/invalid point geometry for {dataset_type}')
+            load_df = load_df.loc[valid_geom_mask].copy()
+            if load_df.empty:
+                return 0, table_name
 
-    if geom_type == 'POINT' and 'geom' in load_df.columns and requires_non_null_geom:
-        valid_geom_mask = load_df['geom'].notna()
-        dropped = int((~valid_geom_mask).sum())
-        if dropped > 0:
-            print(f"Skipping {dropped} rows with missing/invalid point geometry for {dataset_type} load")
-        load_df = load_df.loc[valid_geom_mask].copy()
-        if load_df.empty:
-            return 0, table_name
-
-    load_df.to_sql(
-        table_name,
-        engine,
-        if_exists=if_exists,
-        index=False,
-        dtype={'geom': Geometry(geom_type, srid=4326)},
-    )
-    return len(load_df), table_name
+        load_df.to_sql(
+            table_name,
+            engine,
+            if_exists=if_exists,
+            index=False,
+            dtype={'geom': Geometry(geom_type, srid=4326)},
+        )
+        return len(load_df), table_name
+    except LoadError:
+        raise
+    except Exception as exc:
+        raise LoadError(
+            user_message=f'Failed to load {dataset_type} records into the database.',
+            step_name='load_to_postgis',
+            original_error=exc,
+        ) from exc
 
 
 def run_post_load_spatial_fk_enrichment(session, dataset_type, started_at, completed_at):
@@ -468,101 +522,134 @@ def run_post_load_spatial_fk_enrichment(session, dataset_type, started_at, compl
         ).rowcount
     )
 
-    session.commit()
-    return {'enabled': True, 'updated_rows': sum(int(value or 0) for value in updates)}
+    try:
+        session.commit()
+        updated_rows = sum(int(value or 0) for value in updates)
+        log_step('run_post_load_spatial_fk_enrichment', f'dataset_type={dataset_type}, updated_rows={updated_rows}')
+        return {'enabled': True, 'updated_rows': updated_rows}
+    except Exception as exc:
+        raise LoadError(
+            user_message='Post-load spatial enrichment failed while saving updates.',
+            step_name='run_post_load_spatial_fk_enrichment',
+            original_error=exc,
+        ) from exc
 
 # This function handles loading indicator data into the unified_indicators table
 def load_unified_indicators(session, indicators_df, source_filename=None):
-    if indicators_df is None or indicators_df.empty:
-        return 0
+    try:
+        if indicators_df is None or indicators_df.empty:
+            return 0
 
-    engine = session.bind
-    working = indicators_df.copy()
-    working['source_filename'] = source_filename
-    working['metadata'] = working['metadata'].apply(_sanitize_json_value)
+        engine = session.bind
+        working = indicators_df.copy()
+        working['source_filename'] = source_filename
+        working['metadata'] = working['metadata'].apply(_sanitize_json_value)
+        log_step('load_unified_indicators', f'rows={len(working)}, source={source_filename}')
 
-    working.to_sql('unified_indicators', engine, if_exists='append', index=False, dtype={'metadata': JSONB})
-    return len(working)
+        working.to_sql('unified_indicators', engine, if_exists='append', index=False, dtype={'metadata': JSONB})
+        return len(working)
+    except Exception as exc:
+        raise LoadError(
+            user_message='Could not save unified indicator records to the database.',
+            step_name='load_unified_indicators',
+            original_error=exc,
+        ) from exc
 
 # This function handles loading WorldPop age and sex data into the worldpop_age_sex table
 def load_worldpop_age_sex(session, age_sex_df):
-    if age_sex_df is None or age_sex_df.empty:
-        return 0
+    try:
+        if age_sex_df is None or age_sex_df.empty:
+            return 0
 
-    engine = session.bind
-    working = age_sex_df.copy()
-    working['metadata'] = working['metadata'].apply(_sanitize_json_value)
+        engine = session.bind
+        working = age_sex_df.copy()
+        working['metadata'] = working['metadata'].apply(_sanitize_json_value)
 
-    years = [int(year) for year in working['worldpop_year'].dropna().unique().tolist()]
+        years = [int(year) for year in working['worldpop_year'].dropna().unique().tolist()]
 
-    if years:
-        unit_types = (
-            working[['admin_unit_type', 'admin_unit_id']]
-            .dropna()
-            .copy()
+        if years:
+            unit_types = (
+                working[['admin_unit_type', 'admin_unit_id']]
+                .dropna()
+                .copy()
+            )
+            if not unit_types.empty:
+                for admin_unit_type, group in unit_types.groupby('admin_unit_type'):
+                    admin_ids = [int(admin_id) for admin_id in group['admin_unit_id'].tolist()]
+                    if not admin_ids:
+                        continue
+                    session.execute(
+                        text(
+                            """
+                            DELETE FROM worldpop_age_sex
+                            WHERE worldpop_year = ANY(:years)
+                              AND LOWER(admin_unit_type) = LOWER(:admin_unit_type)
+                              AND admin_unit_id = ANY(:admin_unit_ids)
+                            """
+                        ),
+                        {
+                            'years': years,
+                            'admin_unit_type': str(admin_unit_type),
+                            'admin_unit_ids': admin_ids,
+                        },
+                    )
+                session.commit()
+
+        log_step('load_worldpop_age_sex', f'rows={len(working)}, years={years}')
+        working.to_sql(
+            'worldpop_age_sex',
+            engine,
+            if_exists='append',
+            index=False,
+            dtype={'metadata': JSONB},
         )
-        if not unit_types.empty:
-            for admin_unit_type, group in unit_types.groupby('admin_unit_type'):
-                admin_ids = [int(admin_id) for admin_id in group['admin_unit_id'].tolist()]
-                if not admin_ids:
-                    continue
-                session.execute(
-                    text(
-                        """
-                        DELETE FROM worldpop_age_sex
-                        WHERE worldpop_year = ANY(:years)
-                          AND LOWER(admin_unit_type) = LOWER(:admin_unit_type)
-                          AND admin_unit_id = ANY(:admin_unit_ids)
-                        """
-                    ),
-                    {
-                        'years': years,
-                        'admin_unit_type': str(admin_unit_type),
-                        'admin_unit_ids': admin_ids,
-                    },
-                )
-            session.commit()
-
-    working.to_sql(
-        'worldpop_age_sex',
-        engine,
-        if_exists='append',
-        index=False,
-        dtype={'metadata': JSONB},
-    )
-    return len(working)
+        return len(working)
+    except Exception as exc:
+        raise LoadError(
+            user_message='Could not save WorldPop age/sex records to the database.',
+            step_name='load_worldpop_age_sex',
+            original_error=exc,
+        ) from exc
 
 # This function handles loading analysis results into the analysis_results table,
 def load_analysis_results(session, analysis_df):
-    if analysis_df is None or analysis_df.empty:
-        return 0
+    try:
+        if analysis_df is None or analysis_df.empty:
+            return 0
 
-    engine = session.bind
-    working = analysis_df.copy()
-    working['metadata'] = working['metadata'].apply(_sanitize_json_value)
-    working['geom'] = working['geom'].apply(
-        lambda geom: WKTElement(geom.wkt, srid=4326) if geom is not None else None
-    )
-
-    analysis_types = working['analysis_type'].dropna().unique().tolist()
-    if analysis_types:
-        session.execute(
-            text("DELETE FROM analysis_results WHERE analysis_type = ANY(:analysis_types)"),
-            {'analysis_types': analysis_types},
+        engine = session.bind
+        working = analysis_df.copy()
+        working['metadata'] = working['metadata'].apply(_sanitize_json_value)
+        working['geom'] = working['geom'].apply(
+            lambda geom: WKTElement(geom.wkt, srid=4326) if geom is not None else None
         )
-        session.commit()
 
-    working.to_sql(
-        'analysis_results',
-        engine,
-        if_exists='append',
-        index=False,
-        dtype={
-            'geom': Geometry('MULTIPOLYGON', srid=4326),
-            'metadata': JSONB,
-        },
-    )
-    return len(working)
+        analysis_types = working['analysis_type'].dropna().unique().tolist()
+        if analysis_types:
+            session.execute(
+                text("DELETE FROM analysis_results WHERE analysis_type = ANY(:analysis_types)"),
+                {'analysis_types': analysis_types},
+            )
+            session.commit()
+
+        log_step('load_analysis_results', f'rows={len(working)}, analysis_types={analysis_types}')
+        working.to_sql(
+            'analysis_results',
+            engine,
+            if_exists='append',
+            index=False,
+            dtype={
+                'geom': Geometry('MULTIPOLYGON', srid=4326),
+                'metadata': JSONB,
+            },
+        )
+        return len(working)
+    except Exception as exc:
+        raise LoadError(
+            user_message='Could not save analysis results to the database.',
+            step_name='load_analysis_results',
+            original_error=exc,
+        ) from exc
 
 # This function ensures that the normalized boundary tables (districts and admin3_units) exist in the database
 def ensure_normalized_boundary_tables(session):

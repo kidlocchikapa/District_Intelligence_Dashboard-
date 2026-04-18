@@ -1,6 +1,7 @@
 import math
 import re
 import json
+import logging
 from difflib import get_close_matches
 
 import geopandas as gpd
@@ -10,6 +11,39 @@ from shapely import wkt
 from shapely.validation import make_valid
 
 from pipeline_config import GEOGRAPHIC_COLUMNS
+
+
+LOGGER = logging.getLogger('etl.transform')
+
+
+class TransformError(Exception):
+    def __init__(self, user_message, step_name, original_error=None):
+        self.user_message = user_message
+        self.step_name = step_name
+        self.original_error = original_error
+        super().__init__(f"{user_message} (step: {step_name})")
+
+
+def log_step(step_name, message, level='info'):
+    log_method = getattr(LOGGER, level, LOGGER.info)
+    log_method(f"[{step_name}] {message}")
+
+
+def run_step(step_name, user_message_on_error, fn, *args, **kwargs):
+    log_step(step_name, 'started')
+    try:
+        result = fn(*args, **kwargs)
+    except TransformError:
+        raise
+    except Exception as exc:
+        log_step(step_name, f"failed: {exc}", level='error')
+        raise TransformError(
+            user_message=user_message_on_error,
+            step_name=step_name,
+            original_error=exc,
+        ) from exc
+    log_step(step_name, 'completed')
+    return result
 
 
 def normalize_text(value):
@@ -26,33 +60,41 @@ def normalize_text(value):
     return compact or pd.NA
 
 def standardize_schema(df, dataset_config):
-    working = df.copy()
-    original_columns = set(working.columns)
-    rename_map = {}
-    matched_columns = set()
-    claimed_aliases = set()
+    try:
+        working = df.copy()
+        original_columns = set(working.columns)
+        rename_map = {}
+        matched_columns = set()
+        claimed_aliases = set()
 
-    for canonical_name, aliases in dataset_config['canonical_columns'].items():
-        for alias in aliases:
-            if alias in claimed_aliases:
-                continue
-            if alias in working.columns:
-                rename_map[alias] = canonical_name
-                matched_columns.add(canonical_name)
-                claimed_aliases.add(alias)
-                break
+        for canonical_name, aliases in dataset_config['canonical_columns'].items():
+            for alias in aliases:
+                if alias in claimed_aliases:
+                    continue
+                if alias in working.columns:
+                    rename_map[alias] = canonical_name
+                    matched_columns.add(canonical_name)
+                    claimed_aliases.add(alias)
+                    break
 
-    working = working.rename(columns=rename_map)
+        working = working.rename(columns=rename_map)
 
-    if {'parent_code', 'valid_on', 'boundary_version'}.issubset(set(dataset_config.get('canonical_columns', {}).keys())):
-        working, matched_columns = infer_boundary_schema(working, matched_columns, original_columns)
+        if {'parent_code', 'valid_on', 'boundary_version'}.issubset(set(dataset_config.get('canonical_columns', {}).keys())):
+            working, matched_columns = infer_boundary_schema(working, matched_columns, original_columns)
 
-    for column in dataset_config['canonical_columns']:
-        if column not in working.columns:
-            working[column] = pd.NA
+        for column in dataset_config['canonical_columns']:
+            if column not in working.columns:
+                working[column] = pd.NA
 
-    working.attrs['matched_columns'] = matched_columns
-    return working
+        working.attrs['matched_columns'] = matched_columns
+        log_step('standardize_schema', f"columns_after_standardization={len(working.columns)}")
+        return working
+    except Exception as exc:
+        raise TransformError(
+            user_message='Could not standardize input schema. Check column names and mappings.',
+            step_name='standardize_schema',
+            original_error=exc,
+        ) from exc
 
 def infer_boundary_schema(df, matched_columns, original_columns=None):
     working = df.copy()
@@ -130,22 +172,29 @@ def infer_boundary_schema(df, matched_columns, original_columns=None):
     return working, matched_columns
 
 def validate_schema(df, dataset_config):
-    matched_columns = df.attrs.get('matched_columns', set())
-    missing_columns = []
+    try:
+        matched_columns = df.attrs.get('matched_columns', set())
+        missing_columns = []
 
-    for column in dataset_config['required_columns']:
-        if column in matched_columns:
-            continue
+        for column in dataset_config['required_columns']:
+            if column in matched_columns:
+                continue
 
-        if column in df.columns and df[column].notna().any():
-            continue
+            if column in df.columns and df[column].notna().any():
+                continue
 
-        missing_columns.append(column)
+            missing_columns.append(column)
 
-    if missing_columns:
-        raise ValueError(f'Missing required columns: {missing_columns}')
+        if missing_columns:
+            raise ValueError(f'Missing required columns: {missing_columns}')
 
-    return df
+        return df
+    except Exception as exc:
+        raise TransformError(
+            user_message='Input data is missing required columns. Review required fields for this dataset.',
+            step_name='validate_schema',
+            original_error=exc,
+        ) from exc
 
 
 def coerce_numeric_columns(df, numeric_columns):
@@ -251,117 +300,123 @@ def _extract_point_from_geom_value(value):
 
 
 def parse_coordinates(df, lon_col='longitude', lat_col='latitude', compound_col='coordinates'):
-    working = df.copy()
+    try:
+        working = df.copy()
 
-    lon_aliases = [
-        lon_col,
-        'longitude',
-        'longitudes',
-        'lon',
-        'lng',
-        'long',
-        'x',
-        'x_coord',
-        'x_coordinate',
-        'xcoord',
-        'easting',
-    ]
-    lat_aliases = [
-        lat_col,
-        'latitude',
-        'latitudes',
-        'lat',
-        'y',
-        'y_coord',
-        'y_coordinate',
-        'ycoord',
-        'northing',
-    ]
+        lon_aliases = [
+            lon_col,
+            'longitude',
+            'longitudes',
+            'lon',
+            'lng',
+            'long',
+            'x',
+            'x_coord',
+            'x_coordinate',
+            'xcoord',
+            'easting',
+        ]
+        lat_aliases = [
+            lat_col,
+            'latitude',
+            'latitudes',
+            'lat',
+            'y',
+            'y_coord',
+            'y_coordinate',
+            'ycoord',
+            'northing',
+        ]
 
-    for alias in lon_aliases:
-        if alias in working.columns:
-            if lon_col not in working.columns:
-                working[lon_col] = working[alias]
-            else:
-                working[lon_col] = working[lon_col].fillna(working[alias])
+        for alias in lon_aliases:
+            if alias in working.columns:
+                if lon_col not in working.columns:
+                    working[lon_col] = working[alias]
+                else:
+                    working[lon_col] = working[lon_col].fillna(working[alias])
 
-    for alias in lat_aliases:
-        if alias in working.columns:
-            if lat_col not in working.columns:
-                working[lat_col] = working[alias]
-            else:
-                working[lat_col] = working[lat_col].fillna(working[alias])
+        for alias in lat_aliases:
+            if alias in working.columns:
+                if lat_col not in working.columns:
+                    working[lat_col] = working[alias]
+                else:
+                    working[lat_col] = working[lat_col].fillna(working[alias])
 
-    compound_candidates = [compound_col, 'coord', 'coords', 'gps', 'location_coordinates']
-    compound_key = next((key for key in compound_candidates if key in working.columns), None)
+        compound_candidates = [compound_col, 'coord', 'coords', 'gps', 'location_coordinates']
+        compound_key = next((key for key in compound_candidates if key in working.columns), None)
 
-    if compound_key:
-        extracted = working[compound_key].astype(str).str.extract(
-            r'(?P<latitude>-?\d+(?:\.\d+)?)\s*[,/]\s*(?P<longitude>-?\d+(?:\.\d+)?)'
+        if compound_key:
+            extracted = working[compound_key].astype(str).str.extract(
+                r'(?P<latitude>-?\d+(?:\.\d+)?)\s*[,/]\s*(?P<longitude>-?\d+(?:\.\d+)?)'
+            )
+            working['latitude'] = working['latitude'].fillna(extracted['latitude']) if 'latitude' in working.columns else extracted['latitude']
+            working['longitude'] = working['longitude'].fillna(extracted['longitude']) if 'longitude' in working.columns else extracted['longitude']
+
+            extracted_lon_lat = working[compound_key].astype(str).str.extract(
+                r'(?P<longitude>-?\d+(?:\.\d+)?)\s*[,/]\s*(?P<latitude>-?\d+(?:\.\d+)?)'
+            )
+            candidate_lon = extracted_lon_lat['longitude'].apply(parse_coordinate_value)
+            candidate_lat = extracted_lon_lat['latitude'].apply(parse_coordinate_value)
+            swap_mask = (
+                candidate_lon.between(-180, 180, inclusive='both')
+                & candidate_lat.between(-90, 90, inclusive='both')
+            )
+            if swap_mask.any():
+                working.loc[swap_mask, 'longitude'] = working.loc[swap_mask, 'longitude'].fillna(candidate_lon[swap_mask])
+                working.loc[swap_mask, 'latitude'] = working.loc[swap_mask, 'latitude'].fillna(candidate_lat[swap_mask])
+
+        if lon_col not in working.columns:
+            working[lon_col] = pd.NA
+        if lat_col not in working.columns:
+            working[lat_col] = pd.NA
+
+        if 'geometry' in working.columns:
+            point_geometries = working['geometry'].apply(
+                lambda geom: geom if isinstance(geom, Point) else None
+            )
+            working[lon_col] = working[lon_col].fillna(point_geometries.apply(lambda geom: geom.x if geom is not None else pd.NA))
+            working[lat_col] = working[lat_col].fillna(point_geometries.apply(lambda geom: geom.y if geom is not None else pd.NA))
+
+        if 'geom' in working.columns:
+            point_geometries = working['geom'].apply(_extract_point_from_geom_value)
+            working[lon_col] = working[lon_col].fillna(point_geometries.apply(lambda geom: geom.x if geom is not None else pd.NA))
+            working[lat_col] = working[lat_col].fillna(point_geometries.apply(lambda geom: geom.y if geom is not None else pd.NA))
+
+        working[lon_col] = working[lon_col].apply(parse_coordinate_value)
+        working[lat_col] = working[lat_col].apply(parse_coordinate_value)
+
+        invalid_bounds = (
+            ~working[lon_col].between(-180, 180, inclusive='both')
+            | ~working[lat_col].between(-90, 90, inclusive='both')
         )
-        working['latitude'] = working['latitude'].fillna(extracted['latitude']) if 'latitude' in working.columns else extracted['latitude']
-        working['longitude'] = working['longitude'].fillna(extracted['longitude']) if 'longitude' in working.columns else extracted['longitude']
-
-        # If values look like lon,lat order then swap into the canonical columns.
-        extracted_lon_lat = working[compound_key].astype(str).str.extract(
-            r'(?P<longitude>-?\d+(?:\.\d+)?)\s*[,/]\s*(?P<latitude>-?\d+(?:\.\d+)?)'
+        utm_like = (
+            working[lon_col].between(100000, 900000, inclusive='both')
+            & working[lat_col].between(7000000, 10000000, inclusive='both')
         )
-        candidate_lon = extracted_lon_lat['longitude'].apply(parse_coordinate_value)
-        candidate_lat = extracted_lon_lat['latitude'].apply(parse_coordinate_value)
-        swap_mask = (
-            candidate_lon.between(-180, 180, inclusive='both')
-            & candidate_lat.between(-90, 90, inclusive='both')
+        transform_mask = invalid_bounds & utm_like
+
+        if transform_mask.any():
+            projected_points = gpd.GeoSeries(
+                [Point(x, y) for x, y in zip(working.loc[transform_mask, lon_col], working.loc[transform_mask, lat_col])],
+                crs='EPSG:32736',
+            ).to_crs('EPSG:4326')
+            working.loc[transform_mask, lon_col] = projected_points.x.values
+            working.loc[transform_mask, lat_col] = projected_points.y.values
+
+        valid_bounds = (
+            working[lon_col].between(-180, 180, inclusive='both')
+            & working[lat_col].between(-90, 90, inclusive='both')
         )
-        if swap_mask.any():
-            working.loc[swap_mask, 'longitude'] = working.loc[swap_mask, 'longitude'].fillna(candidate_lon[swap_mask])
-            working.loc[swap_mask, 'latitude'] = working.loc[swap_mask, 'latitude'].fillna(candidate_lat[swap_mask])
-
-    if lon_col not in working.columns:
-        working[lon_col] = pd.NA
-    if lat_col not in working.columns:
-        working[lat_col] = pd.NA
-
-    if 'geometry' in working.columns:
-        point_geometries = working['geometry'].apply(
-            lambda geom: geom if isinstance(geom, Point) else None
-        )
-        working[lon_col] = working[lon_col].fillna(point_geometries.apply(lambda geom: geom.x if geom is not None else pd.NA))
-        working[lat_col] = working[lat_col].fillna(point_geometries.apply(lambda geom: geom.y if geom is not None else pd.NA))
-
-    if 'geom' in working.columns:
-        point_geometries = working['geom'].apply(_extract_point_from_geom_value)
-        working[lon_col] = working[lon_col].fillna(point_geometries.apply(lambda geom: geom.x if geom is not None else pd.NA))
-        working[lat_col] = working[lat_col].fillna(point_geometries.apply(lambda geom: geom.y if geom is not None else pd.NA))
-
-    working[lon_col] = working[lon_col].apply(parse_coordinate_value)
-    working[lat_col] = working[lat_col].apply(parse_coordinate_value)
-
-    # Convert projected UTM-like coordinates (common in Malawi datasets) to WGS84.
-    invalid_bounds = (
-        ~working[lon_col].between(-180, 180, inclusive='both')
-        | ~working[lat_col].between(-90, 90, inclusive='both')
-    )
-    utm_like = (
-        working[lon_col].between(100000, 900000, inclusive='both')
-        & working[lat_col].between(7000000, 10000000, inclusive='both')
-    )
-    transform_mask = invalid_bounds & utm_like
-
-    if transform_mask.any():
-        projected_points = gpd.GeoSeries(
-            [Point(x, y) for x, y in zip(working.loc[transform_mask, lon_col], working.loc[transform_mask, lat_col])],
-            crs='EPSG:32736',
-        ).to_crs('EPSG:4326')
-        working.loc[transform_mask, lon_col] = projected_points.x.values
-        working.loc[transform_mask, lat_col] = projected_points.y.values
-
-    valid_bounds = (
-        working[lon_col].between(-180, 180, inclusive='both')
-        & working[lat_col].between(-90, 90, inclusive='both')
-    )
-
-    working['coordinate_status'] = valid_bounds.map(lambda is_valid: 'valid' if is_valid else 'missing_or_invalid')
-    return working
+        working['coordinate_status'] = valid_bounds.map(lambda is_valid: 'valid' if is_valid else 'missing_or_invalid')
+        invalid_count = int((working['coordinate_status'] == 'missing_or_invalid').sum())
+        log_step('parse_coordinates', f'invalid_or_missing_coordinates={invalid_count}')
+        return working
+    except Exception as exc:
+        raise TransformError(
+            user_message='Could not parse coordinates. Check latitude/longitude values and formats.',
+            step_name='parse_coordinates',
+            original_error=exc,
+        ) from exc
 
 def build_gazetteer_index(gazetteer_df):
     if gazetteer_df.empty:
@@ -399,60 +454,70 @@ def match_geography(value, index):
 
 
 def standardize_geography(df, gazetteer_df):
-    working = df.copy()
-    gazetteer_index = build_gazetteer_index(gazetteer_df)
-
-    for geo_column in GEOGRAPHIC_COLUMNS:
-        if geo_column not in working.columns:
-            working[geo_column] = pd.NA
-
-        working[f'input_{geo_column}'] = working[geo_column]
-        working[geo_column] = working[geo_column].apply(normalize_text)
-
-    working['geo_match_status'] = 'not_checked'
-    working['geo_code'] = pd.NA
-
-    if gazetteer_df.empty:
-        return working
-
-    matched_rows = []
-    for _, row in working.iterrows():
-        best_match = None
-        statuses = []
+    try:
+        working = df.copy()
+        gazetteer_index = build_gazetteer_index(gazetteer_df)
 
         for geo_column in GEOGRAPHIC_COLUMNS:
-            matched, status = match_geography(row.get(geo_column), gazetteer_index.get(geo_column, {}))
-            statuses.append(status)
-            if matched and not best_match:
-                best_match = matched
+            if geo_column not in working.columns:
+                working[geo_column] = pd.NA
 
-        merged_row = row.to_dict()
-        if best_match:
-            merged_row['district_name'] = (
-                best_match.get('normalized_district_name')
-                if pd.notna(best_match.get('normalized_district_name'))
-                else merged_row.get('district_name')
-            )
-            merged_row['ward_name'] = (
-                best_match.get('normalized_ward_name')
-                if pd.notna(best_match.get('normalized_ward_name'))
-                else merged_row.get('ward_name')
-            )
-            merged_row['village_name'] = (
-                best_match.get('normalized_village_name')
-                if pd.notna(best_match.get('normalized_village_name'))
-                else merged_row.get('village_name')
-            )
-            merged_row['geo_code'] = best_match.get('geo_code')
-            merged_row['geo_match_status'] = 'matched'
-            if 'fuzzy' in statuses:
-                merged_row['geo_match_status'] = 'fuzzy_matched'
-        else:
-            merged_row['geo_match_status'] = 'unmatched' if any(status == 'unmatched' for status in statuses) else 'missing'
+            working[f'input_{geo_column}'] = working[geo_column]
+            working[geo_column] = working[geo_column].apply(normalize_text)
 
-        matched_rows.append(merged_row)
+        working['geo_match_status'] = 'not_checked'
+        working['geo_code'] = pd.NA
 
-    return pd.DataFrame(matched_rows)
+        if gazetteer_df.empty:
+            return working
+
+        matched_rows = []
+        for _, row in working.iterrows():
+            best_match = None
+            statuses = []
+
+            for geo_column in GEOGRAPHIC_COLUMNS:
+                matched, status = match_geography(row.get(geo_column), gazetteer_index.get(geo_column, {}))
+                statuses.append(status)
+                if matched and not best_match:
+                    best_match = matched
+
+            merged_row = row.to_dict()
+            if best_match:
+                merged_row['district_name'] = (
+                    best_match.get('normalized_district_name')
+                    if pd.notna(best_match.get('normalized_district_name'))
+                    else merged_row.get('district_name')
+                )
+                merged_row['ward_name'] = (
+                    best_match.get('normalized_ward_name')
+                    if pd.notna(best_match.get('normalized_ward_name'))
+                    else merged_row.get('ward_name')
+                )
+                merged_row['village_name'] = (
+                    best_match.get('normalized_village_name')
+                    if pd.notna(best_match.get('normalized_village_name'))
+                    else merged_row.get('village_name')
+                )
+                merged_row['geo_code'] = best_match.get('geo_code')
+                merged_row['geo_match_status'] = 'matched'
+                if 'fuzzy' in statuses:
+                    merged_row['geo_match_status'] = 'fuzzy_matched'
+            else:
+                merged_row['geo_match_status'] = 'unmatched' if any(status == 'unmatched' for status in statuses) else 'missing'
+
+            matched_rows.append(merged_row)
+
+        result = pd.DataFrame(matched_rows)
+        matched_count = int((result['geo_match_status'].isin(['matched', 'fuzzy_matched'])).sum()) if 'geo_match_status' in result.columns else 0
+        log_step('standardize_geography', f'matched_rows={matched_count}, total_rows={len(result)}')
+        return result
+    except Exception as exc:
+        raise TransformError(
+            user_message='Could not standardize geographic names against gazetteer data.',
+            step_name='standardize_geography',
+            original_error=exc,
+        ) from exc
 
 def handle_missing_data(df, required_columns, strategy='flag'):
     working = df.copy()
@@ -759,160 +824,177 @@ def ensure_valid_multipolygon(geometry):
     return None
 
 def transform_boundary_dataset(df):
-    if 'geometry' not in df.columns:
-        raise ValueError('Boundary dataset must include polygon geometry')
+    try:
+        if 'geometry' not in df.columns:
+            raise ValueError('Boundary dataset must include polygon geometry')
 
-    working = gpd.GeoDataFrame(df.copy(), geometry='geometry', crs=getattr(df, 'crs', None) or 'EPSG:4326')
-    if working.crs is None:
-        working = working.set_crs('EPSG:4326')
-    elif working.crs.to_string() != 'EPSG:4326':
-        working = working.to_crs('EPSG:4326')
+        working = gpd.GeoDataFrame(df.copy(), geometry='geometry', crs=getattr(df, 'crs', None) or 'EPSG:4326')
+        if working.crs is None:
+            working = working.set_crs('EPSG:4326')
+        elif working.crs.to_string() != 'EPSG:4326':
+            working = working.to_crs('EPSG:4326')
 
-    working['type'] = working.apply(infer_boundary_type, axis=1)
-    valid_types = {'District', 'TA', 'Ward', 'Village'}
-    invalid_types = working['type'].isin(valid_types) == False
-    if invalid_types.any():
-        bad_types = sorted(set(working.loc[invalid_types, 'type'].dropna().astype(str)))
-        raise ValueError(f'Unsupported administrative unit types: {bad_types}')
+        working['type'] = working.apply(infer_boundary_type, axis=1)
+        valid_types = {'District', 'TA', 'Ward', 'Village'}
+        invalid_types = working['type'].isin(valid_types) == False
+        if invalid_types.any():
+            bad_types = sorted(set(working.loc[invalid_types, 'type'].dropna().astype(str)))
+            raise ValueError(f'Unsupported administrative unit types: {bad_types}')
 
-    working['code'] = working['code'].apply(
-        lambda value: str(value).strip() if pd.notna(value) else pd.NA
-    )
-    working['code'] = working['code'].replace({
-        '': pd.NA,
-        'nan': pd.NA,
-        'NaN': pd.NA,
-        '<NA>': pd.NA,
-        'None': pd.NA,
-        'null': pd.NA,
-    })
-    for column in ['parent_code', 'valid_on', 'boundary_version', 'reference_name']:
-        if column not in working.columns:
-            working[column] = pd.NA
-
-    working['parent_code'] = working['parent_code'].apply(lambda value: str(value).strip() if pd.notna(value) else pd.NA)
-    working['valid_on'] = working['valid_on'].apply(_coerce_boundary_date)
-    working['boundary_version'] = working.apply(
-        lambda row: _first_present(row.get('boundary_version'), row.get('version')),
-        axis=1,
-    )
-    working['reference_name'] = working.apply(
-        lambda row: _first_present(row.get('reference_name'), row.get('adm3_ref_n')),
-        axis=1,
-    )
-    if 'name' not in working.columns:
-        working['name'] = pd.NA
-
-    if 'ward_name' in working.columns:
-        working['name'] = working['name'].fillna(working['ward_name'])
-    if 'district_name' in working.columns:
-        working['name'] = working['name'].fillna(working['district_name'])
-    working['name'] = working['name'].fillna(working['code'])
-    working['name'] = working['name'].apply(lambda value: value.title() if isinstance(value, str) else value)
-    working['geometry'] = working['geometry'].apply(ensure_valid_multipolygon)
-
-    if working['geometry'].isna().any():
-        raise ValueError('Boundary dataset contains invalid or non-polygon geometries')
-
-    if working['code'].isna().any():
-        raise ValueError(
-            'Boundary dataset contains rows with missing codes. '
-            'Map a unique boundary code field such as code, gid, adm2_pcode, or adm3_pcode.'
+        working['code'] = working['code'].apply(lambda value: str(value).strip() if pd.notna(value) else pd.NA)
+        working['code'] = working['code'].replace(
+            {
+                '': pd.NA,
+                'nan': pd.NA,
+                'NaN': pd.NA,
+                '<NA>': pd.NA,
+                'None': pd.NA,
+                'null': pd.NA,
+            }
         )
+        for column in ['parent_code', 'valid_on', 'boundary_version', 'reference_name']:
+            if column not in working.columns:
+                working[column] = pd.NA
 
-    if working['code'].duplicated().any():
-        duplicates = working.loc[working['code'].duplicated(), 'code'].dropna().tolist()
-        raise ValueError(f'Duplicate administrative unit codes found: {duplicates}')
+        working['parent_code'] = working['parent_code'].apply(lambda value: str(value).strip() if pd.notna(value) else pd.NA)
+        working['valid_on'] = working['valid_on'].apply(_coerce_boundary_date)
+        working['boundary_version'] = working.apply(
+            lambda row: _first_present(row.get('boundary_version'), row.get('version')),
+            axis=1,
+        )
+        working['reference_name'] = working.apply(
+            lambda row: _first_present(row.get('reference_name'), row.get('adm3_ref_n')),
+            axis=1,
+        )
+        if 'name' not in working.columns:
+            working['name'] = pd.NA
 
-    if working['name'].isna().any():
-        raise ValueError('Boundary dataset contains rows with missing names')
+        if 'ward_name' in working.columns:
+            working['name'] = working['name'].fillna(working['ward_name'])
+        if 'district_name' in working.columns:
+            working['name'] = working['name'].fillna(working['district_name'])
+        working['name'] = working['name'].fillna(working['code'])
+        working['name'] = working['name'].apply(lambda value: value.title() if isinstance(value, str) else value)
+        working['geometry'] = working['geometry'].apply(ensure_valid_multipolygon)
 
-    projected = working.to_crs('EPSG:3857')
-    working['area_sq_km'] = projected.geometry.area / 10**6
-    working['centroid'] = projected.geometry.centroid.to_crs('EPSG:4326')
-    working['simplified_geom'] = projected.geometry.simplify(30).to_crs('EPSG:4326').apply(ensure_valid_multipolygon)
-    working['population_total'] = 0
-    working['population_density'] = 0.0
-    working['metadata'] = working.apply(_build_boundary_metadata, axis=1)
+        if working['geometry'].isna().any():
+            raise ValueError('Boundary dataset contains invalid or non-polygon geometries')
 
-    return working
+        if working['code'].isna().any():
+            raise ValueError(
+                'Boundary dataset contains rows with missing codes. '
+                'Map a unique boundary code field such as code, gid, adm2_pcode, or adm3_pcode.'
+            )
+
+        if working['code'].duplicated().any():
+            duplicates = working.loc[working['code'].duplicated(), 'code'].dropna().tolist()
+            raise ValueError(f'Duplicate administrative unit codes found: {duplicates}')
+
+        if working['name'].isna().any():
+            raise ValueError('Boundary dataset contains rows with missing names')
+
+        projected = working.to_crs('EPSG:3857')
+        working['area_sq_km'] = projected.geometry.area / 10**6
+        working['centroid'] = projected.geometry.centroid.to_crs('EPSG:4326')
+        working['simplified_geom'] = projected.geometry.simplify(30).to_crs('EPSG:4326').apply(ensure_valid_multipolygon)
+        working['population_total'] = 0
+        working['population_density'] = 0.0
+        working['metadata'] = working.apply(_build_boundary_metadata, axis=1)
+        log_step('transform_boundary_dataset', f'transformed_rows={len(working)}')
+
+        return working
+    except Exception as exc:
+        raise TransformError(
+            user_message='Boundary transformation failed. Check geometry validity and required boundary fields.',
+            step_name='transform_boundary_dataset',
+            original_error=exc,
+        ) from exc
 
 def derive_indicators(df, dataset_type, admin_units_df):
-    working = df.copy()
-    indicators = []
+    try:
+        working = df.copy()
+        indicators = []
 
-    if admin_units_df is None or admin_units_df.empty:
-        return pd.DataFrame(indicators)
+        if admin_units_df is None or admin_units_df.empty:
+            return pd.DataFrame(indicators)
 
-    population_lookup = {'ward': {}, 'district': {}}
-    for _, row in admin_units_df.iterrows():
-        geo_name = normalize_text(row.get('name'))
-        geo_level = normalize_text(row.get('type'))
-        if pd.notna(geo_name):
-            population_lookup['ward' if geo_level == 'ward' else 'district'][geo_name] = {
-                'population_total': row.get('population_total') or 0,
-                'code': row.get('code'),
-            }
+        population_lookup = {'ward': {}, 'district': {}}
+        for _, row in admin_units_df.iterrows():
+            geo_name = normalize_text(row.get('name'))
+            geo_level = normalize_text(row.get('type'))
+            if pd.notna(geo_name):
+                population_lookup['ward' if geo_level == 'ward' else 'district'][geo_name] = {
+                    'population_total': row.get('population_total') or 0,
+                    'code': row.get('code'),
+                }
 
-    geographic_column, geographic_level = infer_geographic_level(working)
-    if not geographic_column:
-        return pd.DataFrame(indicators)
+        geographic_column, geographic_level = infer_geographic_level(working)
+        if not geographic_column:
+            return pd.DataFrame(indicators)
 
-    if dataset_type == 'education':
-        facility_name_column = 'school_name' if 'school_name' in working.columns else 'name'
-        grouped = working.groupby(geographic_column, dropna=True).agg(
-            facilities=(facility_name_column, 'count'),
-            student_enrollment_total=('student_enrollment_total', 'sum'),
-            teacher_count=('teacher_count', 'sum'),
-        )
-        for geographic_name, row in grouped.iterrows():
-            population = population_lookup[geographic_level].get(normalize_text(geographic_name), {}).get('population_total', 0) or 0
-            code = population_lookup[geographic_level].get(normalize_text(geographic_name), {}).get('code')
-            if population:
-                indicators.append(
-                    indicator_record(dataset_type, 'schools_per_1000_population', geographic_level, geographic_name, code, row['facilities'] * 1000 / population)
-                )
-            indicators.append(
-                indicator_record(dataset_type, 'student_enrollment_total', geographic_level, geographic_name, code, row['student_enrollment_total'] or 0)
+        if dataset_type == 'education':
+            facility_name_column = 'school_name' if 'school_name' in working.columns else 'name'
+            grouped = working.groupby(geographic_column, dropna=True).agg(
+                facilities=(facility_name_column, 'count'),
+                student_enrollment_total=('student_enrollment_total', 'sum'),
+                teacher_count=('teacher_count', 'sum'),
             )
-            if row['student_enrollment_total']:
+            for geographic_name, row in grouped.iterrows():
+                population = population_lookup[geographic_level].get(normalize_text(geographic_name), {}).get('population_total', 0) or 0
+                code = population_lookup[geographic_level].get(normalize_text(geographic_name), {}).get('code')
+                if population:
+                    indicators.append(
+                        indicator_record(dataset_type, 'schools_per_1000_population', geographic_level, geographic_name, code, row['facilities'] * 1000 / population)
+                    )
                 indicators.append(
-                    indicator_record(dataset_type, 'teachers_per_100_students', geographic_level, geographic_name, code, row['teacher_count'] * 100 / row['student_enrollment_total'])
+                    indicator_record(dataset_type, 'student_enrollment_total', geographic_level, geographic_name, code, row['student_enrollment_total'] or 0)
                 )
+                if row['student_enrollment_total']:
+                    indicators.append(
+                        indicator_record(dataset_type, 'teachers_per_100_students', geographic_level, geographic_name, code, row['teacher_count'] * 100 / row['student_enrollment_total'])
+                    )
 
-    if dataset_type == 'health':
-        grouped = working.groupby(geographic_column, dropna=True).agg(
-            facilities=('name', 'count'),
-            beds_count=('beds_count', 'sum'),
-            patient_visits_total=('patient_visits_total', 'sum'),
-        )
-        for geographic_name, row in grouped.iterrows():
-            population = population_lookup[geographic_level].get(normalize_text(geographic_name), {}).get('population_total', 0) or 0
-            code = population_lookup[geographic_level].get(normalize_text(geographic_name), {}).get('code')
-            if population:
-                indicators.append(
-                    indicator_record(dataset_type, 'health_facilities_per_1000_population', geographic_level, geographic_name, code, row['facilities'] * 1000 / population)
-                )
-                indicators.append(
-                    indicator_record(dataset_type, 'beds_per_1000_population', geographic_level, geographic_name, code, row['beds_count'] * 1000 / population)
-                )
-            indicators.append(
-                indicator_record(dataset_type, 'patient_visits_total', geographic_level, geographic_name, code, row['patient_visits_total'] or 0)
+        if dataset_type == 'health':
+            grouped = working.groupby(geographic_column, dropna=True).agg(
+                facilities=('name', 'count'),
+                beds_count=('beds_count', 'sum'),
+                patient_visits_total=('patient_visits_total', 'sum'),
             )
-
-    if dataset_type == 'welfare':
-        grouped = working.groupby(geographic_column, dropna=True).agg(
-            beneficiary_count=('beneficiary_count', 'sum'),
-        )
-        for geographic_name, row in grouped.iterrows():
-            population = population_lookup[geographic_level].get(normalize_text(geographic_name), {}).get('population_total', 0) or 0
-            code = population_lookup[geographic_level].get(normalize_text(geographic_name), {}).get('code')
-            if population:
+            for geographic_name, row in grouped.iterrows():
+                population = population_lookup[geographic_level].get(normalize_text(geographic_name), {}).get('population_total', 0) or 0
+                code = population_lookup[geographic_level].get(normalize_text(geographic_name), {}).get('code')
+                if population:
+                    indicators.append(
+                        indicator_record(dataset_type, 'health_facilities_per_1000_population', geographic_level, geographic_name, code, row['facilities'] * 1000 / population)
+                    )
+                    indicators.append(
+                        indicator_record(dataset_type, 'beds_per_1000_population', geographic_level, geographic_name, code, row['beds_count'] * 1000 / population)
+                    )
                 indicators.append(
-                    indicator_record(dataset_type, 'beneficiaries_per_1000_population', geographic_level, geographic_name, code, row['beneficiary_count'] * 1000 / population)
+                    indicator_record(dataset_type, 'patient_visits_total', geographic_level, geographic_name, code, row['patient_visits_total'] or 0)
                 )
 
-    return pd.DataFrame(indicators)
+        if dataset_type == 'welfare':
+            grouped = working.groupby(geographic_column, dropna=True).agg(
+                beneficiary_count=('beneficiary_count', 'sum'),
+            )
+            for geographic_name, row in grouped.iterrows():
+                population = population_lookup[geographic_level].get(normalize_text(geographic_name), {}).get('population_total', 0) or 0
+                code = population_lookup[geographic_level].get(normalize_text(geographic_name), {}).get('code')
+                if population:
+                    indicators.append(
+                        indicator_record(dataset_type, 'beneficiaries_per_1000_population', geographic_level, geographic_name, code, row['beneficiary_count'] * 1000 / population)
+                    )
+
+        result = pd.DataFrame(indicators)
+        log_step('derive_indicators', f'dataset_type={dataset_type}, indicators={len(result)}')
+        return result
+    except Exception as exc:
+        raise TransformError(
+            user_message=f'Could not derive indicators for dataset type {dataset_type}.',
+            step_name='derive_indicators',
+            original_error=exc,
+        ) from exc
 
 def infer_geographic_level(df):
     if 'ward_name' in df.columns and df['ward_name'].notna().any():

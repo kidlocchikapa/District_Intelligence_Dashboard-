@@ -1,6 +1,7 @@
 #import modules
 import argparse
 import datetime as dt
+import logging
 import os
 from collections import defaultdict
 
@@ -21,6 +22,49 @@ from worldpop import (
     load_worldpop_catalog,
     select_worldpop_dataset,
 )
+
+
+LOGGER = logging.getLogger('flood_exposure_pipeline')
+
+
+class FloodPipelineError(Exception):
+    def __init__(self, user_message, step_name, original_error=None):
+        self.user_message = user_message
+        self.step_name = step_name
+        self.original_error = original_error
+        super().__init__(f"{user_message} (step: {step_name})")
+
+
+def setup_logging():
+    if LOGGER.handlers:
+        return
+    logging.basicConfig(
+        level=logging.INFO,
+        format='[%(asctime)s] [%(levelname)s] [%(name)s] %(message)s',
+        datefmt='%Y-%m-%d %H:%M:%S',
+    )
+
+
+def log_step(step_name, message, level='info'):
+    log_method = getattr(LOGGER, level, LOGGER.info)
+    log_method(f"[{step_name}] {message}")
+
+
+def run_step(step_name, user_message_on_error, fn, *args, **kwargs):
+    log_step(step_name, 'started')
+    try:
+        result = fn(*args, **kwargs)
+    except FloodPipelineError:
+        raise
+    except Exception as exc:
+        log_step(step_name, f"failed: {exc}", level='error')
+        raise FloodPipelineError(
+            user_message=user_message_on_error,
+            step_name=step_name,
+            original_error=exc,
+        ) from exc
+    log_step(step_name, 'completed')
+    return result
 
 #Ensure that the flood_zones table exists with appropriate schema and indexes for efficient querying.
 def ensure_flood_zones_table(session):
@@ -614,10 +658,23 @@ def run_flood_exposure_analysis(
     district_names,
     analysis_date,
 ):
-    ensure_flood_zones_table(session)
-    ensure_flood_facility_tables(session)
-    boundaries = fetch_district_and_ta_geometries(
-        session,
+    run_step(
+        step_name='schema_setup_flood_zones',
+        user_message_on_error='Failed to prepare flood output table in the database.',
+        fn=ensure_flood_zones_table,
+        session=session,
+    )
+    run_step(
+        step_name='schema_setup_flood_facilities',
+        user_message_on_error='Failed to prepare flood facility output tables in the database.',
+        fn=ensure_flood_facility_tables,
+        session=session,
+    )
+    boundaries = run_step(
+        step_name='load_boundaries',
+        user_message_on_error='Could not load district and TA boundaries. Check district names and boundary data.',
+        fn=fetch_district_and_ta_geometries,
+        session=session,
         district_name=district_name,
         district_names=district_names,
     )
@@ -625,6 +682,8 @@ def run_flood_exposure_analysis(
     rows = []
     processed_count = 0
 
+    log_step('open_rasters', f'opening flood raster: {flood_raster_path}')
+    log_step('open_rasters', f'opening worldpop raster: {worldpop_raster_path}')
     with rasterio.open(flood_raster_path) as flood_src, rasterio.open(worldpop_raster_path) as pop_src:
         district_geom_flood_crs = _to_raster_crs(boundaries["district_geom"], "EPSG:4326", flood_src.crs)
 
@@ -672,18 +731,27 @@ def run_flood_exposure_analysis(
                 f"(total_pop={ta_stats['total_population']:.2f}, exposed={ta_stats['exposed_population']:.2f})"
             )
 
-        facility_stats = compute_facility_flood_exposure(
+        facility_stats = run_step(
+            step_name='compute_facility_exposure',
+            user_message_on_error='Could not compute flood exposure for education and health facilities.',
+            fn=compute_facility_flood_exposure,
             session=session,
             flood_src=flood_src,
             boundaries=boundaries,
             analysis_date=analysis_date,
         )
-        print(
-            f"Facility exposure persisted: detail_rows={facility_stats['detail_rows']}, "
-            f"summary_rows={facility_stats['summary_rows']}"
+        log_step(
+            'compute_facility_exposure',
+            f"persisted detail_rows={facility_stats['detail_rows']}, summary_rows={facility_stats['summary_rows']}",
         )
 
-    upsert_flood_zone_rows(session, rows)
+    run_step(
+        step_name='persist_population_exposure',
+        user_message_on_error='Could not save flood population exposure results to the database.',
+        fn=upsert_flood_zone_rows,
+        session=session,
+        rows=rows,
+    )
     return processed_count
 
 # Resolve the WorldPop raster path, either using the provided path or fetching it via API if not provided
@@ -693,6 +761,7 @@ def resolve_population_raster_path(worldpop_raster_path, worldpop_year, download
             raise FileNotFoundError(f"Population raster file not found: {worldpop_raster_path}")
         if not validate_raster_readable(worldpop_raster_path, strict=True):
             raise ValueError(f"Population raster is not readable/corrupted: {worldpop_raster_path}")
+        log_step('resolve_worldpop', f'using provided worldpop raster: {worldpop_raster_path}')
         return worldpop_raster_path
 
     target_dir = os.path.join(os.path.dirname(__file__), 'data', 'worldpop')
@@ -701,7 +770,7 @@ def resolve_population_raster_path(worldpop_raster_path, worldpop_year, download
     last_error = None
     for attempt in range(1, max_attempts + 1):
         try:
-            print(f"Fetching WorldPop raster via API (attempt {attempt}/{max_attempts})...")
+            log_step('resolve_worldpop', f'fetching via API (attempt {attempt}/{max_attempts})')
             catalog = load_worldpop_catalog()
             selected = select_worldpop_dataset(catalog, year=worldpop_year, iso3='MWI')
             filename = f"mwi_worldpop_{selected['year']}.tif"
@@ -719,7 +788,7 @@ def resolve_population_raster_path(worldpop_raster_path, worldpop_year, download
             )
 
             if validate_raster_readable(raster_path, strict=True):
-                print(f"Using WorldPop raster: {raster_path}")
+                log_step('resolve_worldpop', f'using downloaded raster: {raster_path}')
                 return raster_path
 
             if os.path.exists(raster_path):
@@ -727,7 +796,7 @@ def resolve_population_raster_path(worldpop_raster_path, worldpop_year, download
             raise ValueError(f"Downloaded WorldPop raster is corrupted: {raster_path}")
         except Exception as exc:
             last_error = exc
-            print(f"WorldPop fetch attempt {attempt} failed: {exc}")
+            log_step('resolve_worldpop', f'attempt {attempt} failed: {exc}', level='warning')
 
     raise RuntimeError(f"Failed to fetch a valid WorldPop raster after {max_attempts} attempts: {last_error}")
 
@@ -756,32 +825,64 @@ def parse_args():
 
 # Main function to orchestrate the flood exposure analysis workflow
 def main():
+    setup_logging()
     args = parse_args()
 
-    if not os.path.exists(args.flood_raster):
-        raise FileNotFoundError(f"Flood raster file not found: {args.flood_raster}")
-
-    analysis_date = dt.date.fromisoformat(args.analysis_date)
-    worldpop_raster_path = resolve_population_raster_path(
-        args.worldpop_raster,
-        args.worldpop_year,
-        download_timeout=args.worldpop_timeout,
-        max_attempts=args.worldpop_max_attempts,
-    )
-
-    session = get_session()
     try:
-        processed_count = run_flood_exposure_analysis(
-            session=session,
-            flood_raster_path=args.flood_raster,
-            worldpop_raster_path=worldpop_raster_path,
-            district_name=args.district_name,
-            district_names=args.district_name_list,
-            analysis_date=analysis_date,
+        if not os.path.exists(args.flood_raster):
+            raise FloodPipelineError(
+                user_message=f"Flood raster file was not found: {args.flood_raster}. Check the path and rerun.",
+                step_name='validate_flood_raster',
+            )
+
+        analysis_date = run_step(
+            step_name='parse_analysis_date',
+            user_message_on_error='The analysis date is invalid. Use YYYY-MM-DD format (example: 2026-04-18).',
+            fn=lambda: dt.date.fromisoformat(args.analysis_date),
         )
-        print(f"Success: processed {processed_count} geometries and upserted flood exposure results.")
-    finally:
-        session.close()
+        worldpop_raster_path = run_step(
+            step_name='resolve_worldpop',
+            user_message_on_error='Could not get a usable WorldPop population raster. Check network access or provide --worldpop-raster.',
+            fn=resolve_population_raster_path,
+            worldpop_raster_path=args.worldpop_raster,
+            worldpop_year=args.worldpop_year,
+            download_timeout=args.worldpop_timeout,
+            max_attempts=args.worldpop_max_attempts,
+        )
+
+        log_step('session_setup', 'opening database session')
+        session = get_session()
+        try:
+            processed_count = run_step(
+                step_name='run_flood_analysis',
+                user_message_on_error='Flood analysis failed during computation. Review the step logs above for details.',
+                fn=run_flood_exposure_analysis,
+                session=session,
+                flood_raster_path=args.flood_raster,
+                worldpop_raster_path=worldpop_raster_path,
+                district_name=args.district_name,
+                district_names=args.district_name_list,
+                analysis_date=analysis_date,
+            )
+            log_step('run_flood_analysis', f'successfully processed {processed_count} geometries')
+            print(f"Success: processed {processed_count} geometries and upserted flood exposure results.")
+        finally:
+            log_step('session_teardown', 'closing database session')
+            session.close()
+    except FloodPipelineError as exc:
+        LOGGER.error(
+            "Pipeline failed at step '%s'. %s Original error: %s",
+            exc.step_name,
+            exc.user_message,
+            exc.original_error,
+        )
+        raise SystemExit(f"Pipeline failed: {exc.user_message}")
+    except Exception as exc:
+        LOGGER.exception("Unexpected pipeline failure")
+        raise SystemExit(
+            "Pipeline failed due to an unexpected internal error. "
+            "Please check the logs and retry."
+        ) from exc
 
 
 if __name__ == "__main__":

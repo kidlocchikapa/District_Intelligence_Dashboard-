@@ -1,10 +1,45 @@
 #import necessary libraries for geospatial analysis and database interaction
+import logging
+
 import geopandas as gpd
 import pandas as pd
 from shapely.ops import unary_union
 from sqlalchemy import text
 
 from worldpop import get_zonal_stats
+
+
+LOGGER = logging.getLogger('etl.analytics')
+
+
+class AnalyticsError(Exception):
+    def __init__(self, user_message, step_name, original_error=None):
+        self.user_message = user_message
+        self.step_name = step_name
+        self.original_error = original_error
+        super().__init__(f"{user_message} (step: {step_name})")
+
+
+def log_step(step_name, message, level='info'):
+    log_method = getattr(LOGGER, level, LOGGER.info)
+    log_method(f"[{step_name}] {message}")
+
+
+def run_step(step_name, user_message_on_error, fn, *args, **kwargs):
+    log_step(step_name, 'started')
+    try:
+        result = fn(*args, **kwargs)
+    except AnalyticsError:
+        raise
+    except Exception as exc:
+        log_step(step_name, f"failed: {exc}", level='error')
+        raise AnalyticsError(
+            user_message=user_message_on_error,
+            step_name=step_name,
+            original_error=exc,
+        ) from exc
+    log_step(step_name, 'completed')
+    return result
 
 # Define the types of analyses that can be performed
 ANALYSIS_TYPES = {
@@ -389,82 +424,163 @@ def compute_education_summary(admin_units_gdf, schools_gdf, school_age_lookup=No
 
 # Main function to run selected spatial analyses based on provided parameters, fetching necessary data and computing results for each analysis type, and returning a combined DataFrame with all results
 def run_spatial_analyses(session, analysis_types=None, admin_level=None, coverage_distance_km=5.0, raster_path=None):
-    selected_types = set(analysis_types or ANALYSIS_TYPES)
-    unknown_types = selected_types - ANALYSIS_TYPES
-    if unknown_types:
-        raise ValueError(f'Unsupported analysis types: {sorted(unknown_types)}')
-
-    admin_units_gdf = fetch_admin_units_for_analysis(session, admin_level=admin_level)
-    if admin_units_gdf.empty:
-        raise ValueError('No administrative boundaries with geometry found for analysis')
-
-    outputs = []
-    if 'education_summary' in selected_types or 'nearest_school_distance' in selected_types or 'school_service_coverage' in selected_types:
-        schools = fetch_facilities(session, 'education_facilities')
-        if 'education_summary' in selected_types:
-            school_age_lookup = fetch_indicator_lookup(
-                session,
-                dataset_type='worldpop',
-                indicator_name='school_age_population_total',
-                geographic_level=(admin_level or '').lower() or None,
-            )
-            child_population_lookup = fetch_indicator_lookup(
-                session,
-                dataset_type='worldpop',
-                indicator_name='child_population_total',
-                geographic_level=(admin_level or '').lower() or None,
-            )
-            outputs.append(
-                compute_education_summary(
-                    admin_units_gdf,
-                    schools,
-                    school_age_lookup=school_age_lookup,
-                    child_population_lookup=child_population_lookup,
-                    admin_level=admin_level,
-                )
-            )
-        if 'nearest_school_distance' in selected_types:
-            outputs.append(
-                compute_nearest_facility_distance(
-                    admin_units_gdf, schools, 'nearest_school_distance', 'nearest_school_distance_km'
-                )
-            )
-        if 'school_service_coverage' in selected_types:
-            outputs.append(
-                compute_service_coverage(
-                    admin_units_gdf, schools, 'school_service_coverage', 'school_service_coverage_pct', coverage_distance_km
-                )
+    try:
+        selected_types = set(analysis_types or ANALYSIS_TYPES)
+        unknown_types = selected_types - ANALYSIS_TYPES
+        if unknown_types:
+            raise AnalyticsError(
+                user_message=f'Unsupported analysis types requested: {sorted(unknown_types)}.',
+                step_name='validate_analysis_types',
             )
 
-    if (
-        'health_summary' in selected_types
-        or 'health_population_served' in selected_types
-        or 'nearest_health_distance' in selected_types
-        or 'health_service_coverage' in selected_types
-    ):
-        health = fetch_facilities(session, 'health_facilities')
-        if 'health_summary' in selected_types:
-            outputs.append(compute_health_summary(admin_units_gdf, health, admin_level=admin_level))
-        if 'health_population_served' in selected_types:
-            outputs.append(
-                compute_health_population_served(
-                    admin_units_gdf,
-                    health,
-                    raster_path=raster_path,
-                    coverage_distance_km=coverage_distance_km,
-                )
-            )
-        if 'nearest_health_distance' in selected_types:
-            outputs.append(
-                compute_nearest_facility_distance(
-                    admin_units_gdf, health, 'nearest_health_distance', 'nearest_health_distance_km'
-                )
-            )
-        if 'health_service_coverage' in selected_types:
-            outputs.append(
-                compute_service_coverage(
-                    admin_units_gdf, health, 'health_service_coverage', 'health_service_coverage_pct', coverage_distance_km
-                )
+        log_step('run_spatial_analyses', f'selected_types={sorted(selected_types)}, admin_level={admin_level}')
+        admin_units_gdf = run_step(
+            step_name='fetch_admin_units_for_analysis',
+            user_message_on_error='Could not load administrative boundaries for analysis.',
+            fn=fetch_admin_units_for_analysis,
+            session=session,
+            admin_level=admin_level,
+        )
+        if admin_units_gdf.empty:
+            raise AnalyticsError(
+                user_message='No administrative boundaries with geometry were found for analysis.',
+                step_name='fetch_admin_units_for_analysis',
             )
 
-    return pd.concat(outputs, ignore_index=True) if outputs else pd.DataFrame()
+        outputs = []
+        if 'education_summary' in selected_types or 'nearest_school_distance' in selected_types or 'school_service_coverage' in selected_types:
+            schools = run_step(
+                step_name='fetch_education_facilities',
+                user_message_on_error='Could not load education facilities for analysis.',
+                fn=fetch_facilities,
+                session=session,
+                table_name='education_facilities',
+            )
+            if 'education_summary' in selected_types:
+                school_age_lookup = run_step(
+                    step_name='fetch_school_age_lookup',
+                    user_message_on_error='Could not load school-age population indicators from unified indicators.',
+                    fn=fetch_indicator_lookup,
+                    session=session,
+                    dataset_type='worldpop',
+                    indicator_name='school_age_population_total',
+                    geographic_level=(admin_level or '').lower() or None,
+                )
+                child_population_lookup = run_step(
+                    step_name='fetch_child_population_lookup',
+                    user_message_on_error='Could not load child population indicators from unified indicators.',
+                    fn=fetch_indicator_lookup,
+                    session=session,
+                    dataset_type='worldpop',
+                    indicator_name='child_population_total',
+                    geographic_level=(admin_level or '').lower() or None,
+                )
+                outputs.append(
+                    run_step(
+                        step_name='compute_education_summary',
+                        user_message_on_error='Could not compute education summary metrics.',
+                        fn=compute_education_summary,
+                        admin_units_gdf=admin_units_gdf,
+                        schools_gdf=schools,
+                        school_age_lookup=school_age_lookup,
+                        child_population_lookup=child_population_lookup,
+                        admin_level=admin_level,
+                    )
+                )
+            if 'nearest_school_distance' in selected_types:
+                outputs.append(
+                    run_step(
+                        step_name='compute_nearest_school_distance',
+                        user_message_on_error='Could not compute nearest school distance metrics.',
+                        fn=compute_nearest_facility_distance,
+                        admin_units_gdf=admin_units_gdf,
+                        facilities_gdf=schools,
+                        analysis_type='nearest_school_distance',
+                        metric_name='nearest_school_distance_km',
+                    )
+                )
+            if 'school_service_coverage' in selected_types:
+                outputs.append(
+                    run_step(
+                        step_name='compute_school_service_coverage',
+                        user_message_on_error='Could not compute school service coverage metrics.',
+                        fn=compute_service_coverage,
+                        admin_units_gdf=admin_units_gdf,
+                        facilities_gdf=schools,
+                        analysis_type='school_service_coverage',
+                        metric_name='school_service_coverage_pct',
+                        coverage_distance_km=coverage_distance_km,
+                    )
+                )
+
+        if (
+            'health_summary' in selected_types
+            or 'health_population_served' in selected_types
+            or 'nearest_health_distance' in selected_types
+            or 'health_service_coverage' in selected_types
+        ):
+            health = run_step(
+                step_name='fetch_health_facilities',
+                user_message_on_error='Could not load health facilities for analysis.',
+                fn=fetch_facilities,
+                session=session,
+                table_name='health_facilities',
+            )
+            if 'health_summary' in selected_types:
+                outputs.append(
+                    run_step(
+                        step_name='compute_health_summary',
+                        user_message_on_error='Could not compute health summary metrics.',
+                        fn=compute_health_summary,
+                        admin_units_gdf=admin_units_gdf,
+                        health_gdf=health,
+                        admin_level=admin_level,
+                    )
+                )
+            if 'health_population_served' in selected_types:
+                outputs.append(
+                    run_step(
+                        step_name='compute_health_population_served',
+                        user_message_on_error='Could not compute health population served metrics.',
+                        fn=compute_health_population_served,
+                        admin_units_gdf=admin_units_gdf,
+                        health_gdf=health,
+                        raster_path=raster_path,
+                        coverage_distance_km=coverage_distance_km,
+                    )
+                )
+            if 'nearest_health_distance' in selected_types:
+                outputs.append(
+                    run_step(
+                        step_name='compute_nearest_health_distance',
+                        user_message_on_error='Could not compute nearest health distance metrics.',
+                        fn=compute_nearest_facility_distance,
+                        admin_units_gdf=admin_units_gdf,
+                        facilities_gdf=health,
+                        analysis_type='nearest_health_distance',
+                        metric_name='nearest_health_distance_km',
+                    )
+                )
+            if 'health_service_coverage' in selected_types:
+                outputs.append(
+                    run_step(
+                        step_name='compute_health_service_coverage',
+                        user_message_on_error='Could not compute health service coverage metrics.',
+                        fn=compute_service_coverage,
+                        admin_units_gdf=admin_units_gdf,
+                        facilities_gdf=health,
+                        analysis_type='health_service_coverage',
+                        metric_name='health_service_coverage_pct',
+                        coverage_distance_km=coverage_distance_km,
+                    )
+                )
+
+        return pd.concat(outputs, ignore_index=True) if outputs else pd.DataFrame()
+    except AnalyticsError:
+        raise
+    except Exception as exc:
+        raise AnalyticsError(
+            user_message='Spatial analysis failed during processing.',
+            step_name='run_spatial_analyses',
+            original_error=exc,
+        ) from exc
