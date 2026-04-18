@@ -8,6 +8,7 @@ import pandas as pd
 ##import third-party libraries
 from db_utils import get_session, log_etl_run
 from analytics import ANALYSIS_TYPES, run_spatial_analyses
+from flood_exposure import run_flood_exposure_analysis, resolve_population_raster_path
 from ingest import extract_source, load_reference_gazetteer
 from load import (
     assign_ward_ids,
@@ -25,16 +26,13 @@ from transform import (
     add_harmonized_names,
     coerce_numeric_columns,
     derive_indicators,
-    ensure_multipolygon,
     handle_missing_data,
     normalize_health_dataset,
     parse_coordinates,
     standardize_geography,
     standardize_schema,
     transform_boundary_dataset,
-    transform_disaster_dataset,
     to_gdf,
-    to_polygon_gdf,
     validate_schema,
 )
 from worldpop import (
@@ -117,46 +115,6 @@ def process_tabular_dataset(
             'indicators_loaded': 0,
         }
 
-    if dataset_type == 'disaster' and 'geometry' in transformed_df.columns:
-        disaster_gdf = transform_disaster_dataset(transformed_df)
-        rows_processed = len(disaster_gdf)
-        rows_loaded, table_name = load_to_postgis(session, disaster_gdf, dataset_type)
-
-        indicators_df = derive_indicators(disaster_gdf, dataset_type, fetch_admin_units_for_indicators(session))
-        indicators_loaded = load_unified_indicators(session, indicators_df, source_filename=source_name)
-
-        metadata = {
-            'source_name': source_name,
-            'geometry_type': 'polygon',
-            'indicator_rows_loaded': indicators_loaded,
-        }
-
-        log_etl_run(
-            session,
-            filename=source_name,
-            source_type=source_type,
-            dataset_type=dataset_type,
-            table_name=table_name,
-            rows_read=rows_read,
-            rows_processed=rows_processed,
-            rows_loaded=rows_loaded,
-            rows_flagged=0,
-            status='Success',
-            metadata=metadata,
-            started_at=started_at,
-            completed_at=datetime.utcnow(),
-        )
-
-        return {
-            'dataset_type': dataset_type,
-            'table_name': table_name,
-            'rows_read': rows_read,
-            'rows_processed': rows_processed,
-            'rows_loaded': rows_loaded,
-            'rows_flagged': 0,
-            'indicators_loaded': indicators_loaded,
-        }
-
 ##For other dataset types, continue with standard transformations and indicator derivation
     transformed_df = coerce_numeric_columns(transformed_df, dataset_config['numeric_columns'])
     transformed_df = parse_coordinates(transformed_df)
@@ -178,9 +136,6 @@ def process_tabular_dataset(
     spatial_lookup = fetch_spatial_admin_lookup(session)
     transformed_df = assign_ward_ids(transformed_df, admin_lookup, spatial_lookup=spatial_lookup)
     gdf = to_gdf(transformed_df)
-    if dataset_type == 'disaster' and 'geometry' in gdf.columns:
-        gdf['geometry'] = gdf['geometry'].apply(ensure_multipolygon)
-
     rows_flagged = int(transformed_df['is_flagged'].sum()) if 'is_flagged' in transformed_df.columns else 0
     rows_processed = len(transformed_df)
     rows_loaded, table_name = load_to_postgis(session, gdf, dataset_type)
@@ -440,6 +395,78 @@ def process_analysis_dataset(
         'indicators_loaded': 0,
     }
 
+
+def process_flood_dataset(
+    session,
+    flood_raster_path,
+    district_name=None,
+    district_names=None,
+    worldpop_raster_path=None,
+    worldpop_year=DEFAULT_WORLDPOP_YEAR,
+    worldpop_timeout=900,
+    worldpop_max_attempts=3,
+    analysis_date=None,
+):
+    if not flood_raster_path:
+        raise ValueError('A flood raster file path is required for flood analysis')
+
+    if not os.path.exists(flood_raster_path):
+        raise FileNotFoundError(f'Flood raster file not found: {flood_raster_path}')
+
+    started_at = datetime.utcnow()
+    effective_date = analysis_date or datetime.utcnow().date()
+
+    resolved_worldpop_raster_path = resolve_population_raster_path(
+        worldpop_raster_path,
+        worldpop_year,
+        download_timeout=worldpop_timeout,
+        max_attempts=worldpop_max_attempts,
+    )
+
+    processed_count = run_flood_exposure_analysis(
+        session=session,
+        flood_raster_path=flood_raster_path,
+        worldpop_raster_path=resolved_worldpop_raster_path,
+        district_name=district_name,
+        district_names=district_names,
+        analysis_date=effective_date,
+    )
+
+    metadata = {
+        'flood_raster_path': flood_raster_path,
+        'worldpop_raster_path': resolved_worldpop_raster_path,
+        'worldpop_year': worldpop_year,
+        'district_name': district_name,
+        'district_names': district_names or [],
+        'analysis_date': effective_date.isoformat(),
+    }
+
+    log_etl_run(
+        session,
+        filename=os.path.basename(flood_raster_path),
+        source_type='file',
+        dataset_type='analysis',
+        table_name='flood_zones',
+        rows_read=processed_count,
+        rows_processed=processed_count,
+        rows_loaded=processed_count,
+        rows_flagged=0,
+        status='Success',
+        metadata=metadata,
+        started_at=started_at,
+        completed_at=datetime.utcnow(),
+    )
+
+    return {
+        'dataset_type': 'flood',
+        'table_name': 'flood_zones',
+        'rows_read': processed_count,
+        'rows_processed': processed_count,
+        'rows_loaded': processed_count,
+        'rows_flagged': 0,
+        'indicators_loaded': 0,
+    }
+
 ## Helper function to parse API headers from command-line arguments in KEY=VALUE format
 def parse_headers(header_values):
     headers = {}
@@ -453,7 +480,7 @@ def parse_headers(header_values):
 ## Main entry point for the ETL pipeline, with command-line arguments to specify dataset type, source, and processing options
 def main():
     parser = argparse.ArgumentParser(description='District Intelligence ETL Pipeline')
-    parser.add_argument('--type', required=True, choices=list(DATASET_CONFIG.keys()), help='Dataset type')
+    parser.add_argument('--type', required=True, choices=list(DATASET_CONFIG.keys()) + ['flood'], help='Dataset type')
     parser.add_argument('--source-type', default='file', choices=['file', 'api', 'worldpop'], help='Input source type')
     parser.add_argument('--file', help='Path to CSV, Excel, JSON, or GeoTIFF file')
     parser.add_argument('--api-url', help='Remote API endpoint for extraction')
@@ -464,6 +491,9 @@ def main():
     parser.add_argument('--worldpop-year', type=int, default=DEFAULT_WORLDPOP_YEAR, help='WorldPop population year to use')
     parser.add_argument('--worldpop-dataset', default=DEFAULT_WORLDPOP_DATASET, choices=['wpgppop', 'wpgpas'], help='WorldPop stats dataset to query')
     parser.add_argument('--worldpop-api-key', help='Optional WorldPop API key')
+    parser.add_argument('--worldpop-timeout', type=int, default=900, help='WorldPop raster/API timeout in seconds for flood workflow')
+    parser.add_argument('--worldpop-max-attempts', type=int, default=3, help='Maximum WorldPop fetch attempts for flood workflow')
+    parser.add_argument('--analysis-date', help='Optional analysis date (YYYY-MM-DD) for flood workflow')
     parser.add_argument('--school-age-min', type=int, default=DEFAULT_SCHOOL_AGE_MIN, help='Lower bound for school-age population aggregation')
     parser.add_argument('--school-age-max', type=int, default=DEFAULT_SCHOOL_AGE_MAX, help='Upper bound for school-age population aggregation')
     parser.add_argument('--child-class-max', type=int, default=DEFAULT_CHILD_CLASS_MAX, help='Maximum wpgpas class treated as child population')
@@ -505,6 +535,31 @@ def main():
                 raster_path=args.file,
                 api_url=args.api_url,
                 year=args.worldpop_year,
+            )
+        elif args.type == 'flood':
+            selected_district_names = []
+            if args.district:
+                selected_district_names.append(args.district)
+            selected_district_names.extend(selected_group_districts)
+            selected_district_names = sorted({name for name in selected_district_names if name})
+
+            if not selected_district_names:
+                selected_district_names = ['Zomba']
+
+            primary_district = selected_district_names[0]
+            secondary_districts = selected_district_names[1:]
+            parsed_analysis_date = datetime.strptime(args.analysis_date, '%Y-%m-%d').date() if args.analysis_date else None
+
+            result = process_flood_dataset(
+                session,
+                flood_raster_path=args.file,
+                district_name=primary_district,
+                district_names=secondary_districts,
+                worldpop_raster_path=None,
+                worldpop_year=args.worldpop_year,
+                worldpop_timeout=args.worldpop_timeout,
+                worldpop_max_attempts=args.worldpop_max_attempts,
+                analysis_date=parsed_analysis_date,
             )
         else:
             source_type = 'api' if args.source_type == 'api' else 'file'

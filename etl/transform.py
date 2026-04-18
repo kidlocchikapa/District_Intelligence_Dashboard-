@@ -837,38 +837,6 @@ def transform_boundary_dataset(df):
 
     return working
 
-def normalize_risk_level(value):
-    normalized = normalize_text(value)
-    mapping = {
-        'low': 'Low',
-        'medium': 'Medium',
-        'high': 'High',
-    }
-    return mapping.get(normalized, value.title() if isinstance(value, str) else value)
-
-def transform_disaster_dataset(df):
-    if 'geometry' not in df.columns:
-        raise ValueError('Disaster dataset must include polygon geometry')
-
-    working = gpd.GeoDataFrame(df.copy(), geometry='geometry', crs=getattr(df, 'crs', None) or 'EPSG:4326')
-    if working.crs is None:
-        working = working.set_crs('EPSG:4326')
-    elif working.crs.to_string() != 'EPSG:4326':
-        working = working.to_crs('EPSG:4326')
-
-    working['risk_level'] = working['risk_level'].apply(normalize_risk_level)
-    valid_levels = {'Low', 'Medium', 'High'}
-    invalid_levels = working['risk_level'].isin(valid_levels) == False
-    if invalid_levels.any():
-        bad_levels = sorted(set(working.loc[invalid_levels, 'risk_level'].dropna().astype(str)))
-        raise ValueError(f'Unsupported disaster risk levels: {bad_levels}')
-
-    working['geometry'] = working['geometry'].apply(ensure_valid_multipolygon)
-    if working['geometry'].isna().any():
-        raise ValueError('Disaster dataset contains invalid or non-polygon geometries')
-
-    return working
-
 def derive_indicators(df, dataset_type, admin_units_df):
     working = df.copy()
     indicators = []
@@ -943,16 +911,6 @@ def derive_indicators(df, dataset_type, admin_units_df):
                 indicators.append(
                     indicator_record(dataset_type, 'beneficiaries_per_1000_population', geographic_level, geographic_name, code, row['beneficiary_count'] * 1000 / population)
                 )
-
-    if dataset_type == 'disaster' and 'population_at_risk' in working.columns:
-        grouped = working.groupby(geographic_column, dropna=True).agg(
-            population_at_risk=('population_at_risk', 'sum'),
-        )
-        for geographic_name, row in grouped.iterrows():
-            code = population_lookup[geographic_level].get(normalize_text(geographic_name), {}).get('code')
-            indicators.append(
-                indicator_record(dataset_type, 'population_at_risk_total', geographic_level, geographic_name, code, row['population_at_risk'])
-            )
 
     return pd.DataFrame(indicators)
 

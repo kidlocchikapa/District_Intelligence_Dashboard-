@@ -173,21 +173,6 @@ DATASET_CONFIG = {
         'load_columns': ['program_name', 'beneficiary_count', 'ta_id', 'ward_id', 'geom'],
         'indicator_rules': ['beneficiaries_per_1000_population'],
     },
-    'disaster': {
-        'table_name': 'disaster_zones',
-        'required_columns': ['event_type', 'risk_level'],
-        'canonical_columns': {
-            'event_type': ['event_type', 'hazard_type', 'disaster_type'],
-            'risk_level': ['risk_level', 'risk', 'severity'],
-            'population_at_risk': ['population_at_risk', 'people_at_risk'],
-            'district_name': ['district', 'district_name'],
-            'ward_name': ['ward', 'ward_name'],
-            'village_name': ['village', 'village_name'],
-        },
-        'numeric_columns': ['population_at_risk'],
-        'load_columns': ['event_type', 'risk_level', 'population_at_risk', 'geom'],
-        'indicator_rules': ['population_at_risk_total'],
-    },
     'worldpop': {
         'table_name': 'districts',
         'required_columns': [],

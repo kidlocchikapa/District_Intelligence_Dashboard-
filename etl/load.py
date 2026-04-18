@@ -309,7 +309,7 @@ def load_to_postgis(session, gdf, dataset_type, if_exists='append'):
         rows_loaded, normalized_table_names = load_boundaries_normalized(session, gdf)
         return rows_loaded, normalized_table_names
 
-    geom_type = 'MULTIPOLYGON' if dataset_type == 'disaster' else 'POINT'
+    geom_type = 'POINT'
 
     requires_non_null_geom = dataset_type in {'education'}
 

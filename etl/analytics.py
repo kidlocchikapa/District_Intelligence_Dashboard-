@@ -8,7 +8,6 @@ from worldpop import get_zonal_stats
 
 # Define the types of analyses that can be performed
 ANALYSIS_TYPES = {
-    'disaster_vulnerability',
     'education_summary',
     'health_summary',
     'health_population_served',
@@ -79,17 +78,6 @@ def fetch_facilities(session, table_name):
         """
 
     return gpd.read_postgis(text(query), session.bind, geom_col='geom')
-
-# Fetch disaster zones with relevant attributes for vulnerability analysis
-def fetch_disaster_zones(session):
-    query = """
-        SELECT id, event_type, risk_level, population_at_risk, geom
-        FROM disaster_zones
-        WHERE geom IS NOT NULL
-    """
-    return gpd.read_postgis(text(query), session.bind, geom_col='geom')
-
-
 
 # Fetch indicator values for a specific dataset type and indicator name, with optional filtering by geographic level
 def fetch_indicator_lookup(session, dataset_type, indicator_name, geographic_level=None):
@@ -330,79 +318,6 @@ def analysis_record(analysis_type, admin_row, metric_name, metric_value, metric_
         'metadata': metadata or {},
     }
 
-# Calculate the vulnerability of each administrative unit to disasters based on the percentage of area affected, population at risk, and risk intensity, and return a DataFrame with the results
-def compute_disaster_vulnerability(admin_units_gdf, disaster_zones_gdf):
-    admin_proj = admin_units_gdf.to_crs('EPSG:3857')
-    disaster_proj = disaster_zones_gdf.to_crs('EPSG:3857')
-
-    if disaster_proj.empty:
-        raise ValueError('No disaster zones available for disaster_vulnerability')
-
-    risk_weights = {'low': 1, 'medium': 2, 'high': 3}
-    records = []
-
-    for _, admin_row in admin_proj.iterrows():
-        admin_geom = get_row_geometry(admin_row)
-        admin_area = admin_geom.area if admin_geom is not None else 0
-        intersects = disaster_proj[disaster_proj.intersects(admin_geom)] if admin_geom is not None else disaster_proj.iloc[0:0]
-
-        if intersects.empty or not admin_area:
-            metrics = {
-                'disaster_affected_area_pct': 0.0,
-                'disaster_population_at_risk_pct': 0.0,
-                'disaster_risk_intensity_pct': 0.0,
-                'disaster_vulnerability_score': 0.0,
-            }
-        else:
-            covered_area = 0.0
-            weighted_risk = 0.0
-            weighted_population_at_risk = 0.0
-
-            for _, zone in intersects.iterrows():
-                zone_geom = get_row_geometry(zone)
-                intersection = admin_geom.intersection(zone_geom) if admin_geom is not None and zone_geom is not None else None
-                if intersection is None:
-                    continue
-                if intersection.is_empty:
-                    continue
-
-                overlap_area = intersection.area
-                overlap_ratio = overlap_area / admin_area if admin_area else 0
-                covered_area += overlap_area
-                risk_weight = risk_weights.get(str(zone.get('risk_level') or '').lower(), 1)
-                weighted_risk += risk_weight * overlap_ratio
-                weighted_population_at_risk += float(zone.get('population_at_risk') or 0) * overlap_ratio
-
-            affected_area_pct = min(100.0, (covered_area / admin_area) * 100 if admin_area else 0.0)
-            admin_population = float(admin_row.get('population_total') or 0)
-            pop_at_risk_pct = min(100.0, (weighted_population_at_risk / admin_population) * 100) if admin_population else 0.0
-            risk_intensity_pct = min(100.0, (weighted_risk / 3.0) * 100)
-            vulnerability_score = min(
-                100.0,
-                affected_area_pct * 0.4 + pop_at_risk_pct * 0.3 + risk_intensity_pct * 0.3,
-            )
-
-            metrics = {
-                'disaster_affected_area_pct': float(affected_area_pct),
-                'disaster_population_at_risk_pct': float(pop_at_risk_pct),
-                'disaster_risk_intensity_pct': float(risk_intensity_pct),
-                'disaster_vulnerability_score': float(vulnerability_score),
-            }
-
-        for metric_name, metric_value in metrics.items():
-            records.append(
-                analysis_record(
-                    analysis_type='disaster_vulnerability',
-                    admin_row=admin_row,
-                    metric_name=metric_name,
-                    metric_value=metric_value,
-                    metric_unit='percent' if metric_name != 'disaster_vulnerability_score' else 'score',
-                )
-            )
-
-    return pd.DataFrame(records)
-
-
 # Calculate education-related metrics for each administrative unit, including school 
 # counts, enrollment, teacher counts, and population coverage, and return a DataFrame with the results
 def compute_education_summary(admin_units_gdf, schools_gdf, school_age_lookup=None, child_population_lookup=None, admin_level=None):
@@ -551,9 +466,5 @@ def run_spatial_analyses(session, analysis_types=None, admin_level=None, coverag
                     admin_units_gdf, health, 'health_service_coverage', 'health_service_coverage_pct', coverage_distance_km
                 )
             )
-
-    if 'disaster_vulnerability' in selected_types:
-        disaster_zones = fetch_disaster_zones(session)
-        outputs.append(compute_disaster_vulnerability(admin_units_gdf, disaster_zones))
 
     return pd.concat(outputs, ignore_index=True) if outputs else pd.DataFrame()
