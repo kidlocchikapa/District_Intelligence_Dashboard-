@@ -1,4 +1,6 @@
 #import necessary libraries for geospatial analysis and database interaction
+import logging
+
 import geopandas as gpd
 import pandas as pd
 from shapely.ops import unary_union
@@ -6,9 +8,41 @@ from sqlalchemy import text
 
 from worldpop import get_zonal_stats
 
+
+LOGGER = logging.getLogger('etl.analytics')
+
+
+class AnalyticsError(Exception):
+    def __init__(self, user_message, step_name, original_error=None):
+        self.user_message = user_message
+        self.step_name = step_name
+        self.original_error = original_error
+        super().__init__(f"{user_message} (step: {step_name})")
+
+
+def log_step(step_name, message, level='info'):
+    log_method = getattr(LOGGER, level, LOGGER.info)
+    log_method(f"[{step_name}] {message}")
+
+
+def run_step(step_name, user_message_on_error, fn, *args, **kwargs):
+    log_step(step_name, 'started')
+    try:
+        result = fn(*args, **kwargs)
+    except AnalyticsError:
+        raise
+    except Exception as exc:
+        log_step(step_name, f"failed: {exc}", level='error')
+        raise AnalyticsError(
+            user_message=user_message_on_error,
+            step_name=step_name,
+            original_error=exc,
+        ) from exc
+    log_step(step_name, 'completed')
+    return result
+
 # Define the types of analyses that can be performed
 ANALYSIS_TYPES = {
-    'disaster_vulnerability',
     'education_summary',
     'health_summary',
     'health_population_served',
@@ -22,7 +56,32 @@ ANALYSIS_TYPES = {
 def fetch_admin_units_for_analysis(session, admin_level=None):
     query = """
         SELECT id, code, name, type, geom, area_sq_km, population_total
-        FROM administrative_units
+        FROM (
+            SELECT
+                id,
+                code,
+                name,
+                'District'::VARCHAR AS type,
+                geom,
+                area_sq_km,
+                population_total
+            FROM districts
+            UNION ALL
+            SELECT
+                id,
+                code,
+                name,
+                CASE
+                    WHEN LOWER(type) = 'ta' THEN 'TA'
+                    WHEN LOWER(type) = 'ward' THEN 'Ward'
+                    WHEN LOWER(type) = 'village' THEN 'Village'
+                    ELSE INITCAP(type)
+                END AS type,
+                geom,
+                (ST_Area(ST_Transform(geom, 3857)) / 1000000.0) AS area_sq_km,
+                0::INTEGER AS population_total
+            FROM admin3_units
+        ) admin_units
         WHERE geom IS NOT NULL
     """
     params = {}
@@ -42,7 +101,7 @@ def fetch_facilities(session, table_name):
         """
     elif table_name == 'health_facilities':
         query = """
-            SELECT id, name, ward_id, district_id, beds_count, patient_visits_total, geom
+            SELECT id, name, ta_id AS ward_id, district_id, beds_count, patient_visits_total, geom
             FROM health_facilities
             WHERE geom IS NOT NULL
         """
@@ -54,17 +113,6 @@ def fetch_facilities(session, table_name):
         """
 
     return gpd.read_postgis(text(query), session.bind, geom_col='geom')
-
-# Fetch disaster zones with relevant attributes for vulnerability analysis
-def fetch_disaster_zones(session):
-    query = """
-        SELECT id, event_type, risk_level, population_at_risk, geom
-        FROM disaster_zones
-        WHERE geom IS NOT NULL
-    """
-    return gpd.read_postgis(text(query), session.bind, geom_col='geom')
-
-
 
 # Fetch indicator values for a specific dataset type and indicator name, with optional filtering by geographic level
 def fetch_indicator_lookup(session, dataset_type, indicator_name, geographic_level=None):
@@ -305,79 +353,6 @@ def analysis_record(analysis_type, admin_row, metric_name, metric_value, metric_
         'metadata': metadata or {},
     }
 
-# Calculate the vulnerability of each administrative unit to disasters based on the percentage of area affected, population at risk, and risk intensity, and return a DataFrame with the results
-def compute_disaster_vulnerability(admin_units_gdf, disaster_zones_gdf):
-    admin_proj = admin_units_gdf.to_crs('EPSG:3857')
-    disaster_proj = disaster_zones_gdf.to_crs('EPSG:3857')
-
-    if disaster_proj.empty:
-        raise ValueError('No disaster zones available for disaster_vulnerability')
-
-    risk_weights = {'low': 1, 'medium': 2, 'high': 3}
-    records = []
-
-    for _, admin_row in admin_proj.iterrows():
-        admin_geom = get_row_geometry(admin_row)
-        admin_area = admin_geom.area if admin_geom is not None else 0
-        intersects = disaster_proj[disaster_proj.intersects(admin_geom)] if admin_geom is not None else disaster_proj.iloc[0:0]
-
-        if intersects.empty or not admin_area:
-            metrics = {
-                'disaster_affected_area_pct': 0.0,
-                'disaster_population_at_risk_pct': 0.0,
-                'disaster_risk_intensity_pct': 0.0,
-                'disaster_vulnerability_score': 0.0,
-            }
-        else:
-            covered_area = 0.0
-            weighted_risk = 0.0
-            weighted_population_at_risk = 0.0
-
-            for _, zone in intersects.iterrows():
-                zone_geom = get_row_geometry(zone)
-                intersection = admin_geom.intersection(zone_geom) if admin_geom is not None and zone_geom is not None else None
-                if intersection is None:
-                    continue
-                if intersection.is_empty:
-                    continue
-
-                overlap_area = intersection.area
-                overlap_ratio = overlap_area / admin_area if admin_area else 0
-                covered_area += overlap_area
-                risk_weight = risk_weights.get(str(zone.get('risk_level') or '').lower(), 1)
-                weighted_risk += risk_weight * overlap_ratio
-                weighted_population_at_risk += float(zone.get('population_at_risk') or 0) * overlap_ratio
-
-            affected_area_pct = min(100.0, (covered_area / admin_area) * 100 if admin_area else 0.0)
-            admin_population = float(admin_row.get('population_total') or 0)
-            pop_at_risk_pct = min(100.0, (weighted_population_at_risk / admin_population) * 100) if admin_population else 0.0
-            risk_intensity_pct = min(100.0, (weighted_risk / 3.0) * 100)
-            vulnerability_score = min(
-                100.0,
-                affected_area_pct * 0.4 + pop_at_risk_pct * 0.3 + risk_intensity_pct * 0.3,
-            )
-
-            metrics = {
-                'disaster_affected_area_pct': float(affected_area_pct),
-                'disaster_population_at_risk_pct': float(pop_at_risk_pct),
-                'disaster_risk_intensity_pct': float(risk_intensity_pct),
-                'disaster_vulnerability_score': float(vulnerability_score),
-            }
-
-        for metric_name, metric_value in metrics.items():
-            records.append(
-                analysis_record(
-                    analysis_type='disaster_vulnerability',
-                    admin_row=admin_row,
-                    metric_name=metric_name,
-                    metric_value=metric_value,
-                    metric_unit='percent' if metric_name != 'disaster_vulnerability_score' else 'score',
-                )
-            )
-
-    return pd.DataFrame(records)
-
-
 # Calculate education-related metrics for each administrative unit, including school 
 # counts, enrollment, teacher counts, and population coverage, and return a DataFrame with the results
 def compute_education_summary(admin_units_gdf, schools_gdf, school_age_lookup=None, child_population_lookup=None, admin_level=None):
@@ -449,86 +424,163 @@ def compute_education_summary(admin_units_gdf, schools_gdf, school_age_lookup=No
 
 # Main function to run selected spatial analyses based on provided parameters, fetching necessary data and computing results for each analysis type, and returning a combined DataFrame with all results
 def run_spatial_analyses(session, analysis_types=None, admin_level=None, coverage_distance_km=5.0, raster_path=None):
-    selected_types = set(analysis_types or ANALYSIS_TYPES)
-    unknown_types = selected_types - ANALYSIS_TYPES
-    if unknown_types:
-        raise ValueError(f'Unsupported analysis types: {sorted(unknown_types)}')
-
-    admin_units_gdf = fetch_admin_units_for_analysis(session, admin_level=admin_level)
-    if admin_units_gdf.empty:
-        raise ValueError('No administrative boundaries with geometry found for analysis')
-
-    outputs = []
-    if 'education_summary' in selected_types or 'nearest_school_distance' in selected_types or 'school_service_coverage' in selected_types:
-        schools = fetch_facilities(session, 'education_facilities')
-        if 'education_summary' in selected_types:
-            school_age_lookup = fetch_indicator_lookup(
-                session,
-                dataset_type='worldpop',
-                indicator_name='school_age_population_total',
-                geographic_level=(admin_level or '').lower() or None,
-            )
-            child_population_lookup = fetch_indicator_lookup(
-                session,
-                dataset_type='worldpop',
-                indicator_name='child_population_total',
-                geographic_level=(admin_level or '').lower() or None,
-            )
-            outputs.append(
-                compute_education_summary(
-                    admin_units_gdf,
-                    schools,
-                    school_age_lookup=school_age_lookup,
-                    child_population_lookup=child_population_lookup,
-                    admin_level=admin_level,
-                )
-            )
-        if 'nearest_school_distance' in selected_types:
-            outputs.append(
-                compute_nearest_facility_distance(
-                    admin_units_gdf, schools, 'nearest_school_distance', 'nearest_school_distance_km'
-                )
-            )
-        if 'school_service_coverage' in selected_types:
-            outputs.append(
-                compute_service_coverage(
-                    admin_units_gdf, schools, 'school_service_coverage', 'school_service_coverage_pct', coverage_distance_km
-                )
+    try:
+        selected_types = set(analysis_types or ANALYSIS_TYPES)
+        unknown_types = selected_types - ANALYSIS_TYPES
+        if unknown_types:
+            raise AnalyticsError(
+                user_message=f'Unsupported analysis types requested: {sorted(unknown_types)}.',
+                step_name='validate_analysis_types',
             )
 
-    if (
-        'health_summary' in selected_types
-        or 'health_population_served' in selected_types
-        or 'nearest_health_distance' in selected_types
-        or 'health_service_coverage' in selected_types
-    ):
-        health = fetch_facilities(session, 'health_facilities')
-        if 'health_summary' in selected_types:
-            outputs.append(compute_health_summary(admin_units_gdf, health, admin_level=admin_level))
-        if 'health_population_served' in selected_types:
-            outputs.append(
-                compute_health_population_served(
-                    admin_units_gdf,
-                    health,
-                    raster_path=raster_path,
-                    coverage_distance_km=coverage_distance_km,
-                )
-            )
-        if 'nearest_health_distance' in selected_types:
-            outputs.append(
-                compute_nearest_facility_distance(
-                    admin_units_gdf, health, 'nearest_health_distance', 'nearest_health_distance_km'
-                )
-            )
-        if 'health_service_coverage' in selected_types:
-            outputs.append(
-                compute_service_coverage(
-                    admin_units_gdf, health, 'health_service_coverage', 'health_service_coverage_pct', coverage_distance_km
-                )
+        log_step('run_spatial_analyses', f'selected_types={sorted(selected_types)}, admin_level={admin_level}')
+        admin_units_gdf = run_step(
+            step_name='fetch_admin_units_for_analysis',
+            user_message_on_error='Could not load administrative boundaries for analysis.',
+            fn=fetch_admin_units_for_analysis,
+            session=session,
+            admin_level=admin_level,
+        )
+        if admin_units_gdf.empty:
+            raise AnalyticsError(
+                user_message='No administrative boundaries with geometry were found for analysis.',
+                step_name='fetch_admin_units_for_analysis',
             )
 
-    if 'disaster_vulnerability' in selected_types:
-        disaster_zones = fetch_disaster_zones(session)
-        outputs.append(compute_disaster_vulnerability(admin_units_gdf, disaster_zones))
+        outputs = []
+        if 'education_summary' in selected_types or 'nearest_school_distance' in selected_types or 'school_service_coverage' in selected_types:
+            schools = run_step(
+                step_name='fetch_education_facilities',
+                user_message_on_error='Could not load education facilities for analysis.',
+                fn=fetch_facilities,
+                session=session,
+                table_name='education_facilities',
+            )
+            if 'education_summary' in selected_types:
+                school_age_lookup = run_step(
+                    step_name='fetch_school_age_lookup',
+                    user_message_on_error='Could not load school-age population indicators from unified indicators.',
+                    fn=fetch_indicator_lookup,
+                    session=session,
+                    dataset_type='worldpop',
+                    indicator_name='school_age_population_total',
+                    geographic_level=(admin_level or '').lower() or None,
+                )
+                child_population_lookup = run_step(
+                    step_name='fetch_child_population_lookup',
+                    user_message_on_error='Could not load child population indicators from unified indicators.',
+                    fn=fetch_indicator_lookup,
+                    session=session,
+                    dataset_type='worldpop',
+                    indicator_name='child_population_total',
+                    geographic_level=(admin_level or '').lower() or None,
+                )
+                outputs.append(
+                    run_step(
+                        step_name='compute_education_summary',
+                        user_message_on_error='Could not compute education summary metrics.',
+                        fn=compute_education_summary,
+                        admin_units_gdf=admin_units_gdf,
+                        schools_gdf=schools,
+                        school_age_lookup=school_age_lookup,
+                        child_population_lookup=child_population_lookup,
+                        admin_level=admin_level,
+                    )
+                )
+            if 'nearest_school_distance' in selected_types:
+                outputs.append(
+                    run_step(
+                        step_name='compute_nearest_school_distance',
+                        user_message_on_error='Could not compute nearest school distance metrics.',
+                        fn=compute_nearest_facility_distance,
+                        admin_units_gdf=admin_units_gdf,
+                        facilities_gdf=schools,
+                        analysis_type='nearest_school_distance',
+                        metric_name='nearest_school_distance_km',
+                    )
+                )
+            if 'school_service_coverage' in selected_types:
+                outputs.append(
+                    run_step(
+                        step_name='compute_school_service_coverage',
+                        user_message_on_error='Could not compute school service coverage metrics.',
+                        fn=compute_service_coverage,
+                        admin_units_gdf=admin_units_gdf,
+                        facilities_gdf=schools,
+                        analysis_type='school_service_coverage',
+                        metric_name='school_service_coverage_pct',
+                        coverage_distance_km=coverage_distance_km,
+                    )
+                )
 
-    return pd.concat(outputs, ignore_index=True) if outputs else pd.DataFrame()
+        if (
+            'health_summary' in selected_types
+            or 'health_population_served' in selected_types
+            or 'nearest_health_distance' in selected_types
+            or 'health_service_coverage' in selected_types
+        ):
+            health = run_step(
+                step_name='fetch_health_facilities',
+                user_message_on_error='Could not load health facilities for analysis.',
+                fn=fetch_facilities,
+                session=session,
+                table_name='health_facilities',
+            )
+            if 'health_summary' in selected_types:
+                outputs.append(
+                    run_step(
+                        step_name='compute_health_summary',
+                        user_message_on_error='Could not compute health summary metrics.',
+                        fn=compute_health_summary,
+                        admin_units_gdf=admin_units_gdf,
+                        health_gdf=health,
+                        admin_level=admin_level,
+                    )
+                )
+            if 'health_population_served' in selected_types:
+                outputs.append(
+                    run_step(
+                        step_name='compute_health_population_served',
+                        user_message_on_error='Could not compute health population served metrics.',
+                        fn=compute_health_population_served,
+                        admin_units_gdf=admin_units_gdf,
+                        health_gdf=health,
+                        raster_path=raster_path,
+                        coverage_distance_km=coverage_distance_km,
+                    )
+                )
+            if 'nearest_health_distance' in selected_types:
+                outputs.append(
+                    run_step(
+                        step_name='compute_nearest_health_distance',
+                        user_message_on_error='Could not compute nearest health distance metrics.',
+                        fn=compute_nearest_facility_distance,
+                        admin_units_gdf=admin_units_gdf,
+                        facilities_gdf=health,
+                        analysis_type='nearest_health_distance',
+                        metric_name='nearest_health_distance_km',
+                    )
+                )
+            if 'health_service_coverage' in selected_types:
+                outputs.append(
+                    run_step(
+                        step_name='compute_health_service_coverage',
+                        user_message_on_error='Could not compute health service coverage metrics.',
+                        fn=compute_service_coverage,
+                        admin_units_gdf=admin_units_gdf,
+                        facilities_gdf=health,
+                        analysis_type='health_service_coverage',
+                        metric_name='health_service_coverage_pct',
+                        coverage_distance_km=coverage_distance_km,
+                    )
+                )
+
+        return pd.concat(outputs, ignore_index=True) if outputs else pd.DataFrame()
+    except AnalyticsError:
+        raise
+    except Exception as exc:
+        raise AnalyticsError(
+            user_message='Spatial analysis failed during processing.',
+            step_name='run_spatial_analyses',
+            original_error=exc,
+        ) from exc

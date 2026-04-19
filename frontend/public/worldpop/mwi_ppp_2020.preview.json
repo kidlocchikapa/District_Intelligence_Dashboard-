@@ -1,0 +1,33 @@
+{
+  "source": "/home/solm/Downloads/mwi_ppp_2020.tif",
+  "image": "mwi_ppp_2020.preview.png",
+  "bounds": [
+    [
+      -17.127082784,
+      32.671249884
+    ],
+    [
+      -9.363749482,
+      35.914583204
+    ]
+  ],
+  "legend": {
+    "label": "Estimated people per grid cell",
+    "lowLabel": "Low",
+    "highLabel": "High",
+    "colors": [
+      "#fff78a",
+      "#aff04a",
+      "#5cd661",
+      "#31aaa4",
+      "#2874d6",
+      "#1f2379"
+    ]
+  },
+  "render": {
+    "clipPercentile": 99.85,
+    "clipMax": 60.18823374176105,
+    "transform": "log1p",
+    "gamma": 0.85
+  }
+}
