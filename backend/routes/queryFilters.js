@@ -1,5 +1,5 @@
 const DISTRICT_GROUPS = {
-  zomba: ["Zomba", "Zomba City"],
+  zomba: ["Zomba", "Zomba City", "Zomba (All)"],
 };
 
 const DEFAULT_DISTRICT_FILTER = "zomba";
