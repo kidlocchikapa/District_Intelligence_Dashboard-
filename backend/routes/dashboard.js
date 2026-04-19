@@ -29,7 +29,6 @@ router.use(
   requireRole("admin", "super_admin"),
   analysisRoutes,
 );
-router.use(auth, requireRole("admin", "super_admin"));
 
 /**
  * @route   GET /api/v1/dashboard/summary
