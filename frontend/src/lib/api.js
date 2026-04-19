@@ -1,38 +1,38 @@
-import axios from 'axios';
+import axios from "axios";
 
 const api = axios.create({
-  baseURL: import.meta.env.VITE_API_BASE_URL || '/api/v1',
+  baseURL: import.meta.env.VITE_API_BASE_URL || "/api/v1",
 });
 
-const AUTH_EVENT_NAME = 'district-auth-changed';
+const AUTH_EVENT_NAME = "district-auth-changed";
 
 function emitAuthChange(token) {
-  if (typeof window === 'undefined') {
+  if (typeof window === "undefined") {
     return;
   }
 
   window.dispatchEvent(
     new CustomEvent(AUTH_EVENT_NAME, {
       detail: { token: token || null },
-    })
+    }),
   );
 }
 
 export function setAuthToken(token) {
   if (token) {
     api.defaults.headers.common.Authorization = `Bearer ${token}`;
-    localStorage.setItem('district_token', token);
+    localStorage.setItem("district_token", token);
     emitAuthChange(token);
     return;
   }
 
   delete api.defaults.headers.common.Authorization;
-  localStorage.removeItem('district_token');
+  localStorage.removeItem("district_token");
   emitAuthChange(null);
 }
 
 export function hydrateAuthToken() {
-  const token = localStorage.getItem('district_token');
+  const token = localStorage.getItem("district_token");
   if (token) {
     setAuthToken(token);
   }
@@ -49,10 +49,15 @@ export async function postJson(path, payload, config) {
   return response.data;
 }
 
+export async function patchJson(path, payload, config) {
+  const response = await api.patch(path, payload, config);
+  return response.data;
+}
+
 export async function uploadForm(path, formData) {
   const response = await api.post(path, formData, {
     headers: {
-      'Content-Type': 'multipart/form-data',
+      "Content-Type": "multipart/form-data",
     },
   });
   return response.data;

@@ -1,10 +1,25 @@
 const express = require("express");
+const db = require("../db");
 const fs = require("fs");
 const multer = require("multer");
 const path = require("path");
 const { spawn } = require("child_process");
 
 const auth = require("../middleware/auth");
+const requireRole = require("../middleware/requireRole");
+const ensureRbacSchema = require("../helpers/rbacSchema");
+const {
+  validateAdminUserUpdate,
+  validateReplaceDepartmentPermissions,
+} = require("../validators/rbacValidation");
+const {
+  buildAuthAccessProfile,
+  fetchUserDepartmentPermissions,
+  getAccessibleDepartmentsForUser,
+  isGlobalAccessRole,
+  replaceUserDepartmentPermissions,
+  userHasDepartmentAccess,
+} = require("../services/rbacService");
 
 const router = express.Router();
 const uploadDirectory = path.resolve(__dirname, "../../uploads");
@@ -207,6 +222,364 @@ const presetTaskDefinitions = {
     ],
   },
 };
+
+const DATASET_DEPARTMENT_MAP = {
+  education: "education",
+  health: "health",
+  welfare: "welfare",
+  disaster: "disaster",
+};
+
+const TASK_DEPARTMENT_MAP = {
+  education_insights: "education",
+  health_insights: "health",
+  disaster_insights: "disaster",
+};
+
+async function ensureUsersTable() {
+  await db.query(`
+    CREATE TABLE IF NOT EXISTS users (
+      id SERIAL PRIMARY KEY,
+      username VARCHAR(100) UNIQUE,
+      full_name VARCHAR(255) NOT NULL,
+      email VARCHAR(255) NOT NULL UNIQUE,
+      password_hash TEXT NOT NULL,
+      role VARCHAR(50) NOT NULL DEFAULT 'department_admin',
+      is_active BOOLEAN NOT NULL DEFAULT TRUE,
+      last_login_at TIMESTAMP,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )
+  `);
+}
+
+function getAuthUser(req) {
+  return req.user?.user || req.user || {};
+}
+
+function resolveJobDepartment(job) {
+  if (job?.meta?.datasetType && DATASET_DEPARTMENT_MAP[job.meta.datasetType]) {
+    return DATASET_DEPARTMENT_MAP[job.meta.datasetType];
+  }
+
+  if (job?.meta?.task && TASK_DEPARTMENT_MAP[job.meta.task]) {
+    return TASK_DEPARTMENT_MAP[job.meta.task];
+  }
+
+  return null;
+}
+
+async function requireDepartmentCapability(req, res, department, action) {
+  const authUser = getAuthUser(req);
+
+  if (!authUser.id) {
+    res.status(401).json({
+      status: "error",
+      message: "Authentication is required",
+    });
+    return false;
+  }
+
+  const hasAccess = await userHasDepartmentAccess(
+    authUser.id,
+    authUser.role,
+    department,
+    action,
+  );
+
+  if (!hasAccess) {
+    res.status(403).json({
+      status: "error",
+      message: `You do not have ${action} access to the ${department} department`,
+    });
+    return false;
+  }
+
+  return true;
+}
+
+function requireGlobalAccess(req, res) {
+  const authUser = getAuthUser(req);
+  if (isGlobalAccessRole(authUser.role)) {
+    return true;
+  }
+
+  res.status(403).json({
+    status: "error",
+    message: "Global admin access is required for this action",
+  });
+  return false;
+}
+
+function serializeManagedUser(user, permissions = []) {
+  return {
+    id: user.id,
+    fullName: user.full_name,
+    email: user.email,
+    role: user.role,
+    isActive: Boolean(user.is_active),
+    lastLoginAt: user.last_login_at,
+    createdAt: user.created_at,
+    updatedAt: user.updated_at,
+    access: buildAuthAccessProfile(user.role, permissions),
+  };
+}
+
+async function loadManagedUser(userId) {
+  const userResult = await db.query(
+    `
+      SELECT
+        id,
+        full_name,
+        email,
+        role,
+        is_active,
+        last_login_at,
+        created_at,
+        updated_at
+      FROM users
+      WHERE id = $1
+      LIMIT 1
+    `,
+    [userId],
+  );
+
+  if (!userResult.rowCount) {
+    return null;
+  }
+
+  const user = userResult.rows[0];
+  const permissions = await fetchUserDepartmentPermissions(userId);
+  return serializeManagedUser(user, permissions);
+}
+
+router.get("/users", auth, requireRole("super_admin"), async (req, res) => {
+  try {
+    await ensureUsersTable();
+    await ensureRbacSchema();
+
+    const [userResult, permissionResult] = await Promise.all([
+      db.query(
+        `
+          SELECT
+            id,
+            full_name,
+            email,
+            role,
+            is_active,
+            last_login_at,
+            created_at,
+            updated_at
+          FROM users
+          ORDER BY created_at DESC, id DESC
+        `,
+      ),
+      db.query(
+        `
+          SELECT
+            user_id,
+            department,
+            can_read,
+            can_write,
+            can_recompute,
+            created_at,
+            updated_at
+          FROM user_department_permissions
+          ORDER BY user_id, department
+        `,
+      ),
+    ]);
+
+    const permissionsByUserId = new Map();
+    permissionResult.rows.forEach((permission) => {
+      const existingPermissions = permissionsByUserId.get(permission.user_id) || [];
+      existingPermissions.push(permission);
+      permissionsByUserId.set(permission.user_id, existingPermissions);
+    });
+
+    return res.json({
+      status: "success",
+      data: userResult.rows.map((user) =>
+        serializeManagedUser(user, permissionsByUserId.get(user.id) || []),
+      ),
+    });
+  } catch (error) {
+    console.error("List admin users error:", error.message);
+    return res.status(500).json({
+      status: "error",
+      message: "Unable to load admin users",
+    });
+  }
+});
+
+router.get("/users/:id/permissions", auth, requireRole("super_admin"), async (req, res) => {
+  const userId = Number(req.params.id);
+
+  if (!Number.isInteger(userId) || userId <= 0) {
+    return res.status(400).json({
+      status: "error",
+      message: "A valid user id is required",
+    });
+  }
+
+  try {
+    await ensureUsersTable();
+    await ensureRbacSchema();
+
+    const user = await loadManagedUser(userId);
+    if (!user) {
+      return res.status(404).json({
+        status: "error",
+        message: "User not found",
+      });
+    }
+
+    return res.json({
+      status: "success",
+      data: user,
+    });
+  } catch (error) {
+    console.error("Get user permissions error:", error.message);
+    return res.status(500).json({
+      status: "error",
+      message: "Unable to load user permissions",
+    });
+  }
+});
+
+router.patch("/users/:id", auth, requireRole("super_admin"), async (req, res) => {
+  const userId = Number(req.params.id);
+
+  if (!Number.isInteger(userId) || userId <= 0) {
+    return res.status(400).json({
+      status: "error",
+      message: "A valid user id is required",
+    });
+  }
+
+  const { error, value } = validateAdminUserUpdate(req.body);
+  if (error) {
+    return res.status(400).json({
+      status: "error",
+      message: error,
+    });
+  }
+
+  try {
+    await ensureUsersTable();
+    await ensureRbacSchema();
+
+    const updateFields = [];
+    const params = [];
+
+    if (Object.prototype.hasOwnProperty.call(value, "role")) {
+      params.push(value.role);
+      updateFields.push(`role = $${params.length}`);
+    }
+
+    if (Object.prototype.hasOwnProperty.call(value, "isActive")) {
+      params.push(value.isActive);
+      updateFields.push(`is_active = $${params.length}`);
+    }
+
+    params.push(userId);
+    const result = await db.query(
+      `
+        UPDATE users
+        SET ${updateFields.join(", ")}, updated_at = CURRENT_TIMESTAMP
+        WHERE id = $${params.length}
+        RETURNING id
+      `,
+      params,
+    );
+
+    if (!result.rowCount) {
+      return res.status(404).json({
+        status: "error",
+        message: "User not found",
+      });
+    }
+
+    const user = await loadManagedUser(userId);
+    return res.json({
+      status: "success",
+      message: "User updated successfully",
+      data: user,
+    });
+  } catch (error) {
+    console.error("Update admin user error:", error.message);
+    return res.status(500).json({
+      status: "error",
+      message: "Unable to update user",
+    });
+  }
+});
+
+router.put("/users/:id/permissions", auth, requireRole("super_admin"), async (req, res) => {
+  const userId = Number(req.params.id);
+
+  if (!Number.isInteger(userId) || userId <= 0) {
+    return res.status(400).json({
+      status: "error",
+      message: "A valid user id is required",
+    });
+  }
+
+  const { error, value } = validateReplaceDepartmentPermissions(req.body);
+  if (error) {
+    return res.status(400).json({
+      status: "error",
+      message: error,
+    });
+  }
+
+  await ensureUsersTable();
+  await ensureRbacSchema();
+
+  const client = await db.connect();
+  let hasOpenTransaction = false;
+
+  try {
+    await client.query("BEGIN");
+    hasOpenTransaction = true;
+
+    const userResult = await client.query(
+      "SELECT id FROM users WHERE id = $1 LIMIT 1",
+      [userId],
+    );
+
+    if (!userResult.rowCount) {
+      await client.query("ROLLBACK");
+      hasOpenTransaction = false;
+      return res.status(404).json({
+        status: "error",
+        message: "User not found",
+      });
+    }
+
+    await replaceUserDepartmentPermissions(client, userId, value.permissions);
+    await client.query("COMMIT");
+    hasOpenTransaction = false;
+
+    const user = await loadManagedUser(userId);
+    return res.json({
+      status: "success",
+      message: "Department permissions updated successfully",
+      data: user,
+    });
+  } catch (error) {
+    if (hasOpenTransaction) {
+      await client.query("ROLLBACK");
+    }
+    console.error("Replace department permissions error:", error.message);
+    return res.status(500).json({
+      status: "error",
+      message: "Unable to update department permissions",
+    });
+  } finally {
+    client.release();
+  }
+});
 
 // Helper function to construct ETL command-line arguments based on input parameters
 function buildEtlArgs({
@@ -466,52 +839,118 @@ function queueWorkflow(job, stages) {
 }
 
 // API endpoint to retrieve available task presets, returning their keys, labels, and descriptions for frontend display
-router.get("/task-presets", auth, (req, res) => {
-  const presets = Object.entries(presetTaskDefinitions).map(
-    ([key, definition]) => ({
-      key,
-      label: definition.label,
-      description: definition.description,
-    }),
-  );
+router.get("/task-presets", auth, async (req, res) => {
+  try {
+    const authUser = getAuthUser(req);
+    let allowedDepartments = [];
 
-  return res.json({
-    status: "success",
-    data: {
-      presets,
-    },
-  });
+    if (!isGlobalAccessRole(authUser.role)) {
+      allowedDepartments = await getAccessibleDepartmentsForUser(
+        authUser.id,
+        authUser.role,
+        "recompute",
+      );
+    }
+
+    const presets = Object.entries(presetTaskDefinitions)
+      .filter(([key]) => {
+        const department = TASK_DEPARTMENT_MAP[key];
+        if (!department) {
+          return isGlobalAccessRole(authUser.role);
+        }
+
+        return (
+          isGlobalAccessRole(authUser.role) ||
+          allowedDepartments.includes(department)
+        );
+      })
+      .map(([key, definition]) => ({
+        key,
+        label: definition.label,
+        description: definition.description,
+      }));
+
+    return res.json({
+      status: "success",
+      data: {
+        presets,
+      },
+    });
+  } catch (error) {
+    console.error("Task preset authorization error:", error.message);
+    return res.status(500).json({
+      status: "error",
+      message: "Unable to load task presets",
+    });
+  }
 });
 
 //@Get endpoint
 //@desc Retrieves job details, either for a specific job if job_id is provided or a list of recent jobs if not
-router.get("/jobs", auth, (req, res) => {
-  const jobId = req.query.job_id;
-  if (jobId) {
-    const job = jobs.get(jobId);
-    if (!job) {
-      return res
-        .status(404)
-        .json({ status: "error", message: "Job not found" });
+router.get("/jobs", auth, async (req, res) => {
+  try {
+    const jobId = req.query.job_id;
+    const authUser = getAuthUser(req);
+    const isGlobal = isGlobalAccessRole(authUser.role);
+    const allowedDepartments = isGlobal
+      ? []
+      : await getAccessibleDepartmentsForUser(
+          authUser.id,
+          authUser.role,
+          "read",
+        );
+
+    if (jobId) {
+      const job = jobs.get(jobId);
+      if (!job) {
+        return res
+          .status(404)
+          .json({ status: "error", message: "Job not found" });
+      }
+
+      const department = resolveJobDepartment(job);
+      if (
+        !isGlobal &&
+        (!department || !allowedDepartments.includes(department))
+      ) {
+        return res.status(403).json({
+          status: "error",
+          message: "You do not have access to this job",
+        });
+      }
+
+      return res.json({
+        status: "success",
+        data: {
+          job: serializeJob(job),
+        },
+      });
     }
 
     return res.json({
       status: "success",
       data: {
-        job: serializeJob(job),
+        jobs: recentJobIds
+          .map((id) => jobs.get(id))
+          .filter(Boolean)
+          .filter((job) => {
+            if (isGlobal) {
+              return true;
+            }
+
+            const department = resolveJobDepartment(job);
+            return Boolean(department && allowedDepartments.includes(department));
+          })
+          .map((job) => serializeJob(job)),
       },
     });
+  } catch (error) {
+    console.error("Admin jobs authorization error:", error.message);
+    return res.status(500).json({
+      status: "error",
+      message: "Unable to load jobs",
+    });
   }
-
-  return res.json({
-    status: "success",
-    data: {
-      jobs: recentJobIds
-        .map((id) => jobs.get(id))
-        .filter(Boolean)
-        .map((job) => serializeJob(job)),
-    },
-  });
 });
 
 /**
@@ -519,7 +958,7 @@ router.get("/jobs", auth, (req, res) => {
  * Handles dataset uploads, creating a new job for the upload and queuing it for background processing
  * Expects multipart/form-data with fields for dataset type, source type, and the file itself, along with optional parameters
  */
-router.post("/upload", [auth, upload.single("file")], (req, res) => {
+router.post("/upload", [auth, upload.single("file")], async (req, res) => {
   const {
     type,
     sourceType = "file",
@@ -545,6 +984,16 @@ router.post("/upload", [auth, upload.single("file")], (req, res) => {
     return res
       .status(400)
       .json({ status: "error", message: "No file uploaded" });
+  }
+
+  const department = DATASET_DEPARTMENT_MAP[type];
+  if (department) {
+    const allowed = await requireDepartmentCapability(req, res, department, "write");
+    if (!allowed) {
+      return;
+    }
+  } else if (!requireGlobalAccess(req, res)) {
+    return;
   }
 
   const args = buildEtlArgs({
@@ -588,7 +1037,7 @@ router.post("/upload", [auth, upload.single("file")], (req, res) => {
  * Initiates a background synchronization job to fetch and process data from an external API, creating a new job and queuing it for execution
  * Expects JSON body with parameters for dataset type, API URL, headers, and other optional settings depending on the type of sync
  */
-router.post("/sync", auth, (req, res) => {
+router.post("/sync", auth, async (req, res) => {
   const {
     type,
     apiUrl,
@@ -619,6 +1068,10 @@ router.post("/sync", auth, (req, res) => {
       status: "error",
       message: "apiUrl is required for non-WorldPop API sync",
     });
+  }
+
+  if (!requireGlobalAccess(req, res)) {
+    return;
   }
 
   const args = buildEtlArgs({
@@ -664,7 +1117,7 @@ router.post("/sync", auth, (req, res) => {
  * POST /admin/run-task
  * t
  */
-router.post("/run-task", auth, (req, res) => {
+router.post("/run-task", auth, async (req, res) => {
   const {
     task,
     apiUrl = "https://api.worldpop.org/v1/services/stats",
@@ -683,6 +1136,21 @@ router.post("/run-task", auth, (req, res) => {
       status: "error",
       message: "Unknown admin task preset",
     });
+  }
+
+  const department = TASK_DEPARTMENT_MAP[task];
+  if (department) {
+    const allowed = await requireDepartmentCapability(
+      req,
+      res,
+      department,
+      "recompute",
+    );
+    if (!allowed) {
+      return;
+    }
+  } else if (!requireGlobalAccess(req, res)) {
+    return;
   }
 
   const stages = definition.stages({

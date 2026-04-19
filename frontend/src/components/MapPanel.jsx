@@ -14,6 +14,7 @@ import { formatNumber, titleizeMetric } from "../lib/format";
 import EmptyState from "./EmptyState";
 
 import { useEffect } from "react";
+import { useDistrict } from "../context/DistrictContext";
 
 function MapFitter({ bounds }) {
   const map = useMap();
@@ -44,10 +45,22 @@ function MapPanel({
   showLabels = false,
   showZoomControls = true,
   heightClass = "h-[380px]",
+  loading = false,
 }) {
-  const features = geojson?.features || [];
+  const { setSelectedDistrict } = useDistrict();
+  const [activeGeojson, setActiveGeojson] = useState(geojson);
+  const [activeBounds, setActiveBounds] = useState(getGeoBounds(geojson?.features || []));
 
-  if (!features.length) {
+  useEffect(() => {
+    if (!loading && geojson) {
+      setActiveGeojson(geojson);
+      setActiveBounds(getGeoBounds(geojson.features || []));
+    }
+  }, [geojson, loading]);
+
+  const features = activeGeojson?.features || [];
+
+  if (!loading && !features.length) {
     return (
       <EmptyState
         title={title}
@@ -64,7 +77,7 @@ function MapPanel({
   
   const colorStops = CHOROPLETH_PALETTES[palette] || CHOROPLETH_PALETTES.default;
   const legendStops = getLegendStops(range.min, range.max, colorStops);
-  const bounds = getGeoBounds(features);
+  const bounds = activeBounds;
 
   function popupContent(feature) {
     const properties = feature?.properties || {};
@@ -166,6 +179,13 @@ function MapPanel({
         },
         mouseout: (e) => {
           e.target.setStyle(styleFeature(feature));
+        },
+        click: (e) => {
+          const properties = feature?.properties || {};
+          const districtName = properties.admin_unit_name || properties.name;
+          if (districtName) {
+            setSelectedDistrict(districtName);
+          }
         }
       });
     }
@@ -201,7 +221,7 @@ function MapPanel({
           
           <GeoJSON
             key={`${metricName}-${features.length}`}
-            data={geojson}
+            data={activeGeojson}
             style={styleFeature}
             pointToLayer={hasPointFeatures ? (feature, latlng) =>
               L.circleMarker(latlng, {
@@ -215,6 +235,16 @@ function MapPanel({
             onEachFeature={onEachFeatureInteraction}
           />
         </MapContainer>
+
+        {/* Subtle Background Loading Indicator */}
+        {loading && (
+          <div className="absolute top-4 left-4 z-[400] animate-in fade-in duration-500">
+             <div className="flex items-center gap-3 bg-white/95 backdrop-blur-md px-4 py-2.5 rounded-2xl border border-white/50 shadow-lg shadow-blue-900/5">
+                <div className="h-4 w-4 border-2 border-blue-600/20 border-t-blue-600 rounded-full animate-spin"></div>
+                <span className="text-[10px] font-bold text-slate uppercase tracking-widest">Updating Map Data...</span>
+             </div>
+          </div>
+        )}
       </div>
 
       {!hasPointFeatures && metricName && showLegend ? (

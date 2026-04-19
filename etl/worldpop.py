@@ -1,5 +1,6 @@
 ## Importing libaries
 import json
+import logging
 import os
 import re
 import time
@@ -29,6 +30,39 @@ DEFAULT_CHILD_CLASS_MAX = 15
 DEFAULT_WORLDPOP_MAX_GEOJSON_CHARS = 12000
 DEFAULT_WORLDPOP_MAX_URL_LENGTH = 1800
 WORLDPOP_SIMPLIFY_TOLERANCES = [0, 0.0001, 0.0005, 0.001, 0.005, 0.01, 0.02, 0.05, 0.1]
+
+
+LOGGER = logging.getLogger('etl.worldpop')
+
+
+class WorldPopError(Exception):
+    def __init__(self, user_message, step_name, original_error=None):
+        self.user_message = user_message
+        self.step_name = step_name
+        self.original_error = original_error
+        super().__init__(f"{user_message} (step: {step_name})")
+
+
+def log_step(step_name, message, level='info'):
+    log_method = getattr(LOGGER, level, LOGGER.info)
+    log_method(f"[{step_name}] {message}")
+
+
+def run_step(step_name, user_message_on_error, fn, *args, **kwargs):
+    log_step(step_name, 'started')
+    try:
+        result = fn(*args, **kwargs)
+    except WorldPopError:
+        raise
+    except Exception as exc:
+        log_step(step_name, f"failed: {exc}", level='error')
+        raise WorldPopError(
+            user_message=user_message_on_error,
+            step_name=step_name,
+            original_error=exc,
+        ) from exc
+    log_step(step_name, 'completed')
+    return result
 
 
 
@@ -61,6 +95,7 @@ def fetch_json(url, timeout=60, retries=3, backoff_seconds=2):
 
     for attempt in range(retries):
         try:
+            log_step('fetch_json', f'fetching URL (attempt {attempt + 1}/{retries}): {url}')
             with urlopen(request, timeout=timeout) as response:
                 return json.loads(response.read().decode('utf-8'))
         except (URLError, ssl.SSLError, TimeoutError) as exc:
@@ -75,7 +110,8 @@ def load_worldpop_catalog(url=None, timeout=60):
     return fetch_json(catalog_url, timeout=timeout)
 
 
-## Function to select the most appropriate WorldPop dataset based on year and ISO3 country code, ensuring it is a GeoTIFF format
+## Function to select the most appropriate WorldPop dataset based on year a
+# nd ISO3 country code, ensuring it is a GeoTIFF format
 def select_worldpop_dataset(catalog, year=DEFAULT_WORLDPOP_YEAR, iso3='MWI'):
     entries = catalog.get('data', []) if isinstance(catalog, dict) else catalog
     if not isinstance(entries, list):
@@ -115,25 +151,36 @@ def select_worldpop_dataset(catalog, year=DEFAULT_WORLDPOP_YEAR, iso3='MWI'):
     }
 
 
-## Function to download a WorldPop raster file from a given URL, saving it to a specified directory with optional filename and timeout settings
+## Function to download a WorldPop raster file from a given URL, saving it to a specified 
+# directory with optional filename and timeout settings
 def download_worldpop_raster(raster_url, download_dir, filename=None, timeout=300):
-    os.makedirs(download_dir, exist_ok=True)
-    target_name = filename or os.path.basename(raster_url.split('?', 1)[0])
-    target_path = os.path.join(download_dir, target_name)
+    try:
+        os.makedirs(download_dir, exist_ok=True)
+        target_name = filename or os.path.basename(raster_url.split('?', 1)[0])
+        target_path = os.path.join(download_dir, target_name)
 
-    if os.path.exists(target_path) and os.path.getsize(target_path) > 0:
+        if os.path.exists(target_path) and os.path.getsize(target_path) > 0:
+            log_step('download_worldpop_raster', f'using cached raster: {target_path}')
+            return target_path
+
+        log_step('download_worldpop_raster', f'downloading raster from {raster_url}')
+        with urlopen(raster_url, timeout=timeout) as response, open(target_path, 'wb') as output:
+            while True:
+                chunk = response.read(1024 * 1024)
+                if not chunk:
+                    break
+                output.write(chunk)
+
         return target_path
+    except Exception as exc:
+        raise WorldPopError(
+            user_message='Could not download WorldPop raster file. Check internet access and URL availability.',
+            step_name='download_worldpop_raster',
+            original_error=exc,
+        ) from exc
 
-    with urlopen(raster_url, timeout=timeout) as response, open(target_path, 'wb') as output:
-        while True:
-            chunk = response.read(1024 * 1024)
-            if not chunk:
-                break
-            output.write(chunk)
-
-    return target_path
-
-## Function to resolve the appropriate WorldPop raster dataset for a given year and ISO3 country code, downloading the raster file and returning metadata about the selected dataset
+## Function to resolve the appropriate WorldPop raster dataset for a given year 
+# and ISO3 country code, downloading the raster file and returning metadata about the selected dataset
 def resolve_worldpop_raster(
     api_url=None,
     year=DEFAULT_WORLDPOP_YEAR,
@@ -151,7 +198,8 @@ def resolve_worldpop_raster(
     selected['raster_path'] = raster_path
     return selected
 
-## Helper function to convert a geometry object to a GeoJSON FeatureCollection format, ensuring it is compatible with WorldPop API requirements
+## Helper function to convert a geometry object to a GeoJSON FeatureCollection format,
+#  ensuring it is compatible with WorldPop API requirements
 def geometry_to_feature_collection(geometry):
     return {
         'type': 'FeatureCollection',
@@ -165,12 +213,14 @@ def geometry_to_feature_collection(geometry):
     }
 
 
-## Helper function to serialize a geometry object into a GeoJSON FeatureCollection string, using compact separators to minimize the resulting string length for API usage
+## Helper function to serialize a geometry object into a GeoJSON FeatureCollection string
+# , using compact separators to minimize the resulting string length for API usage
 def serialize_geojson_feature_collection(geometry):
     return json.dumps(geometry_to_feature_collection(geometry), separators=(',', ':'))
 
 
-## Function to build a WorldPop statistics API URL with the appropriate query parameters, including dataset, year, GeoJSON payload, API key, and asynchronous execution flag
+## Function to build a WorldPop statistics API URL with the appropriate query parameters, including 
+# dataset, year, GeoJSON payload, API key, and asynchronous execution flag
 def build_worldpop_stats_url(api_url, dataset, year, geojson_payload, api_key=None, run_async=False):
     params = {
         'dataset': dataset,
@@ -183,7 +233,9 @@ def build_worldpop_stats_url(api_url, dataset, year, geojson_payload, api_key=No
     return f"{(api_url or DEFAULT_WORLDPOP_STATS_URL).rstrip('?')}?{urlencode(params)}"
 
 
-## Main function to prepare a geometry for a WorldPop API request, attempting various simplification tolerances to reduce the GeoJSON payload size while ensuring it remains valid for the API, and falling back to the geometry's envelope if necessary
+## Main function to prepare a geometry for a WorldPop API request, attempting various 
+# simplification tolerances to reduce the GeoJSON payload size while ensuring it remains valid for the API,
+#  and falling back to the geometry's envelope if necessary
 def prepare_worldpop_request_geometry(
     geometry,
     api_url,
@@ -213,7 +265,8 @@ def prepare_worldpop_request_geometry(
         raise ValueError(f'WorldPop request URL remains too large after simplification ({len(target_url)} chars)')
     return envelope, payload, 'envelope', target_url
 
-## Function to wait for a WorldPop asynchronous task to complete by polling the task status endpoint, with error handling and timeout support
+## Function to wait for a WorldPop asynchronous task to complete by polling the task status endpoint, 
+# with error handling and timeout support
 def wait_for_worldpop_task(task_id, tasks_url=None, timeout=180, poll_interval=2):
     target_base = (tasks_url or DEFAULT_WORLDPOP_TASKS_URL).rstrip('/')
     target_url = f'{target_base}/{task_id}'
@@ -237,7 +290,8 @@ def wait_for_worldpop_task(task_id, tasks_url=None, timeout=180, poll_interval=2
 
 '''
 Function to request WorldPop statistics for a given geometry, dataset, and year, preparing the geometry for
-the API request, handling asynchronous execution if needed, and returning the resulting statistics payload with metadata about the request
+the API request, handling asynchronous execution if needed, and returning the 
+resulting statistics payload with metadata about the request
 '''
 ## 
 def request_worldpop_stats(
@@ -251,49 +305,56 @@ def request_worldpop_stats(
     poll_timeout=180,
     poll_interval=2,
 ):
-    _, geojson_payload, simplify_tolerance, target_url = prepare_worldpop_request_geometry(
-        geometry,
-        api_url=api_url or DEFAULT_WORLDPOP_STATS_URL,
-        dataset=dataset,
-        year=year,
-        api_key=api_key,
-        run_async=run_async,
-    )
-    payload = fetch_json(target_url, timeout=timeout)
+    try:
+        _, geojson_payload, simplify_tolerance, target_url = prepare_worldpop_request_geometry(
+            geometry,
+            api_url=api_url or DEFAULT_WORLDPOP_STATS_URL,
+            dataset=dataset,
+            year=year,
+            api_key=api_key,
+            run_async=run_async,
+        )
+        payload = fetch_json(target_url, timeout=timeout)
 
-    if payload.get('error'):
-        raise ValueError(payload.get('error_message') or 'WorldPop stats request failed')
+        if payload.get('error'):
+            raise ValueError(payload.get('error_message') or 'WorldPop stats request failed')
 
-    status = str(payload.get('status', '')).lower()
-    if status == 'finished':
-        payload.setdefault('request_metadata', {})
-        payload['request_metadata'].update(
+        status = str(payload.get('status', '')).lower()
+        if status == 'finished':
+            payload.setdefault('request_metadata', {})
+            payload['request_metadata'].update(
+                {
+                    'geojson_chars': len(geojson_payload),
+                    'request_url_chars': len(target_url),
+                    'simplify_tolerance': simplify_tolerance,
+                }
+            )
+            return payload
+
+        task_id = payload.get('taskid')
+        if not task_id:
+            raise ValueError('WorldPop response did not include result data or a task id')
+
+        response_payload = wait_for_worldpop_task(
+            task_id,
+            timeout=poll_timeout,
+            poll_interval=poll_interval,
+        )
+        response_payload.setdefault('request_metadata', {})
+        response_payload['request_metadata'].update(
             {
                 'geojson_chars': len(geojson_payload),
                 'request_url_chars': len(target_url),
                 'simplify_tolerance': simplify_tolerance,
             }
         )
-        return payload
-
-    task_id = payload.get('taskid')
-    if not task_id:
-        raise ValueError('WorldPop response did not include result data or a task id')
-
-    response_payload = wait_for_worldpop_task(
-        task_id,
-        timeout=poll_timeout,
-        poll_interval=poll_interval,
-    )
-    response_payload.setdefault('request_metadata', {})
-    response_payload['request_metadata'].update(
-        {
-            'geojson_chars': len(geojson_payload),
-            'request_url_chars': len(target_url),
-            'simplify_tolerance': simplify_tolerance,
-        }
-    )
-    return response_payload
+        return response_payload
+    except Exception as exc:
+        raise WorldPopError(
+            user_message='Could not retrieve WorldPop statistics for one or more areas.',
+            step_name='request_worldpop_stats',
+            original_error=exc,
+        ) from exc
 
 ## Helper function to extract the total population value from a WorldPop statistics response payload, 
 # handling different possible structures of the input data
@@ -377,7 +438,8 @@ def aggregate_child_population_from_classes(agesex_pyramid, max_class=DEFAULT_CH
         'child_population_female': female_total,
     }
 
-## Helper function to build a standardized indicator record from a WorldPop statistics response, including dataset type, indicator name, geographic information, indicator value, source filename, and optional metadata
+## Helper function to build a standardized indicator record from a WorldPop statistics response, 
+# including dataset type, indicator name, geographic information, indicator value, source filename, and optional metadata
 def build_indicator_record(row, indicator_name, indicator_value, source_filename, metadata=None):
     return {
         'dataset_type': 'worldpop',
@@ -391,7 +453,8 @@ def build_indicator_record(row, indicator_name, indicator_value, source_filename
     }
 
 
-## Helper function to build a standardized age and sex disaggregated record from a WorldPop statistics response, including geographic information, age and
+## Helper function to build a standardized age and sex disaggregated record from a WorldPop 
+# statistics response, including geographic information, age and
 def build_age_sex_record(row, year, bucket, response_payload):
     task_id = response_payload.get('taskid')
     start_time = response_payload.get('startTime')
@@ -438,28 +501,36 @@ def process_population_stats(
     api_key=None,
     dataset=DEFAULT_WORLDPOP_DATASET,
 ):
-    working = admin_units_gdf.copy()
-    populations = []
+    try:
+        working = admin_units_gdf.copy()
+        populations = []
 
-    for _, row in working.iterrows():
-        geometry = get_row_geometry(row)
-        stats_data = request_worldpop_stats(
-            geometry,
-            dataset=dataset,
-            year=year,
-            api_url=api_url,
-            api_key=api_key,
-        )
-        populations.append(round(extract_total_population(stats_data)))
+        for _, row in working.iterrows():
+            geometry = get_row_geometry(row)
+            stats_data = request_worldpop_stats(
+                geometry,
+                dataset=dataset,
+                year=year,
+                api_url=api_url,
+                api_key=api_key,
+            )
+            populations.append(round(extract_total_population(stats_data)))
 
-    working['population_total'] = populations
-    projected = working.to_crs('EPSG:3857')
-    area_km2 = projected.geometry.area / 10**6
-    working['population_density'] = [
-        (population / area if area else 0)
-        for population, area in zip(working['population_total'], area_km2)
-    ]
-    return working
+        working['population_total'] = populations
+        projected = working.to_crs('EPSG:3857')
+        area_km2 = projected.geometry.area / 10**6
+        working['population_density'] = [
+            (population / area if area else 0)
+            for population, area in zip(working['population_total'], area_km2)
+        ]
+        log_step('process_population_stats', f'processed_admin_units={len(working)}')
+        return working
+    except Exception as exc:
+        raise WorldPopError(
+            user_message='Could not compute population stats from WorldPop API for the selected areas.',
+            step_name='process_population_stats',
+            original_error=exc,
+        ) from exc
 
 # Function to build age andd sex disaggregated outputs from a GeoDataFrame of administrative units, r
 # equesting WorldPop age and sex pyramid statistics for each unit, and constructing standardized records for both 
@@ -474,19 +545,20 @@ def build_age_sex_outputs(
     school_age_max=DEFAULT_SCHOOL_AGE_MAX,
     child_class_max=DEFAULT_CHILD_CLASS_MAX,
 ):
-    indicator_records = []
-    age_sex_records = []
-    source_filename = f'worldpop_{DEFAULT_WORLDPOP_AGE_SEX_DATASET}_{year}'
+    try:
+        indicator_records = []
+        age_sex_records = []
+        source_filename = f'worldpop_{DEFAULT_WORLDPOP_AGE_SEX_DATASET}_{year}'
 
-    for _, row in admin_units_gdf.iterrows():
-        geometry = get_row_geometry(row)
-        response_payload = request_worldpop_stats(
-            geometry,
-            dataset=DEFAULT_WORLDPOP_AGE_SEX_DATASET,
-            year=year,
-            api_url=api_url,
-            api_key=api_key,
-        )
+        for _, row in admin_units_gdf.iterrows():
+            geometry = get_row_geometry(row)
+            response_payload = request_worldpop_stats(
+                geometry,
+                dataset=DEFAULT_WORLDPOP_AGE_SEX_DATASET,
+                year=year,
+                api_url=api_url,
+                api_key=api_key,
+            )
         stats_data = response_payload.get('data') or {}
         agesex_pyramid = stats_data.get('agesexpyramid') or []
 
@@ -563,7 +635,14 @@ def build_age_sex_outputs(
                 )
             )
 
-    return pd.DataFrame(age_sex_records), pd.DataFrame(indicator_records)
+        log_step('build_age_sex_outputs', f'age_sex_records={len(age_sex_records)}, indicators={len(indicator_records)}')
+        return pd.DataFrame(age_sex_records), pd.DataFrame(indicator_records)
+    except Exception as exc:
+        raise WorldPopError(
+            user_message='Could not build age/sex outputs from WorldPop responses.',
+            step_name='build_age_sex_outputs',
+            original_error=exc,
+        ) from exc
 
 
 '''
@@ -572,47 +651,102 @@ calculating the specified statistic (sum or mean) for the raster values that fal
 and returning a list of results corresponding to each polygon
 '''
 def get_zonal_stats(raster_path, polygons_gdf, stat='sum'):
-    results = []
-    with rasterio.open(raster_path) as src:
-        working_polygons = polygons_gdf
-        if working_polygons.crs != src.crs:
-            working_polygons = working_polygons.to_crs(src.crs)
+    try:
+        results = []
+        with rasterio.open(raster_path) as src:
+            working_polygons = polygons_gdf
+            if working_polygons.crs != src.crs:
+                working_polygons = working_polygons.to_crs(src.crs)
 
-        for _, row in working_polygons.iterrows():
-            try:
-                geometry = [get_row_geometry(row)]
-                out_image, _ = mask(src, geometry, crop=True)
-                data = out_image[0]
+            for _, row in working_polygons.iterrows():
+                try:
+                    geometry = [get_row_geometry(row)]
+                    out_image, _ = mask(src, geometry, crop=True)
+                    data = out_image[0]
 
-                if src.nodata is not None:
-                    data = data[data != src.nodata]
-                data = data[~np.isnan(data)]
+                    if src.nodata is not None:
+                        data = data[data != src.nodata]
+                    data = data[~np.isnan(data)]
 
-                if data.size == 0:
+                    if data.size == 0:
+                        results.append(0.0)
+                    elif stat == 'mean':
+                        results.append(float(np.mean(data)))
+                    else:
+                        results.append(float(np.sum(data)))
+                except Exception as exc:
+                    log_step('get_zonal_stats', f'polygon processing failed: {exc}', level='warning')
                     results.append(0.0)
-                elif stat == 'mean':
-                    results.append(float(np.mean(data)))
-                else:
-                    results.append(float(np.sum(data)))
-            except Exception as exc:
-                print(f'Error processing polygon: {exc}')
-                results.append(0.0)
 
-    return results
+        return results
+    except Exception as exc:
+        raise WorldPopError(
+            user_message='Could not compute raster zonal statistics for provided polygons.',
+            step_name='get_zonal_stats',
+            original_error=exc,
+        ) from exc
 
 
 ## Function to fetch administrative units from a database session, optionally filtering by district name, 
 ## and returning the results as a GeoDataFrame with geometry column named 'geom'
-def fetch_admin_units(session, district_name=None):
+def fetch_admin_units(session, district_name=None, district_names=None):
     query = """
-        SELECT id, code, name, type, population_total, geom
-        FROM administrative_units
-        WHERE geom IS NOT NULL
+        SELECT
+            u.id,
+            u.code,
+            u.name,
+            u.type,
+            u.population_total,
+            u.geom
+        FROM (
+            SELECT
+                d.id,
+                d.code,
+                d.name,
+                'District'::VARCHAR AS type,
+                COALESCE(d.population_total, 0)::INTEGER AS population_total,
+                d.geom,
+                d.id AS district_id
+            FROM districts d
+            WHERE d.geom IS NOT NULL
+
+            UNION ALL
+
+            SELECT
+                a.id,
+                a.code,
+                a.name,
+                'TA'::VARCHAR AS type,
+                COALESCE(a.population_total, 0)::INTEGER AS population_total,
+                a.geom,
+                a.district_id
+            FROM admin3_units a
+            WHERE a.geom IS NOT NULL
+              AND LOWER(a.type) = 'ta'
+        ) u
+        LEFT JOIN districts d ON d.id = u.district_id
     """
     params = {}
+    selected_district_names = []
     if district_name:
-        query += " AND LOWER(name) = LOWER(:district_name)"
-        params['district_name'] = district_name
+        selected_district_names.append(str(district_name).strip().lower())
+    if district_names:
+        selected_district_names.extend(
+            str(name).strip().lower()
+            for name in district_names
+            if str(name).strip()
+        )
+
+    selected_district_names = sorted(set(selected_district_names))
+
+    if selected_district_names:
+        query += """
+            WHERE
+                (LOWER(u.type) = 'district' AND LOWER(u.name) = ANY(:district_names))
+                OR
+                (LOWER(u.type) = 'ta' AND LOWER(d.name) = ANY(:district_names))
+        """
+        params['district_names'] = selected_district_names
 
     return gpd.read_postgis(text(query), session.bind, geom_col='geom', params=params)
 
@@ -638,21 +772,41 @@ def process_population_data(raster_path, admin_units_gdf):
 def update_population_metrics(session, population_gdf):
     updated = 0
     for _, row in population_gdf.iterrows():
-        session.execute(
-            text(
-                """
-                UPDATE administrative_units
-                SET population_total = :population_total,
-                    population_density = :population_density
-                WHERE id = :id
-                """
-            ),
-            {
-                'id': int(row['id']),
-                'population_total': int(row['population_total'] or 0),
-                'population_density': float(row['population_density'] or 0),
-            },
-        )
+        row_type = str(row.get('type') or '').strip().lower()
+        params = {
+            'id': int(row['id']),
+            'population_total': int(row['population_total'] or 0),
+            'population_density': float(row['population_density'] or 0),
+        }
+
+        if row_type == 'district':
+            session.execute(
+                text(
+                    """
+                    UPDATE districts
+                    SET population_total = :population_total,
+                        population_density = :population_density
+                    WHERE id = :id
+                    """
+                ),
+                params,
+            )
+        elif row_type == 'ta':
+            session.execute(
+                text(
+                    """
+                    UPDATE admin3_units
+                    SET population_total = :population_total,
+                        population_density = :population_density
+                    WHERE id = :id
+                      AND LOWER(type) = 'ta'
+                    """
+                ),
+                params,
+            )
+        else:
+            continue
+
         updated += 1
 
     session.commit()
