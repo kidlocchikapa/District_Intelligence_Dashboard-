@@ -18,8 +18,15 @@ router.get("/", async (req, res) => {
   try {
     const conditions = ["geom IS NOT NULL"];
     const params = [];
-    appendDistrictGeometryCondition(conditions, params, "health_facilities.geom", district);
-    const whereClause = conditions.length ? `WHERE ${conditions.join(" AND ")}` : "";
+    appendDistrictGeometryCondition(
+      conditions,
+      params,
+      "health_facilities.geom",
+      district,
+    );
+    const whereClause = conditions.length
+      ? `WHERE ${conditions.join(" AND ")}`
+      : "";
 
     const query = `
             SELECT jsonb_build_object(
@@ -50,7 +57,8 @@ router.get("/", async (req, res) => {
                         'services_offered', services_offered,
                         'osm_id', osm_id,
                         'osm_type', osm_type,
-                        'ward_id', ward_id,
+                        'ward_id', ta_id,
+                        'ta_id', ta_id,
                         'district_id', district_id
                     )
                 ) AS feature
@@ -90,12 +98,14 @@ router.get("/summary", async (req, res) => {
   }
 
   try {
-    const conditions = [
-      "analysis_type = $1",
-      "admin_unit_type = $2",
-    ];
+    const conditions = ["analysis_type = $1", "admin_unit_type = $2"];
     const params = [analysisType, adminType];
-    appendDistrictNameCondition(conditions, params, "admin_unit_name", district);
+    appendDistrictNameCondition(
+      conditions,
+      params,
+      "admin_unit_name",
+      district,
+    );
 
     const result = await db.query(
       `
@@ -136,7 +146,12 @@ router.get("/served-population", async (req, res) => {
       "admin_unit_type = $1",
     ];
     const params = [adminType];
-    appendDistrictNameCondition(conditions, params, "admin_unit_name", district);
+    appendDistrictNameCondition(
+      conditions,
+      params,
+      "admin_unit_name",
+      district,
+    );
 
     const result = await db.query(
       `

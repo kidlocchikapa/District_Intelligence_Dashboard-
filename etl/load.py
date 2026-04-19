@@ -625,7 +625,29 @@ def load_analysis_results(session, analysis_df):
         )
 
         analysis_types = working['analysis_type'].dropna().unique().tolist()
-        if analysis_types:
+        if {'analysis_type', 'admin_unit_type'}.issubset(working.columns):
+            scope_rows = (
+                working[['analysis_type', 'admin_unit_type']]
+                .dropna()
+                .drop_duplicates()
+                .itertuples(index=False)
+            )
+            for scope in scope_rows:
+                session.execute(
+                    text(
+                        """
+                        DELETE FROM analysis_results
+                        WHERE analysis_type = :analysis_type
+                          AND LOWER(admin_unit_type) = LOWER(:admin_unit_type)
+                        """
+                    ),
+                    {
+                        'analysis_type': str(scope.analysis_type),
+                        'admin_unit_type': str(scope.admin_unit_type),
+                    },
+                )
+            session.commit()
+        elif analysis_types:
             session.execute(
                 text("DELETE FROM analysis_results WHERE analysis_type = ANY(:analysis_types)"),
                 {'analysis_types': analysis_types},
