@@ -10,6 +10,16 @@ const {
 
 router.use(auth, requireDepartmentAccess("health", "read"));
 
+function normalizeAdminType(adminType = "District") {
+  const normalized = String(adminType || "District")
+    .trim()
+    .toLowerCase();
+  if (normalized === "district") return "District";
+  if (normalized === "ta" || normalized === "admin3") return "TA";
+  if (normalized === "village") return "Village";
+  return "District";
+}
+
 // @route   GET api/v1/dashboard/health
 // @desc    Get health facility locations (GeoJSON)
 router.get("/", async (req, res) => {
@@ -36,33 +46,30 @@ router.get("/", async (req, res) => {
             FROM (
                 SELECT jsonb_build_object(
                     'type', 'Feature',
-                    'id', id,
-                    'geometry', ST_AsGeoJSON(geom)::jsonb,
-                    'properties', jsonb_build_object(
-                        'name', name,
-                        'name_en', "name:en",
-                        'amenity', amenity,
-                        'building', building,
-                        'type', type,
-                        'healthcare', healthcare,
-                        'healthcare_speciality', "healthcare:speciality",
-                        'operator_type', "operator:type",
-                        'capacity_persons', "capacity:persons",
-                        'address_full', "addr:full",
-                        'address_city', "addr:city",
-                        'source', source,
-                        'name_ny', "name:ny",
-                        'beds_count', beds_count,
-                        'patient_visits_total', patient_visits_total,
-                        'services_offered', services_offered,
-                        'osm_id', osm_id,
-                        'osm_type', osm_type,
-                        'ward_id', ta_id,
-                        'ta_id', ta_id,
-                        'district_id', district_id
+                  'id', hf.id,
+                  'geometry', ST_AsGeoJSON(hf.geom)::jsonb,
+                  'properties', (
+                    (to_jsonb(hf) - 'geom')
+                    || jsonb_build_object(
+                      'name', hf.name,
+                      'name_en', COALESCE(hf.common_name, hf.name),
+                      'amenity', hf.type,
+                      'building', NULL,
+                      'healthcare', hf.type,
+                      'healthcare_speciality', NULL,
+                      'operator_type', hf.ownership,
+                      'capacity_persons', hf."capacity:persons",
+                      'address_full', NULL,
+                      'address_city', hf.district,
+                      'source', NULL,
+                      'name_ny', NULL,
+                      'ward_id', hf.ta_id,
+                      'ta_id', hf.ta_id,
+                      'district_id', hf.district_id
                     )
+                  )
                 ) AS feature
-                FROM health_facilities
+                FROM health_facilities hf
                 ${whereClause}
             ) rowconf;
         `;
@@ -88,6 +95,7 @@ router.get("/summary", async (req, res) => {
     analysis_type: analysisType = "health_summary",
     district,
   } = req.query;
+  const normalizedAdminType = normalizeAdminType(adminType);
 
   if (!["health_summary", "health_population_served"].includes(analysisType)) {
     return res.status(400).json({
@@ -98,8 +106,11 @@ router.get("/summary", async (req, res) => {
   }
 
   try {
-    const conditions = ["analysis_type = $1", "admin_unit_type = $2"];
-    const params = [analysisType, adminType];
+    const conditions = [
+      "analysis_type = $1",
+      "LOWER(admin_unit_type) = LOWER($2)",
+    ];
+    const params = [analysisType, normalizedAdminType];
     appendDistrictNameCondition(
       conditions,
       params,
@@ -139,13 +150,14 @@ router.get("/summary", async (req, res) => {
 // @desc    Get ward/district health served population aggregates
 router.get("/served-population", async (req, res) => {
   const { admin_type: adminType = "District", district } = req.query;
+  const normalizedAdminType = normalizeAdminType(adminType);
 
   try {
     const conditions = [
       "analysis_type = 'health_population_served'",
-      "admin_unit_type = $1",
+      "LOWER(admin_unit_type) = LOWER($1)",
     ];
-    const params = [adminType];
+    const params = [normalizedAdminType];
     appendDistrictNameCondition(
       conditions,
       params,
@@ -185,9 +197,10 @@ router.get("/served-population", async (req, res) => {
 // @desc    Get ward/district health served population results as GeoJSON
 router.get("/served-population/geojson", async (req, res) => {
   const { admin_type: adminType = "District", district } = req.query;
+  const normalizedAdminType = normalizeAdminType(adminType);
 
   try {
-    const params = [adminType];
+    const params = [normalizedAdminType];
     let districtClause = "";
     if (district) {
       params.push(district);
@@ -231,11 +244,12 @@ router.get("/served-population/geojson", async (req, res) => {
                         MAX(calculated_at) AS calculated_at
                     FROM analysis_results
                     WHERE analysis_type = 'health_population_served'
-                      AND admin_unit_type = $1
+                      AND LOWER(admin_unit_type) = LOWER($1)
                     GROUP BY admin_unit_id
                 ) ar
                   ON ar.admin_unit_id = au.id
                 WHERE au.geom IS NOT NULL
+                  AND LOWER(au.type) = LOWER($1)
                   ${districtClause}
                 ORDER BY au.name
             ) rowconf;
