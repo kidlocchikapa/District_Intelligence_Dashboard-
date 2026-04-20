@@ -12,7 +12,7 @@ import { useDistrict } from "../context/DistrictContext";
 import { useDistrictOptions } from "../hooks/useDistrictOptions";
 import { usePdfExport } from "../hooks/usePdfExport";
 import { buildDashboardPath } from "../lib/query";
-import MapPanel from "../components/MapPanel";
+import FloodRiskRasterPanel from "../components/FloodRiskRasterPanel";
 
 function DisasterPage() {
   const { selectedDistrict, setSelectedDistrict } = useDistrict();
@@ -63,11 +63,11 @@ function DisasterPage() {
     }),
   );
 
-  // Disaster Zone GeoJSON for Map
-  const disasterZones = useDashboardData(
+  // Flood risk GeoJSON source from database
+  const floodRiskZones = useDashboardData(
     buildDashboardPath("/dashboard/disaster/flood", {
       district: disasterDistrictFilter,
-      admin_type: "District",
+      admin_type: "TA",
     }),
   );
 
@@ -194,39 +194,19 @@ function DisasterPage() {
             Hazard Zone Mapping
           </h3>
           <div className="flex-1 rounded overflow-hidden relative border border-gray-50 bg-gray-50">
-            {disasterZones.loading ? (
+            {floodRiskZones.loading ? (
               <div className="absolute inset-0 flex items-center justify-center animate-pulse">
                 <span className="text-gray-400 font-bold uppercase tracking-widest">
                   Loading Risk Data...
                 </span>
               </div>
             ) : (
-              <MapPanel
-                geojson={disasterZones.data}
-                metricName="exposed_population_pct"
-                palette="risk-bands"
-                colorByField="risk_level"
-                showLegend={true}
-                legendTitle="Flood Risk Level"
-                showLabels={true}
-                popupFields={[
-                  { key: "exposed_population", label: "Population Exposed" },
-                  {
-                    key: "not_exposed_population",
-                    label: "Population Not Exposed",
-                  },
-                  { key: "low_risk_population", label: "Low Risk Population" },
-                  {
-                    key: "medium_risk_population",
-                    label: "Medium Risk Population",
-                  },
-                  {
-                    key: "high_risk_population",
-                    label: "High Risk Population",
-                  },
-                  { key: "risk_level", label: "Risk Level" },
-                ]}
+              <FloodRiskRasterPanel
+                geojson={floodRiskZones.data}
+                title="Flood Risk Raster Surface"
+                subtitle="Rasterized directly from database flood risk classes (low, medium, high)."
                 heightClass="h-full w-full"
+                loading={floodRiskZones.loading}
               />
             )}
           </div>
