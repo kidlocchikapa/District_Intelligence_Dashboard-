@@ -3,6 +3,7 @@ const router = express.Router();
 const db = require("../db");
 const auth = require("../middleware/auth");
 const requireRole = require("../middleware/requireRole");
+const { appendDistrictNameCondition } = require("./queryFilters");
 
 function normalizeAdminType(adminType) {
   if (!adminType) return null;
@@ -175,6 +176,71 @@ router.get("/population-by-district", async (req, res) => {
 });
 
 /**
+ * @route   GET /api/v1/dashboard/population-by-admin3
+ * @desc    Get TA/admin3 population totals for the overview bar chart
+ */
+router.get("/population-by-admin3", async (req, res) => {
+  const { district, type = "TA" } = req.query;
+
+  try {
+    const params = [];
+    const conditions = ["a3.geom IS NOT NULL"];
+
+    if (type) {
+      params.push(type);
+      conditions.push(`LOWER(a3.type) = LOWER($${params.length})`);
+    }
+
+    if (district) {
+      const districtConditions = [];
+      appendDistrictNameCondition(
+        districtConditions,
+        params,
+        "d.name",
+        district,
+      );
+      if (districtConditions.length) {
+        conditions.push(districtConditions.join(" AND "));
+      }
+    }
+
+    const whereClause = conditions.length
+      ? `WHERE ${conditions.join(" AND ")}`
+      : "";
+
+    const result = await db.query(
+      `
+        SELECT
+          a3.id AS admin3_id,
+          a3.name AS admin3_name,
+          a3.type AS admin3_type,
+          d.name AS district,
+          COALESCE(a3.population_total, 0) AS population
+        FROM admin3_units a3
+        LEFT JOIN districts d ON d.id = a3.district_id
+        ${whereClause}
+        ORDER BY a3.name
+      `,
+      params,
+    );
+
+    res.json({
+      status: "success",
+      data: result.rows.map((row) => ({
+        admin3_id: Number(row.admin3_id),
+        admin3_name: row.admin3_name,
+        admin3_type: row.admin3_type,
+        district: row.district,
+        population: parseInt(row.population || 0, 10),
+      })),
+    });
+  } catch (err) {
+    console.error(err.message);
+    res.status(500).send("Server error");
+  }
+});
+
+/**
  * @route   GET /api/v1/dashboard/admin-units
  * @desc    Get administrative units as GeoJSON with optional type and district filters
  */
@@ -183,20 +249,41 @@ router.get("/admin-units", async (req, res) => {
   const normalizedAdminType = normalizeAdminType(adminType);
 
   try {
-    const params = [];
-    let districtFilterDistricts = "";
-    let districtFilterAdmin3 = "";
-    if (district) {
-      params.push(district);
-      districtFilterDistricts = ` AND LOWER(d.name) = LOWER($${params.length})`;
-      districtFilterAdmin3 = ` AND LOWER(d.name) = LOWER($${params.length})`;
-    }
-
     const includeDistrict =
       !normalizedAdminType || normalizedAdminType === "District";
     const includeAdmin3 =
       !normalizedAdminType ||
       ["TA", "Village", "Admin3"].includes(normalizedAdminType);
+
+    const params = [];
+    let districtFilterDistricts = "";
+    let districtFilterAdmin3 = "";
+
+    if (includeDistrict) {
+      const districtConditions = [];
+      appendDistrictNameCondition(
+        districtConditions,
+        params,
+        "d.name",
+        district,
+      );
+      districtFilterDistricts = districtConditions.length
+        ? ` AND ${districtConditions.join(" AND ")}`
+        : "";
+    }
+
+    if (includeAdmin3) {
+      const admin3DistrictConditions = [];
+      appendDistrictNameCondition(
+        admin3DistrictConditions,
+        params,
+        "d.name",
+        district,
+      );
+      districtFilterAdmin3 = admin3DistrictConditions.length
+        ? ` AND ${admin3DistrictConditions.join(" AND ")}`
+        : "";
+    }
 
     const districtTypePredicate =
       !normalizedAdminType || normalizedAdminType === "District"
@@ -208,15 +295,10 @@ router.get("/admin-units", async (req, res) => {
         ? `LOWER(a3.type) = LOWER('${normalizedAdminType}')`
         : "TRUE";
 
-    const query = `
-      SELECT jsonb_build_object(
-        'type', 'FeatureCollection',
-        'features', COALESCE(jsonb_agg(feature), '[]'::jsonb)
-      )
-      FROM (
-        ${
-          includeDistrict
-            ? `
+    const subqueries = [];
+
+    if (includeDistrict) {
+      subqueries.push(`
         SELECT jsonb_build_object(
           'type', 'Feature',
           'id', d.id,
@@ -240,15 +322,11 @@ router.get("/admin-units", async (req, res) => {
         WHERE d.geom IS NOT NULL
           AND ${districtTypePredicate}
           ${districtFilterDistricts}
-        `
-            : `SELECT NULL::jsonb AS feature, NULL::text AS sort_type, NULL::text AS sort_name WHERE FALSE`
-        }
+      `);
+    }
 
-        ${includeDistrict && includeAdmin3 ? "UNION ALL" : ""}
-
-        ${
-          includeAdmin3
-            ? `
+    if (includeAdmin3) {
+      subqueries.push(`
         SELECT jsonb_build_object(
           'type', 'Feature',
           'id', a3.id,
@@ -273,9 +351,22 @@ router.get("/admin-units", async (req, res) => {
         WHERE a3.geom IS NOT NULL
           AND ${admin3TypePredicate}
           ${districtFilterAdmin3}
-        `
-            : `SELECT NULL::jsonb AS feature, NULL::text AS sort_type, NULL::text AS sort_name WHERE FALSE`
-        }
+      `);
+    }
+
+    if (!subqueries.length) {
+      subqueries.push(
+        "SELECT NULL::jsonb AS feature, NULL::text AS sort_type, NULL::text AS sort_name WHERE FALSE",
+      );
+    }
+
+    const query = `
+      SELECT jsonb_build_object(
+        'type', 'FeatureCollection',
+        'features', COALESCE(jsonb_agg(feature), '[]'::jsonb)
+      )
+      FROM (
+        ${subqueries.join("\nUNION ALL\n")}
       ) rowconf
       WHERE rowconf.feature IS NOT NULL;
     `;
