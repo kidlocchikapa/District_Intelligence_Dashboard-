@@ -7,7 +7,7 @@ import {
   UserRoundCheck,
   UserRoundX,
 } from "lucide-react";
-import { useState, useEffect } from "react";
+import { useMemo, useState } from "react";
 import DataTable from "../components/DataTable";
 import { useDashboardData } from "../hooks/useDashboardData";
 import { useDistrict } from "../context/DistrictContext";
@@ -87,6 +87,22 @@ function formatAdminUnitAxisLabel(value) {
   return `${value.slice(0, 14)}…`;
 }
 
+const PRESSURE_FILTER_CATEGORIES = [
+  "Infrastructure Gap",
+  "Overcrowding Risk",
+  "Underutilized Schools",
+  "Balanced Capacity",
+  "Unmapped",
+];
+
+function getPressureCategoryColor(value) {
+  if (value === "Unmapped") {
+    return "#94a3b8";
+  }
+
+  return getInsightColor(value);
+}
+
 function EducationScatterTooltip({ active, payload }) {
   if (!active || !payload?.length) {
     return null;
@@ -138,7 +154,9 @@ function EducationCategoryPieTooltip({ active, payload }) {
 
 function EducationPage() {
   const { selectedDistrict, setSelectedDistrict } = useDistrict();
-  const [filteredSchools, setFilteredSchools] = useState([]);
+  const [selectedPressureCategories, setSelectedPressureCategories] = useState(
+    PRESSURE_FILTER_CATEGORIES,
+  );
   const { contentRef, exportPdf } = usePdfExport("Education_Report.pdf");
   const districts = useDistrictOptions();
 
@@ -180,6 +198,95 @@ function EducationPage() {
   const highlightedRows = selectedDistrict
     ? chartRows.filter((row) => row.isSelected)
     : [];
+
+  const pressureByTaId = useMemo(() => {
+    const lookup = new Map();
+    const sourceRows = allInsightRows.length ? allInsightRows : insightRows;
+
+    sourceRows.forEach((row) => {
+      if (row.admin_unit_id === undefined || row.admin_unit_id === null) {
+        return;
+      }
+
+      lookup.set(
+        String(row.admin_unit_id),
+        row.insight_label || "Balanced Capacity",
+      );
+    });
+
+    return lookup;
+  }, [allInsightRows, insightRows]);
+
+  const schoolFeaturesWithPressure = useMemo(() => {
+    const features = schoolLocations.data?.features || [];
+
+    return features.map((feature) => {
+      const taId =
+        feature?.properties?.ta_id !== undefined &&
+        feature?.properties?.ta_id !== null
+          ? feature.properties.ta_id
+          : feature?.properties?.ward_id;
+
+      const pressureCategory =
+        taId !== undefined && taId !== null && pressureByTaId.has(String(taId))
+          ? pressureByTaId.get(String(taId))
+          : "Unmapped";
+
+      return {
+        ...feature,
+        properties: {
+          ...feature.properties,
+          pressure_category: pressureCategory,
+        },
+      };
+    });
+  }, [schoolLocations.data, pressureByTaId]);
+
+  const pressureCategoryCounts = useMemo(() => {
+    const counts = PRESSURE_FILTER_CATEGORIES.reduce(
+      (accumulator, category) => {
+        accumulator[category] = 0;
+        return accumulator;
+      },
+      {},
+    );
+
+    schoolFeaturesWithPressure.forEach((feature) => {
+      const category = feature?.properties?.pressure_category || "Unmapped";
+      counts[category] = (counts[category] || 0) + 1;
+    });
+
+    return counts;
+  }, [schoolFeaturesWithPressure]);
+
+  const filteredSchoolFeatures = useMemo(() => {
+    const selectedCategories = new Set(selectedPressureCategories);
+
+    return schoolFeaturesWithPressure.filter((feature) =>
+      selectedCategories.has(
+        feature?.properties?.pressure_category || "Unmapped",
+      ),
+    );
+  }, [schoolFeaturesWithPressure, selectedPressureCategories]);
+
+  const schoolLocationsForMap = useMemo(() => {
+    if (!schoolLocations.data) {
+      return schoolLocations.data;
+    }
+
+    return {
+      ...schoolLocations.data,
+      features: filteredSchoolFeatures,
+    };
+  }, [schoolLocations.data, filteredSchoolFeatures]);
+
+  const togglePressureCategory = (category) => {
+    setSelectedPressureCategories((current) =>
+      current.includes(category)
+        ? current.filter((item) => item !== category)
+        : [...current, category],
+    );
+  };
   const rankedSignals = [...chartRows]
     .sort((left, right) => {
       if (left.insight_label !== right.insight_label) {
@@ -667,9 +774,51 @@ function EducationPage() {
 
         <div className="grid grid-cols-1 xl:grid-cols-2 gap-8">
           <div className="border border-gray-100 rounded p-8 shadow-sm bg-white h-[600px] flex flex-col">
-            <h3 className="text-[16px] font-extrabold mb-6">
+            <h3 className="text-[16px] font-extrabold">
               School Infrastructure Mapping
             </h3>
+            <p className="mt-2 text-sm text-gray-500 font-semibold">
+              Filter schools by TA pressure category
+            </p>
+
+            <div className="mt-4 mb-5 flex flex-wrap gap-2">
+              {PRESSURE_FILTER_CATEGORIES.map((category) => {
+                const isSelected =
+                  selectedPressureCategories.includes(category);
+                return (
+                  <label
+                    key={`pressure-filter-${category}`}
+                    className={`inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-bold transition-all cursor-pointer ${
+                      isSelected
+                        ? "border-gray-900 bg-gray-900 text-white"
+                        : "border-gray-200 bg-white text-gray-600"
+                    }`}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={isSelected}
+                      onChange={() => togglePressureCategory(category)}
+                      className="sr-only"
+                    />
+                    <span
+                      className="h-2.5 w-2.5 rounded-full"
+                      style={{
+                        backgroundColor: getPressureCategoryColor(category),
+                      }}
+                    />
+                    <span>{category}</span>
+                    <span
+                      className={`rounded-full px-1.5 py-0.5 text-[10px] ${
+                        isSelected ? "bg-white/20" : "bg-gray-100 text-gray-500"
+                      }`}
+                    >
+                      {pressureCategoryCounts[category] || 0}
+                    </span>
+                  </label>
+                );
+              })}
+            </div>
+
             <div className="flex-1 rounded overflow-hidden relative border border-gray-50 bg-gray-50">
               {schoolLocations.loading ? (
                 <div className="absolute inset-0 flex items-center justify-center animate-pulse">
@@ -679,16 +828,23 @@ function EducationPage() {
                 </div>
               ) : (
                 <MapPanel
-                  geojson={schoolLocations.data}
+                  geojson={schoolLocationsForMap}
                   pointColor="#2563eb"
+                  pointColorResolver={(feature) =>
+                    getPressureCategoryColor(
+                      feature?.properties?.pressure_category,
+                    )
+                  }
                   popupFields={[
                     { key: "student_enrollment", label: "Enrollment" },
                     { key: "teacher_distribution", label: "Teachers" },
                     { key: "operator_type", label: "Operator" },
+                    { key: "pressure_category", label: "Pressure Category" },
                   ]}
                   tooltipFields={[
                     { key: "student_enrollment", label: "Enrollment" },
                     { key: "teacher_distribution", label: "Teachers" },
+                    { key: "pressure_category", label: "Pressure" },
                   ]}
                   showLegend={false}
                   showLabels={false}

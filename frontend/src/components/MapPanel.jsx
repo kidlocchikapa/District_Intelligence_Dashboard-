@@ -35,17 +35,39 @@ function normalizeRiskCategory(value) {
 
 function MapFitter({ bounds }) {
   const map = useMap();
+
+  const hasValidBounds =
+    Number.isFinite(bounds?.minLat) &&
+    Number.isFinite(bounds?.minLon) &&
+    Number.isFinite(bounds?.maxLat) &&
+    Number.isFinite(bounds?.maxLon);
+
   useEffect(() => {
-    if (bounds && bounds.minY && bounds.minX) {
-      map.fitBounds(
-        [
-          [bounds.minY, bounds.minX],
-          [bounds.maxY, bounds.maxX],
-        ],
-        { padding: [20, 20], maxZoom: 14 },
-      );
+    if (!hasValidBounds) {
+      return;
     }
-  }, [bounds, map]);
+
+    const targetBounds = [
+      [bounds.minLat, bounds.minLon],
+      [bounds.maxLat, bounds.maxLon],
+    ];
+
+    // Keep Leaflet aware of panel size changes before fitting queried extents.
+    map.invalidateSize();
+    map.fitBounds(targetBounds, {
+      padding: [16, 16],
+      maxZoom: 15,
+      animate: true,
+      duration: 0.45,
+    });
+  }, [
+    hasValidBounds,
+    bounds?.minLat,
+    bounds?.minLon,
+    bounds?.maxLat,
+    bounds?.maxLon,
+    map,
+  ]);
   return null;
 }
 
@@ -60,6 +82,7 @@ function MapPanel({
   popupFields = [],
   tooltipFields = [],
   pointColor = "#c56a3d",
+  pointColorResolver,
   palette = "default",
   showLegend = false,
   legendTitle,
@@ -264,14 +287,20 @@ function MapPanel({
             style={styleFeature}
             pointToLayer={
               hasPointFeatures
-                ? (feature, latlng) =>
-                    L.circleMarker(latlng, {
+                ? (feature, latlng) => {
+                    const resolvedPointColor =
+                      typeof pointColorResolver === "function"
+                        ? pointColorResolver(feature)
+                        : pointColor;
+
+                    return L.circleMarker(latlng, {
                       radius: 6,
                       color: "#fff7ef",
                       weight: 1.5,
-                      fillColor: pointColor,
+                      fillColor: resolvedPointColor || pointColor,
                       fillOpacity: 0.95,
-                    })
+                    });
+                  }
                 : undefined
             }
             onEachFeature={onEachFeatureInteraction}
