@@ -75,16 +75,16 @@ function getInsightColor(value) {
   return '#16a34a';
 }
 
-function formatDistrictAxisLabel(value) {
+function formatAdminUnitAxisLabel(value) {
   if (!value) {
     return '';
   }
 
-  if (value.length <= 10) {
+  if (value.length <= 14) {
     return value;
   }
 
-  return `${value.slice(0, 10)}…`;
+  return `${value.slice(0, 14)}…`;
 }
 
 function EducationScatterTooltip({ active, payload }) {
@@ -96,7 +96,8 @@ function EducationScatterTooltip({ active, payload }) {
 
   return (
     <div className="rounded border border-gray-200 bg-white px-4 py-3 shadow-lg">
-      <div className="text-sm font-extrabold text-black">{row.district}</div>
+      <div className="text-sm font-extrabold text-black">{row.admin_unit_name}</div>
+      <div className="text-xs text-gray-500">{row.district}</div>
       <div className="mt-2 text-xs text-gray-600">Insight: {row.insight_label}</div>
       <div className="text-xs text-gray-600">Schools / 10k: {formatNumber(row.schools_per_10k, 2)}</div>
       <div className="text-xs text-gray-600">Students / School: {formatNumber(row.students_per_school, 0)}</div>
@@ -115,7 +116,7 @@ function EducationCategoryPieTooltip({ active, payload }) {
   return (
     <div className="rounded border border-gray-200 bg-white px-4 py-3 shadow-lg">
       <div className="text-sm font-extrabold text-black">{row.name}</div>
-      <div className="mt-2 text-xs text-gray-600">Districts: {formatNumber(row.value, 0)}</div>
+      <div className="mt-2 text-xs text-gray-600">TAs: {formatNumber(row.value, 0)}</div>
       <div className="text-xs text-gray-600">Share: {formatNumber(row.share, 1)}%</div>
     </div>
   );
@@ -217,6 +218,7 @@ function EducationPage() {
       color: getInsightColor(item.name),
     }));
   const insightColumns = [
+    { key: 'admin_unit_name', label: 'TA' },
     { key: 'district', label: 'District' },
     {
       key: 'classification_label',
@@ -353,6 +355,10 @@ function EducationPage() {
           {selectedInsight ? (
             <p className="text-sm leading-7 text-gray-600">
               <span className="font-extrabold text-black">
+                {selectedInsight.admin_unit_name}
+              </span>{' '}
+              in{' '}
+              <span className="font-bold text-black">
                 {selectedInsight.district}
               </span>{' '}
               is currently classified as{' '}
@@ -375,11 +381,10 @@ function EducationPage() {
             </p>
           ) : (
             <p className="text-sm leading-7 text-gray-600">
-              Districts are benchmarked using schools per 10,000 residents,
+              TAs are benchmarked using schools per 10,000 residents,
               schools per school-age child, and students per school. The chart
-              below shows where each district sits in the national pressure
-              landscape so infrastructure gaps and overcrowding risks stand out
-              immediately.
+              below shows where each TA sits in the pressure landscape so
+              infrastructure gaps and overcrowding risks stand out immediately.
             </p>
           )}
         </div>
@@ -396,9 +401,9 @@ function EducationPage() {
                 <div className="border border-gray-100 rounded p-8 shadow-sm bg-white">
                   <div className="mb-6 flex items-start justify-between gap-4">
                     <div>
-                      <h3 className="text-[16px] font-extrabold">District Pressure Chart</h3>
+                      <h3 className="text-[16px] font-extrabold">TA Pressure Chart</h3>
                       <p className="mt-2 text-sm leading-6 text-gray-500">
-                        Left means fewer schools per 10,000 people. Higher means more students packed into each school. Bigger circles indicate larger school-age populations.
+                        Left means fewer schools per 10,000 people. Higher means more students packed into each school. Bigger circles indicate larger school-age populations for each TA.
                       </p>
                     </div>
                     <div className="flex flex-wrap gap-2 text-xs font-bold">
@@ -459,7 +464,7 @@ function EducationPage() {
                         <Scatter data={chartRows}>
                           {chartRows.map((row) => (
                             <Cell
-                              key={`education-scatter-${row.district}`}
+                              key={`education-scatter-${row.admin_unit_id}`}
                               fill={row.fill}
                               stroke={row.isSelected ? '#111827' : '#ffffff'}
                               strokeWidth={row.isSelected ? 2.5 : 1}
@@ -485,7 +490,7 @@ function EducationPage() {
                   <div>
                     <h3 className="text-[16px] font-extrabold">Pressure Mix</h3>
                     <p className="mt-2 text-sm leading-6 text-gray-500">
-                      A quick distribution of how districts are currently classified across the four pressure categories.
+                      A quick distribution of how TAs are currently classified across the four pressure categories.
                     </p>
                   </div>
                 </div>
@@ -535,7 +540,7 @@ function EducationPage() {
                         </span>
                       </div>
                       <div className="mt-2 text-xs font-semibold text-gray-500">
-                        {formatStat(row.share, 1)}% of districts
+                        {formatStat(row.share, 1)}% of TAs
                       </div>
                     </div>
                   ))}
@@ -546,19 +551,22 @@ function EducationPage() {
               <div className="border border-gray-100 rounded p-8 shadow-sm bg-white">
                 <h3 className="text-[16px] font-extrabold">Signal Board</h3>
                 <p className="mt-2 text-sm leading-6 text-gray-500">
-                  The strongest flagged districts from the current national benchmark.
+                  The strongest flagged TAs from the current benchmark.
                 </p>
 
                 <div className="mt-6 space-y-3">
                   {rankedSignals.map((row) => (
                     <div
-                      key={`signal-${row.district}`}
+                      key={`signal-${row.admin_unit_id}`}
                       className={`rounded border px-4 py-4 ${row.isSelected ? 'border-black bg-gray-50' : 'border-gray-100 bg-white'}`}
                     >
                       <div className="flex items-start justify-between gap-3">
                         <div>
                           <div className="text-sm font-extrabold text-black">
-                            {formatDistrictAxisLabel(row.district)}
+                            {formatAdminUnitAxisLabel(row.admin_unit_name)}
+                          </div>
+                          <div className="mt-1 text-xs font-semibold text-gray-500">
+                            {row.district}
                           </div>
                           <div className="mt-2">
                             <span
@@ -643,12 +651,12 @@ function EducationPage() {
             <DataTable
               title={
                 selectedDistrict
-                  ? `${selectedDistrict} education insight`
-                  : 'District education insights'
+                  ? `${selectedDistrict} TA education insights`
+                  : 'TA education insights'
               }
               subtitle={
                 selectedDistrict
-                  ? 'Showing the current district classification against national benchmarks.'
+                  ? 'Showing current TA classifications inside the selected district against the same benchmark.'
                   : `Underserved: ${visibleInsightSummary.underserved_count || 0}, Overcrowded: ${visibleInsightSummary.overcrowded_count || 0}, Underutilized: ${visibleInsightSummary.underutilized_count || 0}.`
               }
               rows={insightRows}

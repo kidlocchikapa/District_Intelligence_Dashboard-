@@ -1,11 +1,15 @@
 const DISTRICT_GROUPS = {
   zomba: ["Zomba", "Zomba City", "Zomba (All)"],
+  "zomba city": ["Zomba", "Zomba City", "Zomba (All)"],
+  "zomba (all)": ["Zomba", "Zomba City", "Zomba (All)"],
 };
 
-const DEFAULT_DISTRICT_FILTER = "zomba";
-
 function resolveDistrictFilterValues(district) {
-  const normalized = String(district || DEFAULT_DISTRICT_FILTER).trim();
+  const normalized = String(district || "").trim();
+  if (!normalized) {
+    return [];
+  }
+
   const groupKey = normalized.toLowerCase();
   if (DISTRICT_GROUPS[groupKey]) {
     return DISTRICT_GROUPS[groupKey];
@@ -87,4 +91,5 @@ function appendDistrictGeometryCondition(
 module.exports = {
   appendDistrictGeometryCondition,
   appendDistrictNameCondition,
+  resolveDistrictFilterValues,
 };
