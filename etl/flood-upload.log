@@ -1,0 +1,13 @@
+[2026-04-20 23:25:08] [INFO] [etl_pipeline] [open_db_session] started
+[2026-04-20 23:25:08] [INFO] [etl_pipeline] [open_db_session] completed
+[2026-04-20 23:25:08] [INFO] [etl_pipeline] [parse_flood_analysis_date] started
+[2026-04-20 23:25:08] [INFO] [etl_pipeline] [parse_flood_analysis_date] completed
+[2026-04-20 23:25:08] [INFO] [etl_pipeline] [dispatch_flood_pipeline] started
+/home/solm/PROJECTS/District_Intelligence_Dashboard-/etl/main.py:1024: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+  started_at=datetime.utcnow(),
+/home/solm/PROJECTS/District_Intelligence_Dashboard-/etl/main.py:1025: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+  completed_at=datetime.utcnow(),
+[2026-04-20 23:25:13] [ERROR] [etl_pipeline] Pipeline failed at step 'validate_flood_raster_path'. Flood raster file not found: flood_zones.tiff. Check the file path and rerun. Original error: None
+[2026-04-20 23:25:13] [INFO] [etl_pipeline] [close_db_session] started
+[2026-04-20 23:25:13] [INFO] [etl_pipeline] [close_db_session] completed
+ETL failed: Flood raster file not found: flood_zones.tiff. Check the file path and rerun.
