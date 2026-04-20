@@ -52,6 +52,18 @@ function formatDistrictAxisLabel(value) {
   return `${value.slice(0, 8)}…`;
 }
 
+function formatTaAxisLabel(value) {
+  if (!value) {
+    return "";
+  }
+
+  if (value.length <= 16) {
+    return value;
+  }
+
+  return `${value.slice(0, 16)}…`;
+}
+
 function OverviewPage() {
   const { selectedDistrict, setSelectedDistrict } = useDistrict();
   const districts = useDistrictOptions();
@@ -65,8 +77,9 @@ function OverviewPage() {
     }),
   );
   const populationDistribution = useDashboardData(
-    buildDashboardPath("/dashboard/population-by-district", {
+    buildDashboardPath("/dashboard/population-by-admin3", {
       district: selectedDistrict,
+      type: "TA",
     }),
   );
   const floodSummary = useDashboardData(
@@ -76,13 +89,17 @@ function OverviewPage() {
     }),
   );
 
-  const chartData = populationDistribution.data || [];
+  const chartData = (populationDistribution.data || []).map((item) => ({
+    admin3: item.admin3_name,
+    district: item.district,
+    population: item.population,
+  }));
   const exposedPopulation = Math.max(
-    Number(floodSummary.data?.exposed_population || 0),
+    Math.round(Number(floodSummary.data?.exposed_population || 0)),
     0,
   );
   const notExposedPopulation = Math.max(
-    Number(floodSummary.data?.not_exposed_population || 0),
+    Math.round(Number(floodSummary.data?.not_exposed_population || 0)),
     0,
   );
   const pieData = [
@@ -98,7 +115,7 @@ function OverviewPage() {
 
   const formatStat = (val) => {
     if (!val) return "0";
-    return Number(val).toLocaleString();
+    return Number(val).toLocaleString(undefined, { maximumFractionDigits: 0 });
   };
 
   const StatCardSkeleton = () => (
@@ -239,8 +256,11 @@ function OverviewPage() {
 
           <div className="border border-gray-100 rounded p-8 shadow-sm bg-white flex flex-col min-h-[460px]">
             <h3 className="text-[16px] font-extrabold mb-6">
-              Population by district
+              Population by TA (Admin3)
             </h3>
+            <p className="text-xs text-gray-500 font-semibold mb-3">
+              Showing TA-level population totals
+            </p>
             <div className="flex-1">
               {populationDistribution.loading ? (
                 <ChartSkeleton />
@@ -256,11 +276,11 @@ function OverviewPage() {
                       stroke="#f1f5f9"
                     />
                     <XAxis
-                      dataKey="district"
+                      dataKey="admin3"
                       axisLine={false}
                       tickLine={false}
                       tick={{ fill: "#64748b", fontSize: 9, fontWeight: 700 }}
-                      tickFormatter={formatDistrictAxisLabel}
+                      tickFormatter={formatTaAxisLabel}
                       angle={-90}
                       textAnchor="end"
                       interval={0}
@@ -278,7 +298,13 @@ function OverviewPage() {
                     />
                     <Tooltip
                       formatter={(value) => Number(value).toLocaleString()}
-                      labelFormatter={(label) => label}
+                      labelFormatter={(label, payload) => {
+                        const entry = payload?.[0]?.payload;
+                        if (entry?.district) {
+                          return `${label} (${entry.district})`;
+                        }
+                        return label;
+                      }}
                       contentStyle={{
                         borderRadius: "4px",
                         border: "none",
@@ -295,7 +321,7 @@ function OverviewPage() {
                     >
                       {chartData.map((entry) => (
                         <Cell
-                          key={`population-bar-${entry.district}`}
+                          key={`population-bar-${entry.admin3}`}
                           fill={getPopulationBarColor(
                             Number(entry.population),
                             maxPopulation,
