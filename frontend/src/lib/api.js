@@ -1,7 +1,23 @@
 import axios from "axios";
 
+function normalizeApiBaseUrl(rawBaseUrl) {
+  const value = String(rawBaseUrl || "").trim();
+
+  if (!value) {
+    return "/api/v1";
+  }
+
+  // Keep fully-qualified URLs untouched.
+  if (/^https?:\/\//i.test(value)) {
+    return value;
+  }
+
+  // Ensure local/proxied base paths are absolute.
+  return value.startsWith("/") ? value : `/${value}`;
+}
+
 const api = axios.create({
-  baseURL: import.meta.env.VITE_API_BASE_URL || "/api/v1",
+  baseURL: normalizeApiBaseUrl(import.meta.env.VITE_API_BASE_URL),
 });
 
 const AUTH_EVENT_NAME = "district-auth-changed";

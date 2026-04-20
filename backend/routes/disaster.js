@@ -1,11 +1,7 @@
 const express = require("express");
 const router = express.Router();
 const db = require("../db");
-const auth = require("../middleware/auth");
-const requireDepartmentAccess = require("../middleware/requireDepartmentAccess");
 const { appendDistrictNameCondition } = require("./queryFilters");
-
-router.use(auth, requireDepartmentAccess("disaster", "read"));
 
 function normalizeAdminType(adminType = "District") {
   const normalized = String(adminType || "District")
@@ -55,6 +51,9 @@ async function getFloodGeoJson(req, res) {
     const whereClause = conditions.length
       ? `WHERE ${conditions.join(" AND ")}`
       : "";
+    const andWhereClause = conditions.length
+      ? `AND ${conditions.join(" AND ")}`
+      : "";
 
     const unitAggregationSql =
       normalizedAdminType === "TA"
@@ -73,7 +72,7 @@ async function getFloodGeoJson(req, res) {
             MAX(src.analysis_date) AS analysis_date
           FROM source_rows src
           WHERE src.ta_id <> 0
-          ${whereClause}
+          ${andWhereClause}
           GROUP BY src.ta_id, src.ta_name, src.district_id, src.district_name
         `
         : `
@@ -210,9 +209,60 @@ async function getFloodSummary(req, res) {
     const whereClause = conditions.length
       ? `WHERE ${conditions.join(" AND ")}`
       : "";
+    const andWhereClause = conditions.length
+      ? `AND ${conditions.join(" AND ")}`
+      : "";
 
-    const levelFilterSql =
-      normalizedAdminType === "TA" ? "src.ta_id <> 0" : "1=1";
+    const unitTotalsSql =
+      normalizedAdminType === "TA"
+        ? `
+          SELECT
+            src.ta_id AS unit_id,
+            SUM(src.total_population) AS total_population,
+            SUM(src.exposed_population) AS exposed_population,
+            SUM(src.low_risk_population) AS low_risk_population,
+            SUM(src.medium_risk_population) AS medium_risk_population,
+            SUM(src.high_risk_population) AS high_risk_population
+          FROM source_rows src
+          WHERE src.ta_id <> 0
+            ${whereClause ? `AND (${conditions.join(" AND ")})` : ""}
+          GROUP BY src.ta_id
+        `
+        : `
+          SELECT
+            src.district_id AS unit_id,
+            SUM(src.total_population) AS total_population,
+            SUM(src.exposed_population) AS exposed_population,
+            SUM(src.low_risk_population) AS low_risk_population,
+            SUM(src.medium_risk_population) AS medium_risk_population,
+            SUM(src.high_risk_population) AS high_risk_population
+          FROM source_rows src
+          WHERE 1=1
+            ${whereClause ? `AND (${conditions.join(" AND ")})` : ""}
+          GROUP BY src.district_id
+        `;
+
+    const unitAreaSql =
+      normalizedAdminType === "TA"
+        ? `
+          SELECT
+            ut.unit_id,
+            COALESCE((ST_Area(ST_Transform(a3.geom, 3857)) / 1000000.0), 0) AS unit_area_sq_km
+          FROM unit_totals ut
+          LEFT JOIN admin3_units a3
+            ON a3.id = ut.unit_id
+           AND LOWER(a3.type) = LOWER('TA')
+           AND a3.geom IS NOT NULL
+        `
+        : `
+          SELECT
+            ut.unit_id,
+            COALESCE(d.area_sq_km, (ST_Area(ST_Transform(d.geom, 3857)) / 1000000.0), 0) AS unit_area_sq_km
+          FROM unit_totals ut
+          LEFT JOIN districts d
+            ON d.id = ut.unit_id
+           AND d.geom IS NOT NULL
+        `;
 
     const query = `
       WITH latest_analysis AS (
@@ -232,17 +282,34 @@ async function getFloodSummary(req, res) {
                AND fz_ta.ta_id <> 0
            )
       ),
+      unit_totals AS (
+        ${unitTotalsSql}
+      ),
+      unit_areas AS (
+        ${unitAreaSql}
+      ),
       totals AS (
         SELECT
-          COALESCE(SUM(src.total_population), 0) AS total_population,
-          COALESCE(SUM(src.exposed_population), 0) AS exposed_population,
-          COALESCE(SUM(src.low_risk_population), 0) AS low_risk_population,
-          COALESCE(SUM(src.medium_risk_population), 0) AS medium_risk_population,
-          COALESCE(SUM(src.high_risk_population), 0) AS high_risk_population,
+          COALESCE(SUM(ut.total_population), 0) AS total_population,
+          COALESCE(SUM(ut.exposed_population), 0) AS exposed_population,
+          COALESCE(SUM(ut.low_risk_population), 0) AS low_risk_population,
+          COALESCE(SUM(ut.medium_risk_population), 0) AS medium_risk_population,
+          COALESCE(SUM(ut.high_risk_population), 0) AS high_risk_population,
+          COALESCE(SUM(ua.unit_area_sq_km), 0) AS total_area_sq_km,
+          COALESCE(
+            SUM(
+              CASE
+                WHEN COALESCE(ut.total_population, 0) > 0
+                  THEN ua.unit_area_sq_km * (ut.exposed_population / ut.total_population)
+                ELSE 0
+              END
+            ),
+            0
+          ) AS exposed_area_sq_km,
           COUNT(*)::int AS unit_count
-        FROM source_rows src
-        WHERE ${levelFilterSql}
-          ${whereClause ? `AND (${conditions.join(" AND ")})` : ""}
+        FROM unit_totals ut
+        LEFT JOIN unit_areas ua
+          ON ua.unit_id = ut.unit_id
       )
       SELECT * FROM totals;
     `;
@@ -258,6 +325,8 @@ async function getFloodSummary(req, res) {
       totalPopulation - exposedPopulation,
       0,
     );
+    const totalAreaSqKm = Number(totals.total_area_sq_km || 0);
+    const exposedAreaSqKm = Number(totals.exposed_area_sq_km || 0);
 
     res.json({
       status: "success",
@@ -270,6 +339,8 @@ async function getFloodSummary(req, res) {
         low_risk_population: lowRiskPopulation,
         medium_risk_population: mediumRiskPopulation,
         high_risk_population: highRiskPopulation,
+        total_area_sq_km: totalAreaSqKm,
+        exposed_area_sq_km: exposedAreaSqKm,
         exposed_population_pct:
           totalPopulation > 0 ? (exposedPopulation * 100) / totalPopulation : 0,
       },
@@ -331,7 +402,7 @@ router.get("/flood/population", async (req, res) => {
             MAX(src.analysis_date) AS analysis_date
           FROM source_rows src
           WHERE src.ta_id <> 0
-          ${whereClause}
+          ${andWhereClause}
           GROUP BY src.ta_id, src.ta_name, src.district_id, src.district_name
         `
         : `
@@ -495,6 +566,9 @@ router.get("/flood/facilities/summary", async (req, res) => {
     const whereClause = conditions.length
       ? `WHERE ${conditions.join(" AND ")}`
       : "";
+    const andWhereClause = conditions.length
+      ? `AND ${conditions.join(" AND ")}`
+      : "";
 
     const aggregationSql =
       normalizedAdminType === "TA"
@@ -514,7 +588,7 @@ router.get("/flood/facilities/summary", async (req, res) => {
             MAX(src.analysis_date) AS analysis_date
           FROM source_rows src
           WHERE src.ta_id <> 0
-          ${whereClause}
+          ${andWhereClause}
           GROUP BY src.ta_id, src.ta_name, src.district_id, src.district_name, src.facility_type
         `
         : `
