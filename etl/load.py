@@ -564,6 +564,9 @@ def load_worldpop_age_sex(session, age_sex_df):
         engine = session.bind
         working = age_sex_df.copy()
         working['metadata'] = working['metadata'].apply(_sanitize_json_value)
+        for column in ['start_time', 'end_time']:
+            if column in working.columns:
+                working[column] = pd.to_datetime(working[column], errors='coerce')
 
         years = [int(year) for year in working['worldpop_year'].dropna().unique().tolist()]
 
@@ -596,15 +599,38 @@ def load_worldpop_age_sex(session, age_sex_df):
                 session.commit()
 
         log_step('load_worldpop_age_sex', f'rows={len(working)}, years={years}')
-        working.to_sql(
-            'worldpop_age_sex',
-            engine,
-            if_exists='append',
-            index=False,
-            dtype={'metadata': JSONB},
+
+        rows_loaded = 0
+        grouped_records = working.groupby(
+            ['admin_unit_type', 'admin_unit_id'],
+            dropna=False,
+            sort=False,
         )
-        return len(working)
+        for (admin_unit_type, admin_unit_id), group in grouped_records:
+            try:
+                group.to_sql(
+                    'worldpop_age_sex',
+                    engine,
+                    if_exists='append',
+                    index=False,
+                    chunksize=100,
+                    method='multi',
+                    dtype={'metadata': JSONB},
+                )
+                rows_loaded += len(group)
+            except Exception:
+                session.rollback()
+                raise LoadError(
+                    user_message=(
+                        'Could not save WorldPop age/sex records to the database '
+                        f'for admin_unit_type={admin_unit_type}, admin_unit_id={admin_unit_id}.'
+                    ),
+                    step_name='load_worldpop_age_sex',
+                )
+
+        return rows_loaded
     except Exception as exc:
+        session.rollback()
         raise LoadError(
             user_message='Could not save WorldPop age/sex records to the database.',
             step_name='load_worldpop_age_sex',
@@ -821,8 +847,17 @@ def load_boundaries_normalized(session, gdf):
                     valid_on = EXCLUDED.valid_on,
                     boundary_version = EXCLUDED.boundary_version,
                     reference_name = EXCLUDED.reference_name,
-                    population_total = EXCLUDED.population_total,
-                    population_density = EXCLUDED.population_density,
+                    -- Keep WorldPop-derived population metrics unless the current row is still empty.
+                    population_total = CASE
+                        WHEN COALESCE(districts.population_total, 0) <> 0
+                            THEN districts.population_total
+                        ELSE EXCLUDED.population_total
+                    END,
+                    population_density = CASE
+                        WHEN COALESCE(districts.population_density, 0) <> 0
+                            THEN districts.population_density
+                        ELSE EXCLUDED.population_density
+                    END,
                     area_sq_km = EXCLUDED.area_sq_km,
                     metadata = EXCLUDED.metadata,
                     geom = EXCLUDED.geom,
