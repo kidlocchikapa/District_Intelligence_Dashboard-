@@ -1,14 +1,11 @@
 const express = require("express");
 const router = express.Router();
 const db = require("../db");
-const auth = require("../middleware/auth");
-const requireDepartmentAccess = require("../middleware/requireDepartmentAccess");
 const {
   appendDistrictGeometryCondition,
   appendDistrictNameCondition,
+  resolveDistrictFilterValues,
 } = require("./queryFilters");
-
-router.use(auth, requireDepartmentAccess("education", "read"));
 
 function parseNumericValue(value) {
   if (value === null || value === undefined) {
@@ -261,12 +258,28 @@ router.get("/summary", async (req, res) => {
       `
         SELECT COALESCE(
           SUM(
-            CASE
-              WHEN age_class = '5' THEN total_population
-              WHEN age_class = '10' THEN total_population
-              WHEN age_class = '15' THEN total_population * 0.6
-              ELSE 0
-            END
+            COALESCE(
+              total_population,
+              0
+            )
+            * GREATEST(
+                LEAST(
+                  COALESCE(
+                    NULLIF(REGEXP_REPLACE(COALESCE(age_class, ''), '[^0-9.]', '', 'g'), '')::numeric,
+                    -9999
+                  ) + 5,
+                  18
+                )
+                - GREATEST(
+                  COALESCE(
+                    NULLIF(REGEXP_REPLACE(COALESCE(age_class, ''), '[^0-9.]', '', 'g'), '')::numeric,
+                    -9999
+                  ),
+                  5
+                ),
+                0
+              )
+            / 5.0
           ),
           0
         ) AS school_age_population_total
@@ -303,56 +316,97 @@ router.get("/insights", async (req, res) => {
   const { district } = req.query;
 
   try {
-    const result = await db.query(`
+    const params = [];
+    const conditions = ["LOWER(a3.type) IN ('ta', 'ward', 'admin3')"];
+    appendDistrictNameCondition(conditions, params, "d.name", district);
+    const whereClause = conditions.length
+      ? `WHERE ${conditions.join(" AND ")}`
+      : "";
+
+    const result = await db.query(
+      `
       WITH school_age AS (
         SELECT
-          LOWER(admin_unit_name) AS district_key,
+          admin_unit_id,
+          SUM(COALESCE(total_population, 0)) AS population_total,
           SUM(
-            CASE
-              WHEN age_class = '5' THEN total_population
-              WHEN age_class = '10' THEN total_population
-              WHEN age_class = '15' THEN total_population * 0.6
-              ELSE 0
-            END
+            COALESCE(
+              total_population,
+              0
+            )
+            * GREATEST(
+                LEAST(
+                  COALESCE(
+                    NULLIF(REGEXP_REPLACE(COALESCE(age_class, ''), '[^0-9.]', '', 'g'), '')::numeric,
+                    -9999
+                  ) + 5,
+                  18
+                )
+                - GREATEST(
+                  COALESCE(
+                    NULLIF(REGEXP_REPLACE(COALESCE(age_class, ''), '[^0-9.]', '', 'g'), '')::numeric,
+                    -9999
+                  ),
+                  5
+                ),
+                0
+              )
+            / 5.0
           ) AS school_age_population_total
         FROM worldpop_age_sex
-        WHERE admin_unit_type = 'District'
+        WHERE admin_unit_type = 'TA'
           AND worldpop_year = (SELECT MAX(worldpop_year) FROM worldpop_age_sex)
-        GROUP BY LOWER(admin_unit_name)
+        GROUP BY admin_unit_id
       )
       SELECT
-        d.id AS admin_unit_id,
-        d.code AS admin_unit_code,
+        a3.id AS admin_unit_id,
+        a3.code AS admin_unit_code,
+        a3.name AS admin_unit_name,
         d.name AS district,
-        COALESCE(d.population_total, 0) AS population_total,
+        COALESCE(NULLIF(a3.population_total, 0), sa.population_total, 0) AS population_total,
         COALESCE(sa.school_age_population_total, 0) AS school_age_population_total,
         COUNT(ef.school_id) AS school_count,
         COALESCE(
           SUM(
-            COALESCE(ef.student_enrollment_total::numeric, 0)
+            COALESCE(
+              NULLIF(TRIM(COALESCE(ef.student_enrollment_total::text, '')), '')::numeric,
+              0
+            )
           ),
           0
         ) AS student_enrollment_total,
         COALESCE(
           SUM(
             COALESCE(
-              ef.teacher_count::numeric,
-              NULLIF(REGEXP_REPLACE(COALESCE(ef.teacher_distribution, ''), '[^0-9.]', '', 'g'), '')::numeric,
+              NULLIF(TRIM(COALESCE(ef.teacher_count::text, '')), '')::numeric,
+              NULLIF(REGEXP_REPLACE(COALESCE(ef.teacher_distribution::text, ''), '[^0-9.]', '', 'g'), '')::numeric,
               0
             )
           ),
           0
         ) AS teacher_count_total
-        FROM districts d
+      FROM admin3_units a3
+      LEFT JOIN districts d
+          ON d.id = a3.district_id
       LEFT JOIN school_age sa
-          ON sa.district_key = LOWER(d.name)
+          ON sa.admin_unit_id = a3.id
       LEFT JOIN education_facilities ef
-          ON d.geom IS NOT NULL
+          ON a3.geom IS NOT NULL
        AND ef.geom IS NOT NULL
-         AND ST_Intersects(ef.geom, d.geom)
-        GROUP BY d.id, d.code, d.name, d.population_total, sa.school_age_population_total
-        ORDER BY d.name
-    `);
+         AND ST_Intersects(ef.geom, a3.geom)
+      ${whereClause}
+      GROUP BY
+        a3.id,
+        a3.code,
+        a3.name,
+        d.name,
+        a3.population_total,
+        sa.population_total,
+        sa.school_age_population_total
+      ORDER BY d.name, a3.name
+    `,
+      params,
+    );
 
     const thresholds = buildEducationThresholds(
       result.rows.map((row) => {
@@ -400,6 +454,7 @@ router.get("/insights", async (req, res) => {
           {
             admin_unit_id: row.admin_unit_id,
             admin_unit_code: row.admin_unit_code,
+            admin_unit_name: row.admin_unit_name,
             district: row.district,
             population_total: populationTotal,
             school_age_population_total: schoolAgePopulationTotal,
@@ -419,7 +474,13 @@ router.get("/insights", async (req, res) => {
           thresholds,
         );
       })
-      .filter((row) => row.population_total > 0)
+      .filter(
+        (row) =>
+          row.population_total > 0 ||
+          row.school_age_population_total > 0 ||
+          row.school_count > 0 ||
+          row.student_enrollment_total > 0,
+      )
       .sort((left, right) => {
         const insightOrder =
           (insightPriority[left.insight] ?? 99) -
@@ -435,9 +496,12 @@ router.get("/insights", async (req, res) => {
         return right.students_per_school - left.students_per_school;
       });
 
-    const visibleDistrictInsights = district
-      ? allDistrictInsights.filter(
-          (row) => row.district.toLowerCase() === district.toLowerCase(),
+    const selectedDistrictValues = resolveDistrictFilterValues(district).map(
+      (value) => value.toLowerCase(),
+    );
+    const visibleDistrictInsights = selectedDistrictValues.length
+      ? allDistrictInsights.filter((row) =>
+          selectedDistrictValues.includes(row.district.toLowerCase()),
         )
       : allDistrictInsights;
 
@@ -453,7 +517,15 @@ router.get("/insights", async (req, res) => {
       },
     });
   } catch (err) {
-    console.error(err.message);
+    console.error("Education insights query error", {
+      message: err.message,
+      code: err.code,
+      detail: err.detail,
+      hint: err.hint,
+      where: err.where,
+      position: err.position,
+      routine: err.routine,
+    });
     res.status(500).send("Server error");
   }
 });

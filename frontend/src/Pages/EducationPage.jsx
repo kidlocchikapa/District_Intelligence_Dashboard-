@@ -6,16 +6,16 @@ import {
   Download,
   UserRoundCheck,
   UserRoundX,
-} from 'lucide-react';
-import { useState, useEffect } from 'react';
-import DataTable from '../components/DataTable';
-import { useDashboardData } from '../hooks/useDashboardData';
-import { useDistrict } from '../context/DistrictContext';
-import { useDistrictOptions } from '../hooks/useDistrictOptions';
-import { usePdfExport } from '../hooks/usePdfExport';
-import { formatNumber } from '../lib/format';
-import { buildDashboardPath } from '../lib/query';
-import MapPanel from '../components/MapPanel';
+} from "lucide-react";
+import { useState, useEffect } from "react";
+import DataTable from "../components/DataTable";
+import { useDashboardData } from "../hooks/useDashboardData";
+import { useDistrict } from "../context/DistrictContext";
+import { useDistrictOptions } from "../hooks/useDistrictOptions";
+import { usePdfExport } from "../hooks/usePdfExport";
+import { formatNumber } from "../lib/format";
+import { buildDashboardPath } from "../lib/query";
+import MapPanel from "../components/MapPanel";
 import {
   Cell,
   CartesianGrid,
@@ -29,55 +29,55 @@ import {
   XAxis,
   YAxis,
   ZAxis,
-} from 'recharts';
+} from "recharts";
 
 function getStatusBadgeClasses(value) {
-  if (value === 'Underserved') {
-    return 'border border-red-200 bg-red-50 text-red-700';
+  if (value === "Underserved") {
+    return "border border-red-200 bg-red-50 text-red-700";
   }
 
-  if (value === 'Overcrowded') {
-    return 'border border-amber-200 bg-amber-50 text-amber-700';
+  if (value === "Overcrowded") {
+    return "border border-amber-200 bg-amber-50 text-amber-700";
   }
 
-  return 'border border-emerald-200 bg-emerald-50 text-emerald-700';
+  return "border border-emerald-200 bg-emerald-50 text-emerald-700";
 }
 
 function getInsightBadgeClasses(value) {
-  if (value === 'Infrastructure Gap') {
-    return 'border border-red-200 bg-red-50 text-red-700';
+  if (value === "Infrastructure Gap") {
+    return "border border-red-200 bg-red-50 text-red-700";
   }
 
-  if (value === 'Overcrowding Risk') {
-    return 'border border-amber-200 bg-amber-50 text-amber-700';
+  if (value === "Overcrowding Risk") {
+    return "border border-amber-200 bg-amber-50 text-amber-700";
   }
 
-  if (value === 'Underutilized Schools') {
-    return 'border border-blue-200 bg-blue-50 text-blue-700';
+  if (value === "Underutilized Schools") {
+    return "border border-blue-200 bg-blue-50 text-blue-700";
   }
 
-  return 'border border-slate-200 bg-slate-50 text-slate-700';
+  return "border border-slate-200 bg-slate-50 text-slate-700";
 }
 
 function getInsightColor(value) {
-  if (value === 'Infrastructure Gap') {
-    return '#dc2626';
+  if (value === "Infrastructure Gap") {
+    return "#dc2626";
   }
 
-  if (value === 'Overcrowding Risk') {
-    return '#d97706';
+  if (value === "Overcrowding Risk") {
+    return "#d97706";
   }
 
-  if (value === 'Underutilized Schools') {
-    return '#2563eb';
+  if (value === "Underutilized Schools") {
+    return "#2563eb";
   }
 
-  return '#16a34a';
+  return "#16a34a";
 }
 
 function formatAdminUnitAxisLabel(value) {
   if (!value) {
-    return '';
+    return "";
   }
 
   if (value.length <= 14) {
@@ -96,12 +96,22 @@ function EducationScatterTooltip({ active, payload }) {
 
   return (
     <div className="rounded border border-gray-200 bg-white px-4 py-3 shadow-lg">
-      <div className="text-sm font-extrabold text-black">{row.admin_unit_name}</div>
+      <div className="text-sm font-extrabold text-black">
+        {row.admin_unit_name}
+      </div>
       <div className="text-xs text-gray-500">{row.district}</div>
-      <div className="mt-2 text-xs text-gray-600">Insight: {row.insight_label}</div>
-      <div className="text-xs text-gray-600">Schools / 10k: {formatNumber(row.schools_per_10k, 2)}</div>
-      <div className="text-xs text-gray-600">Students / School: {formatNumber(row.students_per_school, 0)}</div>
-      <div className="text-xs text-gray-600">Schools / Child: {formatNumber(row.schools_per_children, 4)}</div>
+      <div className="mt-2 text-xs text-gray-600">
+        Insight: {row.insight_label}
+      </div>
+      <div className="text-xs text-gray-600">
+        Schools / 10k: {formatNumber(row.schools_per_10k, 2)}
+      </div>
+      <div className="text-xs text-gray-600">
+        Students / School: {formatNumber(row.students_per_school, 0)}
+      </div>
+      <div className="text-xs text-gray-600">
+        Schools / Child: {formatNumber(row.schools_per_children, 4)}
+      </div>
     </div>
   );
 }
@@ -116,8 +126,12 @@ function EducationCategoryPieTooltip({ active, payload }) {
   return (
     <div className="rounded border border-gray-200 bg-white px-4 py-3 shadow-lg">
       <div className="text-sm font-extrabold text-black">{row.name}</div>
-      <div className="mt-2 text-xs text-gray-600">TAs: {formatNumber(row.value, 0)}</div>
-      <div className="text-xs text-gray-600">Share: {formatNumber(row.share, 1)}%</div>
+      <div className="mt-2 text-xs text-gray-600">
+        TAs: {formatNumber(row.value, 0)}
+      </div>
+      <div className="text-xs text-gray-600">
+        Share: {formatNumber(row.share, 1)}%
+      </div>
     </div>
   );
 }
@@ -125,22 +139,22 @@ function EducationCategoryPieTooltip({ active, payload }) {
 function EducationPage() {
   const { selectedDistrict, setSelectedDistrict } = useDistrict();
   const [filteredSchools, setFilteredSchools] = useState([]);
-  const { contentRef, exportPdf } = usePdfExport('Education_Report.pdf');
+  const { contentRef, exportPdf } = usePdfExport("Education_Report.pdf");
   const districts = useDistrictOptions();
 
   const educationSummary = useDashboardData(
-    buildDashboardPath('/dashboard/education/summary', {
+    buildDashboardPath("/dashboard/education/summary", {
       district: selectedDistrict,
-      admin_type: 'District',
+      admin_type: "District",
     }),
   );
   const schoolLocations = useDashboardData(
-    buildDashboardPath('/dashboard/education', {
+    buildDashboardPath("/dashboard/education", {
       district: selectedDistrict,
     }),
   );
   const districtInsights = useDashboardData(
-    buildDashboardPath('/dashboard/education/insights', {
+    buildDashboardPath("/dashboard/education/insights", {
       district: selectedDistrict,
     }),
   );
@@ -153,14 +167,16 @@ function EducationPage() {
     districtInsights.data?.visible_summary || benchmarkSummary;
   const thresholds = districtInsights.data?.thresholds || {};
   const selectedInsight = selectedDistrict ? insightRows[0] || null : null;
-  const chartRows = (allInsightRows.length ? allInsightRows : insightRows).map((row) => ({
-    ...row,
-    z: Math.max(Number(row.school_age_population_total || 0), 1),
-    fill: getInsightColor(row.insight_label),
-    isSelected: selectedDistrict
-      ? row.district.toLowerCase() === selectedDistrict.toLowerCase()
-      : false,
-  }));
+  const chartRows = (allInsightRows.length ? allInsightRows : insightRows).map(
+    (row) => ({
+      ...row,
+      z: Math.max(Number(row.school_age_population_total || 0), 1),
+      fill: getInsightColor(row.insight_label),
+      isSelected: selectedDistrict
+        ? row.district.toLowerCase() === selectedDistrict.toLowerCase()
+        : false,
+    }),
+  );
   const highlightedRows = selectedDistrict
     ? chartRows.filter((row) => row.isSelected)
     : [];
@@ -170,15 +186,15 @@ function EducationPage() {
         return left.insight_label.localeCompare(right.insight_label);
       }
 
-      if (left.insight_label === 'Infrastructure Gap') {
+      if (left.insight_label === "Infrastructure Gap") {
         return left.schools_per_10k - right.schools_per_10k;
       }
 
-      if (left.insight_label === 'Overcrowding Risk') {
+      if (left.insight_label === "Overcrowding Risk") {
         return right.students_per_school - left.students_per_school;
       }
 
-      if (left.insight_label === 'Underutilized Schools') {
+      if (left.insight_label === "Underutilized Schools") {
         return left.students_per_school - right.students_per_school;
       }
 
@@ -187,19 +203,19 @@ function EducationPage() {
     .slice(0, 6);
   const categoryPieData = [
     {
-      name: 'Infrastructure Gap',
+      name: "Infrastructure Gap",
       value: Number(benchmarkSummary.infrastructure_gap_count || 0),
     },
     {
-      name: 'Overcrowding Risk',
+      name: "Overcrowding Risk",
       value: Number(benchmarkSummary.overcrowding_risk_count || 0),
     },
     {
-      name: 'Underutilized Schools',
+      name: "Underutilized Schools",
       value: Number(benchmarkSummary.underutilized_count || 0),
     },
     {
-      name: 'Balanced Capacity',
+      name: "Balanced Capacity",
       value: Math.max(
         Number(benchmarkSummary.total_districts || 0) -
           Number(benchmarkSummary.infrastructure_gap_count || 0) -
@@ -218,11 +234,11 @@ function EducationPage() {
       color: getInsightColor(item.name),
     }));
   const insightColumns = [
-    { key: 'admin_unit_name', label: 'TA' },
-    { key: 'district', label: 'District' },
+    { key: "admin_unit_name", label: "TA" },
+    { key: "district", label: "District" },
     {
-      key: 'classification_label',
-      label: 'Status',
+      key: "classification_label",
+      label: "Status",
       render: (value) => (
         <span
           className={`inline-flex rounded-full px-2.5 py-1 text-xs font-bold ${getStatusBadgeClasses(value)}`}
@@ -232,8 +248,8 @@ function EducationPage() {
       ),
     },
     {
-      key: 'insight_label',
-      label: 'Insight',
+      key: "insight_label",
+      label: "Insight",
       render: (value) => (
         <span
           className={`inline-flex rounded-full px-2.5 py-1 text-xs font-bold ${getInsightBadgeClasses(value)}`}
@@ -242,10 +258,10 @@ function EducationPage() {
         </span>
       ),
     },
-    { key: 'school_count', label: 'Schools', digits: 0 },
-    { key: 'schools_per_10k', label: 'Schools / 10k', digits: 2 },
-    { key: 'schools_per_children', label: 'Schools / Child', digits: 4 },
-    { key: 'students_per_school', label: 'Students / School', digits: 0 },
+    { key: "school_count", label: "Schools", digits: 0 },
+    { key: "schools_per_10k", label: "Schools / 10k", digits: 2 },
+    { key: "schools_per_children", label: "Schools / Child", digits: 4 },
+    { key: "students_per_school", label: "Students / School", digits: 0 },
   ];
 
   const StatCardSkeleton = () => (
@@ -256,23 +272,24 @@ function EducationPage() {
   );
 
   return (
-    <div ref={contentRef} className="min-h-screen bg-white text-black font-sans pb-10">
+    <div
+      ref={contentRef}
+      className="min-h-screen bg-white text-black font-sans pb-10"
+    >
       <div className="flex items-center gap-4 px-8 py-8 border-b border-gray-200">
         <GraduationCap className="h-8 w-8 text-black" />
-        <h1 className="text-[28px] font-extrabold tracking-tight">
-          EDUCATION
-        </h1>
+        <h1 className="text-[28px] font-extrabold tracking-tight">EDUCATION</h1>
       </div>
 
       <div className="px-8 mt-8">
         <p className="text-[14px] font-semibold text-gray-500 mb-6">
           {selectedDistrict
             ? `Education stats for ${selectedDistrict}`
-            : 'National Education Overview'}
+            : "National Education Overview"}
         </p>
 
         <div className="flex gap-4 mb-6">
-          <button 
+          <button
             onClick={exportPdf}
             className="flex items-center gap-2 border border-gray-300 rounded px-3 py-1.5 text-[13px] font-bold hover:bg-gray-50 transition-all shadow-sm active:scale-95"
           >
@@ -297,58 +314,58 @@ function EducationPage() {
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-5 gap-6 mb-10">
-          {educationSummary.loading ? (
-            [...Array(5)].map((_, index) => (
-              <StatCardSkeleton key={index} />
-            ))
-          ) : (
-            [
-              {
-                label: 'Total Schools',
-                value: formatStat(educationSummary.data?.school_count || 0),
-                icon: School,
-              },
-              {
-                label: 'Total Enrollment',
-                value: formatStat(
-                  educationSummary.data?.student_enrollment_total || 0,
-                ),
-                icon: Users,
-              },
-              {
-                label: 'Teachers',
-                value: formatStat(educationSummary.data?.teacher_count_total || 0),
-                icon: BookOpen,
-              },
-              {
-                label: 'School-age Population',
-                value: formatStat(
-                  educationSummary.data?.school_age_population_total || 0,
-                ),
-                icon: UserRoundCheck,
-              },
-              {
-                label: 'Not in School',
-                value: formatStat(educationSummary.data?.not_in_school_total || 0),
-                icon: UserRoundX,
-              },
-            ].map((stat, index) => (
-              <div
-                key={index}
-                className="border border-gray-100 rounded p-6 shadow-md bg-white group hover:shadow-lg transition-all active:scale-95"
-              >
-                <div className="flex justify-between items-start">
-                  <span className="text-[14px] text-gray-500 font-bold group-hover:text-black">
-                    {stat.label}
-                  </span>
-                  <stat.icon className="h-5 w-5 text-gray-300 group-hover:text-black" />
+          {educationSummary.loading
+            ? [...Array(5)].map((_, index) => <StatCardSkeleton key={index} />)
+            : [
+                {
+                  label: "Total Schools",
+                  value: formatStat(educationSummary.data?.school_count || 0),
+                  icon: School,
+                },
+                {
+                  label: "Total Enrollment",
+                  value: formatStat(
+                    educationSummary.data?.student_enrollment_total || 0,
+                  ),
+                  icon: Users,
+                },
+                {
+                  label: "Teachers",
+                  value: formatStat(
+                    educationSummary.data?.teacher_count_total || 0,
+                  ),
+                  icon: BookOpen,
+                },
+                {
+                  label: "School-age Population",
+                  value: formatStat(
+                    educationSummary.data?.school_age_population_total || 0,
+                  ),
+                  icon: UserRoundCheck,
+                },
+                {
+                  label: "Not in School",
+                  value: formatStat(
+                    educationSummary.data?.not_in_school_total || 0,
+                  ),
+                  icon: UserRoundX,
+                },
+              ].map((stat, index) => (
+                <div
+                  key={index}
+                  className="border border-gray-100 rounded p-6 shadow-md bg-white group hover:shadow-lg transition-all active:scale-95"
+                >
+                  <div className="flex justify-between items-start">
+                    <span className="text-[14px] text-gray-500 font-bold group-hover:text-black">
+                      {stat.label}
+                    </span>
+                    <stat.icon className="h-5 w-5 text-gray-300 group-hover:text-black" />
+                  </div>
+                  <div className="mt-4 text-[32px] font-extrabold tracking-tight">
+                    {stat.value}
+                  </div>
                 </div>
-                <div className="mt-4 text-[32px] font-extrabold tracking-tight">
-                  {stat.value}
-                </div>
-              </div>
-            ))
-          )}
+              ))}
         </div>
 
         <div className="mb-10 rounded border border-gray-100 bg-[#f8f8f3] p-6 shadow-sm">
@@ -356,34 +373,34 @@ function EducationPage() {
             <p className="text-sm leading-7 text-gray-600">
               <span className="font-extrabold text-black">
                 {selectedInsight.admin_unit_name}
-              </span>{' '}
-              in{' '}
+              </span>{" "}
+              in{" "}
               <span className="font-bold text-black">
                 {selectedInsight.district}
-              </span>{' '}
-              is currently classified as{' '}
+              </span>{" "}
+              is currently classified as{" "}
               <span className="font-bold text-black">
                 {selectedInsight.classification_label}
               </span>
-              . The generated insight is{' '}
+              . The generated insight is{" "}
               <span className="font-bold text-black">
                 {selectedInsight.insight_label}
               </span>
-              , based on{' '}
+              , based on{" "}
               <span className="font-bold text-black">
                 {formatStat(selectedInsight.schools_per_10k, 2)}
-              </span>{' '}
-              schools per 10,000 residents and{' '}
+              </span>{" "}
+              schools per 10,000 residents and{" "}
               <span className="font-bold text-black">
                 {formatStat(selectedInsight.students_per_school, 0)}
-              </span>{' '}
+              </span>{" "}
               students per school.
             </p>
           ) : (
             <p className="text-sm leading-7 text-gray-600">
-              TAs are benchmarked using schools per 10,000 residents,
-              schools per school-age child, and students per school. The chart
-              below shows where each TA sits in the pressure landscape so
+              TAs are benchmarked using schools per 10,000 residents, schools
+              per school-age child, and students per school. The chart below
+              shows where each TA sits in the pressure landscape so
               infrastructure gaps and overcrowding risks stand out immediately.
             </p>
           )}
@@ -401,17 +418,21 @@ function EducationPage() {
                 <div className="border border-gray-100 rounded p-8 shadow-sm bg-white">
                   <div className="mb-6 flex items-start justify-between gap-4">
                     <div>
-                      <h3 className="text-[16px] font-extrabold">TA Pressure Chart</h3>
+                      <h3 className="text-[16px] font-extrabold">
+                        TA Pressure Chart
+                      </h3>
                       <p className="mt-2 text-sm leading-6 text-gray-500">
-                        Left means fewer schools per 10,000 people. Higher means more students packed into each school. Bigger circles indicate larger school-age populations for each TA.
+                        Left means fewer schools per 10,000 people. Higher means
+                        more students packed into each school. Bigger circles
+                        indicate larger school-age populations for each TA.
                       </p>
                     </div>
                     <div className="flex flex-wrap gap-2 text-xs font-bold">
                       {[
-                        'Infrastructure Gap',
-                        'Overcrowding Risk',
-                        'Underutilized Schools',
-                        'Balanced Capacity',
+                        "Infrastructure Gap",
+                        "Overcrowding Risk",
+                        "Underutilized Schools",
+                        "Balanced Capacity",
                       ].map((label) => (
                         <span
                           key={label}
@@ -429,7 +450,9 @@ function EducationPage() {
 
                   <div className="h-[250px]">
                     <ResponsiveContainer width="100%" height="100%">
-                      <ScatterChart margin={{ top: 16, right: 18, left: 8, bottom: 24 }}>
+                      <ScatterChart
+                        margin={{ top: 16, right: 18, left: 8, bottom: 24 }}
+                      >
                         <CartesianGrid stroke="#eef2f7" strokeDasharray="3 3" />
                         <XAxis
                           type="number"
@@ -437,7 +460,11 @@ function EducationPage() {
                           name="Schools / 10k"
                           axisLine={false}
                           tickLine={false}
-                          tick={{ fill: '#64748b', fontSize: 11, fontWeight: 700 }}
+                          tick={{
+                            fill: "#64748b",
+                            fontSize: 11,
+                            fontWeight: 700,
+                          }}
                           tickFormatter={(value) => formatNumber(value, 1)}
                         />
                         <YAxis
@@ -446,11 +473,18 @@ function EducationPage() {
                           name="Students / School"
                           axisLine={false}
                           tickLine={false}
-                          tick={{ fill: '#64748b', fontSize: 11, fontWeight: 700 }}
+                          tick={{
+                            fill: "#64748b",
+                            fontSize: 11,
+                            fontWeight: 700,
+                          }}
                           tickFormatter={(value) => formatNumber(value, 0)}
                         />
                         <ZAxis type="number" dataKey="z" range={[70, 420]} />
-                        <Tooltip content={<EducationScatterTooltip />} cursor={{ strokeDasharray: '4 4' }} />
+                        <Tooltip
+                          content={<EducationScatterTooltip />}
+                          cursor={{ strokeDasharray: "4 4" }}
+                        />
                         <ReferenceLine
                           x={Number(thresholds.schools_per_10k_low || 0)}
                           stroke="#dc2626"
@@ -466,7 +500,7 @@ function EducationPage() {
                             <Cell
                               key={`education-scatter-${row.admin_unit_id}`}
                               fill={row.fill}
-                              stroke={row.isSelected ? '#111827' : '#ffffff'}
+                              stroke={row.isSelected ? "#111827" : "#ffffff"}
                               strokeWidth={row.isSelected ? 2.5 : 1}
                               fillOpacity={row.isSelected ? 0.98 : 0.82}
                             />
@@ -478,10 +512,14 @@ function EducationPage() {
 
                   <div className="mt-5 grid grid-cols-1 md:grid-cols-2 gap-3 text-xs font-semibold text-gray-500">
                     <div className="rounded border border-red-100 bg-red-50 px-3 py-2">
-                      Low access threshold: {formatStat(thresholds.schools_per_10k_low || 0, 2)} schools / 10k
+                      Low access threshold:{" "}
+                      {formatStat(thresholds.schools_per_10k_low || 0, 2)}{" "}
+                      schools / 10k
                     </div>
                     <div className="rounded border border-amber-100 bg-amber-50 px-3 py-2">
-                      High crowding threshold: {formatStat(thresholds.students_per_school_high || 0, 0)} students / school
+                      High crowding threshold:{" "}
+                      {formatStat(thresholds.students_per_school_high || 0, 0)}{" "}
+                      students / school
                     </div>
                   </div>
                 </div>
@@ -490,61 +528,62 @@ function EducationPage() {
                   <div>
                     <h3 className="text-[16px] font-extrabold">Pressure Mix</h3>
                     <p className="mt-2 text-sm leading-6 text-gray-500">
-                      A quick distribution of how TAs are currently classified across the four pressure categories.
+                      A quick distribution of how TAs are currently classified
+                      across the four pressure categories.
                     </p>
                   </div>
                 </div>
 
                 <div className="border border-gray-100 rounded p-8 shadow-sm bg-white">
-                <div className="h-[250px]">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <PieChart>
-                      <Pie
-                        data={categoryPieData}
-                        cx="50%"
-                        cy="50%"
-                        innerRadius={62}
-                        outerRadius={96}
-                        paddingAngle={4}
-                        dataKey="value"
-                        nameKey="name"
-                      >
-                        {categoryPieData.map((row) => (
-                          <Cell
-                            key={`education-pie-${row.name}`}
-                            fill={row.color}
-                          />
-                        ))}
-                      </Pie>
-                      <Tooltip content={<EducationCategoryPieTooltip />} />
-                    </PieChart>
-                  </ResponsiveContainer>
-                </div>
+                  <div className="h-[250px]">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <PieChart>
+                        <Pie
+                          data={categoryPieData}
+                          cx="50%"
+                          cy="50%"
+                          innerRadius={62}
+                          outerRadius={96}
+                          paddingAngle={4}
+                          dataKey="value"
+                          nameKey="name"
+                        >
+                          {categoryPieData.map((row) => (
+                            <Cell
+                              key={`education-pie-${row.name}`}
+                              fill={row.color}
+                            />
+                          ))}
+                        </Pie>
+                        <Tooltip content={<EducationCategoryPieTooltip />} />
+                      </PieChart>
+                    </ResponsiveContainer>
+                  </div>
 
-                <div className="mt-6 grid grid-cols-1 md:grid-cols-2 gap-3">
-                  {categoryPieData.map((row) => (
-                    <div
-                      key={`education-pie-legend-${row.name}`}
-                      className="rounded border border-gray-100 bg-white px-4 py-3"
-                    >
-                      <div className="flex items-center gap-3">
-                        <span
-                          className="h-3 w-3 rounded-full"
-                          style={{ backgroundColor: row.color }}
-                        />
-                        <span className="text-sm font-bold text-black">
-                          {row.name}
-                        </span>
-                        <span className="ml-auto text-sm font-extrabold text-black">
-                          {formatStat(row.value, 0)}
-                        </span>
+                  <div className="mt-6 grid grid-cols-1 md:grid-cols-2 gap-3">
+                    {categoryPieData.map((row) => (
+                      <div
+                        key={`education-pie-legend-${row.name}`}
+                        className="rounded border border-gray-100 bg-white px-4 py-3"
+                      >
+                        <div className="flex items-center gap-3">
+                          <span
+                            className="h-3 w-3 rounded-full"
+                            style={{ backgroundColor: row.color }}
+                          />
+                          <span className="text-sm font-bold text-black">
+                            {row.name}
+                          </span>
+                          <span className="ml-auto text-sm font-extrabold text-black">
+                            {formatStat(row.value, 0)}
+                          </span>
+                        </div>
+                        <div className="mt-2 text-xs font-semibold text-gray-500">
+                          {formatStat(row.share, 1)}% of TAs
+                        </div>
                       </div>
-                      <div className="mt-2 text-xs font-semibold text-gray-500">
-                        {formatStat(row.share, 1)}% of TAs
-                      </div>
-                    </div>
-                  ))}
-                </div>
+                    ))}
+                  </div>
                 </div>
               </div>
 
@@ -558,7 +597,7 @@ function EducationPage() {
                   {rankedSignals.map((row) => (
                     <div
                       key={`signal-${row.admin_unit_id}`}
-                      className={`rounded border px-4 py-4 ${row.isSelected ? 'border-black bg-gray-50' : 'border-gray-100 bg-white'}`}
+                      className={`rounded border px-4 py-4 ${row.isSelected ? "border-black bg-gray-50" : "border-gray-100 bg-white"}`}
                     >
                       <div className="flex items-start justify-between gap-3">
                         <div>
@@ -604,7 +643,21 @@ function EducationPage() {
                     </div>
                   ))}
                   <div className="rounded border border-dashed border-gray-200 bg-gray-50 px-4 py-3 text-xs font-semibold text-gray-500">
-                    National mix: {formatStat(benchmarkSummary.infrastructure_gap_count || 0, 0)} infrastructure gap, {formatStat(benchmarkSummary.overcrowding_risk_count || 0, 0)} overcrowding risk, {formatStat(benchmarkSummary.underutilized_count || 0, 0)} underutilized, {formatStat(benchmarkSummary.adequate_count || 0, 0)} adequate.
+                    National mix:{" "}
+                    {formatStat(
+                      benchmarkSummary.infrastructure_gap_count || 0,
+                      0,
+                    )}{" "}
+                    infrastructure gap,{" "}
+                    {formatStat(
+                      benchmarkSummary.overcrowding_risk_count || 0,
+                      0,
+                    )}{" "}
+                    overcrowding risk,{" "}
+                    {formatStat(benchmarkSummary.underutilized_count || 0, 0)}{" "}
+                    underutilized,{" "}
+                    {formatStat(benchmarkSummary.adequate_count || 0, 0)}{" "}
+                    adequate.
                   </div>
                 </div>
               </div>
@@ -612,35 +665,43 @@ function EducationPage() {
           )}
         </div>
 
-        <div className="border border-gray-100 rounded p-8 shadow-sm bg-white h-[600px] flex flex-col">
-          <h3 className="text-[16px] font-extrabold mb-6">
-            School Infrastructure Mapping
-          </h3>
-          <div className="flex-1 rounded overflow-hidden relative border border-gray-50 bg-gray-50">
-            {schoolLocations.loading ? (
-              <div className="absolute inset-0 flex items-center justify-center animate-pulse">
-                <span className="text-gray-400 font-bold uppercase tracking-widest">
-                  Loading Schools...
-                </span>
-              </div>
-            ) : (
-              <MapPanel
-                geojson={schoolLocations.data}
-                pointColor="#2563eb"
-                popupFields={[
-                  { key: 'student_enrollment', label: 'Enrollment' },
-                  { key: 'teacher_distribution', label: 'Teachers' },
-                  { key: 'operator_type', label: 'Operator' },
-                ]}
-                tooltipFields={[
-                  { key: 'student_enrollment', label: 'Enrollment' },
-                  { key: 'teacher_distribution', label: 'Teachers' },
-                ]}
-                showLegend={false}
-                showLabels={false}
-                heightClass="h-full w-full"
-              />
-            )}
+        <div className="grid grid-cols-1 xl:grid-cols-2 gap-8">
+          <div className="border border-gray-100 rounded p-8 shadow-sm bg-white h-[600px] flex flex-col">
+            <h3 className="text-[16px] font-extrabold mb-6">
+              School Infrastructure Mapping
+            </h3>
+            <div className="flex-1 rounded overflow-hidden relative border border-gray-50 bg-gray-50">
+              {schoolLocations.loading ? (
+                <div className="absolute inset-0 flex items-center justify-center animate-pulse">
+                  <span className="text-gray-400 font-bold uppercase tracking-widest">
+                    Loading Schools...
+                  </span>
+                </div>
+              ) : (
+                <MapPanel
+                  geojson={schoolLocations.data}
+                  pointColor="#2563eb"
+                  popupFields={[
+                    { key: "student_enrollment", label: "Enrollment" },
+                    { key: "teacher_distribution", label: "Teachers" },
+                    { key: "operator_type", label: "Operator" },
+                  ]}
+                  tooltipFields={[
+                    { key: "student_enrollment", label: "Enrollment" },
+                    { key: "teacher_distribution", label: "Teachers" },
+                  ]}
+                  showLegend={false}
+                  showLabels={false}
+                  heightClass="h-full w-full"
+                />
+              )}
+            </div>
+          </div>
+
+          <div className="hidden xl:flex h-[600px] rounded border border-dashed border-gray-200 bg-white items-center justify-center px-6">
+            <span className="text-xs font-semibold uppercase tracking-[0.14em] text-gray-400">
+              Panel space reserved
+            </span>
           </div>
         </div>
 
@@ -652,11 +713,11 @@ function EducationPage() {
               title={
                 selectedDistrict
                   ? `${selectedDistrict} TA education insights`
-                  : 'TA education insights'
+                  : "TA education insights"
               }
               subtitle={
                 selectedDistrict
-                  ? 'Showing current TA classifications inside the selected district against the same benchmark.'
+                  ? "Showing current TA classifications inside the selected district against the same benchmark."
                   : `Underserved: ${visibleInsightSummary.underserved_count || 0}, Overcrowded: ${visibleInsightSummary.overcrowded_count || 0}, Underutilized: ${visibleInsightSummary.underutilized_count || 0}.`
               }
               rows={insightRows}
