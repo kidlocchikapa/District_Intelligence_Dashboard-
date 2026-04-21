@@ -3,7 +3,10 @@ const router = express.Router();
 const db = require("../db");
 const auth = require("../middleware/auth");
 const requireRole = require("../middleware/requireRole");
-const { appendDistrictNameCondition } = require("./queryFilters");
+const {
+  appendDistrictGeometryCondition,
+  appendDistrictNameCondition,
+} = require("./queryFilters");
 
 function normalizeAdminType(adminType) {
   if (!adminType) return null;
@@ -44,46 +47,70 @@ router.get("/summary", async (req, res) => {
     let populationTotal;
 
     if (district) {
-      // For district-specific summary, we need to count facilities that intersect with the district geometry
+      const schoolConditions = ["ef.geom IS NOT NULL"];
+      const schoolParams = [];
+      appendDistrictGeometryCondition(
+        schoolConditions,
+        schoolParams,
+        "ef.geom",
+        district,
+      );
+
+      const schoolWhereClause = schoolConditions.length
+        ? `WHERE ${schoolConditions.join(" AND ")}`
+        : "";
+
       schoolsCount = await db.query(
         `
                 SELECT COUNT(*)
                 FROM education_facilities ef
-                WHERE ef.geom IS NOT NULL
-                  AND EXISTS (
-                    SELECT 1
-                    FROM districts d
-                    WHERE d.geom IS NOT NULL
-                      AND LOWER(d.name) = LOWER($1)
-                      AND ST_Intersects(ef.geom, d.geom)
-                  )
+                ${schoolWhereClause}
                 `,
-        [district],
+        schoolParams,
       );
-      // For health facilities, we do the same spatial intersection count
+
+      const healthConditions = ["hf.geom IS NOT NULL"];
+      const healthParams = [];
+      appendDistrictGeometryCondition(
+        healthConditions,
+        healthParams,
+        "hf.geom",
+        district,
+      );
+
+      const healthWhereClause = healthConditions.length
+        ? `WHERE ${healthConditions.join(" AND ")}`
+        : "";
+
       healthCount = await db.query(
         `
                 SELECT COUNT(*)
                 FROM health_facilities hf
-                WHERE hf.geom IS NOT NULL
-                  AND EXISTS (
-                    SELECT 1
-                    FROM districts d
-                    WHERE d.geom IS NOT NULL
-                      AND LOWER(d.name) = LOWER($1)
-                      AND ST_Intersects(hf.geom, d.geom)
-                  )
+                ${healthWhereClause}
                 `,
-        [district],
+        healthParams,
       );
-      // For population, we sum the population_total for the specific district
+
+      const populationConditions = [];
+      const populationParams = [];
+      appendDistrictNameCondition(
+        populationConditions,
+        populationParams,
+        "name",
+        district,
+      );
+
+      const populationWhereClause = populationConditions.length
+        ? `WHERE ${populationConditions.join(" AND ")}`
+        : "";
+
       populationTotal = await db.query(
         `
                 SELECT SUM(population_total)
                 FROM districts
-                WHERE LOWER(name) = LOWER($1)
+                ${populationWhereClause}
                 `,
-        [district],
+        populationParams,
       );
     } else {
       schoolsCount = await db.query(
