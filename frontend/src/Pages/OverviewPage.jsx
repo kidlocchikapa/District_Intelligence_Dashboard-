@@ -67,27 +67,40 @@ function formatTaAxisLabel(value) {
 function OverviewPage() {
   const { selectedDistrict, setSelectedDistrict } = useDistrict();
   const districts = useDistrictOptions();
+  const districtScope = selectedDistrict || "Zomba";
+
   const summary = useDashboardData(
-    buildDashboardPath("/dashboard/summary", { district: selectedDistrict }),
+    buildDashboardPath("/dashboard/summary", { district: districtScope }),
+  );
+  const healthSummaryMetrics = useDashboardData(
+    buildDashboardPath("/dashboard/health/summary", {
+      district: districtScope,
+      admin_type: "District",
+      analysis_type: "health_summary",
+    }),
   );
   const densityMap = useDashboardData(
     buildDashboardPath("/dashboard/admin-units", {
       type: "District",
-      district: selectedDistrict,
+      district: districtScope,
     }),
   );
   const populationDistribution = useDashboardData(
     buildDashboardPath("/dashboard/population-by-admin3", {
-      district: selectedDistrict,
+      district: districtScope,
       type: "TA",
     }),
   );
   const floodSummary = useDashboardData(
     buildDashboardPath("/dashboard/disaster/flood/summary", {
-      district: selectedDistrict,
+      district: districtScope,
       admin_type: "District",
     }),
   );
+
+  const healthFacilitiesFromMetrics = (healthSummaryMetrics.data || [])
+    .filter((metric) => metric.metric_name === "health_facility_count")
+    .reduce((sum, metric) => sum + Number(metric.metric_value || 0), 0);
 
   const chartData = (populationDistribution.data || []).map((item) => ({
     admin3: item.admin3_name,
@@ -158,7 +171,7 @@ function OverviewPage() {
         <p className="text-[14px] font-semibold text-gray-500 mb-6">
           {selectedDistrict
             ? `Showing ${selectedDistrict} Records`
-            : "Showing All districts Records"}
+            : "Showing Whole Zomba Records (Zomba + Zomba City)"}
         </p>
 
         {/* Actions Row */}
@@ -177,7 +190,7 @@ function OverviewPage() {
               value={selectedDistrict}
               onChange={(e) => setSelectedDistrict(e.target.value)}
             >
-              <option value="">Select District</option>
+              <option value="">Whole Zomba (Zomba + Zomba City)</option>
               {districts.options?.map((opt) => (
                 <option key={opt.value} value={opt.value}>
                   {opt.label}
@@ -194,7 +207,7 @@ function OverviewPage() {
 
         {/* Stats Row */}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 mb-10">
-          {summary.loading
+          {summary.loading || healthSummaryMetrics.loading
             ? [...Array(4)].map((_, i) => <StatCardSkeleton key={i} />)
             : [
                 {
@@ -211,7 +224,7 @@ function OverviewPage() {
                 },
                 {
                   label: "Health Facilities",
-                  value: formatStat(summary.data?.total_health_facilities || 0),
+                  value: formatStat(healthFacilitiesFromMetrics || 0),
                   icon: HeartPulse,
                 },
                 {
