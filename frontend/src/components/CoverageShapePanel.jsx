@@ -21,6 +21,7 @@ function normalizeZoneType(value) {
   if (normalized === "served") return "served";
   if (normalized === "unserved") return "unserved";
   if (normalized === "school_point") return "school_point";
+  if (normalized === "facility_point") return "school_point"; // Treat facility point same as school point visually
   return "unknown";
 }
 
@@ -30,10 +31,20 @@ function CoverageShapePanel({
   subtitle,
   heightClass = "h-[420px]",
   loading = false,
+  servedColor,
+  unservedColor,
+  pointColor,
 }) {
   const wrapperRef = useRef(null);
   const [size, setSize] = useState({ width: 0, height: 0 });
+  const [hoveredRegion, setHoveredRegion] = useState(null);
   const features = geojson?.features || [];
+
+  const activeColors = useMemo(() => ({
+    ...ZONE_COLORS,
+    ...(servedColor && { served: servedColor }),
+    ...(unservedColor && { unserved: unservedColor }),
+  }), [servedColor, unservedColor]);
 
   useEffect(() => {
     if (!wrapperRef.current) {
@@ -62,6 +73,7 @@ function CoverageShapePanel({
         schoolPoints: [],
         districtName: null,
         servedPct: null,
+        coverageDistanceKm: null,
       };
     }
 
@@ -72,6 +84,7 @@ function CoverageShapePanel({
         schoolPoints: [],
         districtName: null,
         servedPct: null,
+        coverageDistanceKm: null,
       };
     }
 
@@ -80,6 +93,7 @@ function CoverageShapePanel({
     const schoolPoints = [];
     let districtName = null;
     let servedPct = null;
+    let coverageDistanceKm = null;
 
     features.forEach((feature, index) => {
       const properties = feature?.properties || {};
@@ -97,6 +111,13 @@ function CoverageShapePanel({
         servedPct = Number(properties.coverage_pct);
       }
 
+      if (
+        coverageDistanceKm === null &&
+        Number.isFinite(Number(properties.coverage_distance_km))
+      ) {
+        coverageDistanceKm = Number(properties.coverage_distance_km);
+      }
+
       if (geometryType === "Point" || zoneType === "school_point") {
         const coords = feature?.geometry?.coordinates;
         if (
@@ -106,10 +127,10 @@ function CoverageShapePanel({
         ) {
           const [x, y] = project(coords);
           schoolPoints.push({
-            id: feature?.id || properties.school_id || `school-${index}`,
+            id: feature?.id || properties.school_id || properties.facility_id || `point-${index}`,
             x,
             y,
-            name: properties.school_name || "School",
+            name: properties.school_name || properties.facility_name || "Point",
           });
         }
         return;
@@ -127,8 +148,10 @@ function CoverageShapePanel({
           properties.admin_unit_name ||
           index,
         zoneType,
-        fill: ZONE_COLORS[zoneType] || ZONE_COLORS.unknown,
+        fill: activeColors[zoneType] || activeColors.unknown,
         path,
+        adminName: properties.admin_unit_name || properties.district_name || districtName,
+        coveragePct: properties.coverage_pct !== undefined ? Number(properties.coverage_pct) : null,
       });
     });
 
@@ -137,8 +160,9 @@ function CoverageShapePanel({
       schoolPoints,
       districtName,
       servedPct,
+      coverageDistanceKm,
     };
-  }, [features, size.height, size.width]);
+  }, [features, size.height, size.width, activeColors]);
 
   if (!loading && !features.length) {
     return (
@@ -148,6 +172,11 @@ function CoverageShapePanel({
       />
     );
   }
+
+  const tooltipTitle = hoveredRegion?.adminName || renderedFeatures.districtName || "District";
+  const tooltipPct = hoveredRegion?.coveragePct !== null && hoveredRegion?.coveragePct !== undefined
+    ? hoveredRegion.coveragePct
+    : renderedFeatures.servedPct;
 
   return (
     <div className="h-full min-h-0 flex flex-col gap-4">
@@ -170,21 +199,31 @@ function CoverageShapePanel({
           viewBox={`0 0 ${Math.max(size.width, 640)} ${Math.max(size.height, 420)}`}
           className="h-full w-full"
           role="img"
-          aria-label="Education access coverage shape"
+          aria-label="Access coverage shape"
         >
           <rect width="100%" height="100%" fill="#f4f4ee" />
 
-          {renderedFeatures.zonePolygons.map((item) => (
-            <path
-              key={`coverage-shape-${item.id}`}
-              d={item.path}
-              fill={item.fill}
-              fillOpacity={item.zoneType === "unserved" ? "0.88" : "0.82"}
-              stroke="#ffffff"
-              strokeWidth="2"
-              vectorEffect="non-scaling-stroke"
-            />
-          ))}
+          {renderedFeatures.zonePolygons.map((item) => {
+            const isHovered = hoveredRegion?.id === item.id;
+            return (
+              <path
+                key={`coverage-shape-${item.id}`}
+                d={item.path}
+                fill={item.fill}
+                fillOpacity={
+                  item.zoneType === "unserved"
+                    ? isHovered ? "0.95" : "0.88"
+                    : isHovered ? "0.9" : "0.82"
+                }
+                stroke="#ffffff"
+                strokeWidth={isHovered ? "3" : "2"}
+                vectorEffect="non-scaling-stroke"
+                onMouseEnter={() => setHoveredRegion(item)}
+                onMouseLeave={() => setHoveredRegion(null)}
+                style={{ cursor: "pointer", transition: "all 0.2s" }}
+              />
+            );
+          })}
 
           {renderedFeatures.schoolPoints.map((point) => (
             <circle
@@ -192,7 +231,7 @@ function CoverageShapePanel({
               cx={point.x}
               cy={point.y}
               r="2.6"
-              fill="#0f172a"
+              fill={pointColor || "#0f172a"}
               fillOpacity="0.95"
               stroke="#ffffff"
               strokeWidth="0.9"
@@ -211,14 +250,14 @@ function CoverageShapePanel({
 
         <div className="pointer-events-none absolute left-4 top-4 rounded-xl border border-white/80 bg-white/92 px-3 py-2 shadow-sm backdrop-blur-md">
           <p className="text-[10px] font-bold uppercase tracking-[0.14em] text-slate/50">
-            {renderedFeatures.districtName || "District"}
+            {tooltipTitle}
           </p>
           <p className="mt-1 text-xs font-semibold text-slate/80">
-            5km school access buffer
+            {renderedFeatures.coverageDistanceKm ? `${renderedFeatures.coverageDistanceKm}km` : "5km"} access buffer
           </p>
-          {renderedFeatures.servedPct !== null ? (
+          {tooltipPct !== null ? (
             <p className="mt-1 text-xs font-bold text-slate/80">
-              Served area: {formatNumber(renderedFeatures.servedPct, 1)}%
+              Served area: {formatNumber(tooltipPct, 1)}%
             </p>
           ) : null}
         </div>
@@ -229,9 +268,9 @@ function CoverageShapePanel({
           </p>
           <div className="grid grid-cols-2 gap-2">
             {[
-              { key: "served", label: "Served (<=5km)" },
-              { key: "unserved", label: "No Access (>5km)" },
-              { key: "school", label: "School Point" },
+              { key: "served", label: `Served (<=${renderedFeatures.coverageDistanceKm || 5}km)` },
+              { key: "unserved", label: `No Access (>${renderedFeatures.coverageDistanceKm || 5}km)` },
+              { key: "school", label: "Facility Point" },
               { key: "unknown", label: "Unknown" },
             ].map((item) => (
               <div
@@ -239,13 +278,16 @@ function CoverageShapePanel({
                 className="flex items-center gap-2 rounded-full bg-white/80 px-3 py-1.5"
               >
                 {item.key === "school" ? (
-                  <span className="h-2.5 w-2.5 rounded-full border border-white bg-slate-900" />
+                  <span
+                    className="h-2.5 w-2.5 rounded-full border border-white"
+                    style={{ backgroundColor: pointColor || "#0f172a" }}
+                  />
                 ) : (
                   <span
                     className="h-2.5 w-2.5 rounded-full border border-slate/10"
                     style={{
                       backgroundColor:
-                        ZONE_COLORS[item.key] || ZONE_COLORS.unknown,
+                        activeColors[item.key] || activeColors.unknown,
                     }}
                   />
                 )}
