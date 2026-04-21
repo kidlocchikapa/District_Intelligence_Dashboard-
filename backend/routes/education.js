@@ -285,6 +285,184 @@ router.get("/service-coverage/geojson", async (req, res) => {
   }
 });
 
+// @route   GET api/v1/dashboard/education/access-zones/geojson
+// @desc    Get served/unserved education access zones plus school points
+router.get("/access-zones/geojson", async (req, res) => {
+  const { district, buffer_km: bufferKmParam } = req.query;
+  const parsedBufferKm = Number(bufferKmParam);
+  const bufferKm =
+    Number.isFinite(parsedBufferKm) && parsedBufferKm > 0
+      ? Math.min(parsedBufferKm, 30)
+      : 5;
+  const bufferMeters = bufferKm * 1000;
+
+  try {
+    const params = [bufferMeters];
+    const districtConditions = ["d.geom IS NOT NULL"];
+    appendDistrictNameCondition(districtConditions, params, "d.name", district);
+    const districtWhereClause = districtConditions.length
+      ? `WHERE ${districtConditions.join(" AND ")}`
+      : "";
+
+    const query = `
+      WITH district_scope AS (
+        SELECT d.id, d.name, d.geom
+        FROM districts d
+        ${districtWhereClause}
+      ),
+      school_scope AS (
+        SELECT
+          ef.school_id,
+          COALESCE(ef.school_name, '') AS school_name,
+          ef.geom
+        FROM education_facilities ef
+        JOIN district_scope ds
+          ON ef.geom IS NOT NULL
+         AND ST_Intersects(ef.geom, ds.geom)
+        WHERE ef.geom IS NOT NULL
+      ),
+      school_buffers AS (
+        SELECT
+          ST_UnaryUnion(
+            ST_Collect(ST_Buffer(ss.geom::geography, $1)::geometry)
+          ) AS geom
+        FROM school_scope ss
+      ),
+      zone_raw AS (
+        SELECT
+          ds.id AS district_id,
+          ds.name AS district_name,
+          ds.geom AS district_geom,
+          sb.geom AS buffer_geom
+        FROM district_scope ds
+        LEFT JOIN school_buffers sb ON TRUE
+      ),
+      zone_geometries AS (
+        SELECT
+          zr.district_id,
+          zr.district_name,
+          zr.district_geom,
+          ST_Multi(
+            COALESCE(
+              ST_CollectionExtract(
+                CASE
+                  WHEN zr.buffer_geom IS NULL
+                    THEN ST_GeomFromText('MULTIPOLYGON EMPTY', 4326)
+                  ELSE ST_Intersection(zr.district_geom, zr.buffer_geom)
+                END,
+                3
+              ),
+              ST_GeomFromText('MULTIPOLYGON EMPTY', 4326)
+            )
+          ) AS served_geom,
+          ST_Multi(
+            COALESCE(
+              ST_CollectionExtract(
+                CASE
+                  WHEN zr.buffer_geom IS NULL
+                    THEN zr.district_geom
+                  ELSE ST_Difference(
+                    zr.district_geom,
+                    ST_Intersection(zr.district_geom, zr.buffer_geom)
+                  )
+                END,
+                3
+              ),
+              ST_GeomFromText('MULTIPOLYGON EMPTY', 4326)
+            )
+          ) AS unserved_geom
+        FROM zone_raw zr
+      ),
+      zone_metrics AS (
+        SELECT
+          zg.district_id,
+          zg.district_name,
+          zg.served_geom,
+          zg.unserved_geom,
+          CASE
+            WHEN ST_Area(ST_Transform(zg.district_geom, 3857)) > 0
+              THEN (
+                ST_Area(ST_Transform(zg.served_geom, 3857))
+                / ST_Area(ST_Transform(zg.district_geom, 3857))
+              ) * 100
+            ELSE 0
+          END AS served_pct
+        FROM zone_geometries zg
+      )
+      SELECT jsonb_build_object(
+        'type', 'FeatureCollection',
+        'features', COALESCE(jsonb_agg(feature), '[]'::jsonb)
+      )
+      FROM (
+        SELECT jsonb_build_object(
+          'type', 'Feature',
+          'id', CONCAT('served-', zm.district_id),
+          'geometry', ST_AsGeoJSON(zm.served_geom)::jsonb,
+          'properties', jsonb_build_object(
+            'zone_type', 'served',
+            'district_id', zm.district_id,
+            'district_name', zm.district_name,
+            'coverage_distance_km', $1 / 1000.0,
+            'coverage_pct', zm.served_pct
+          )
+        ) AS feature
+        FROM zone_metrics zm
+        WHERE zm.served_geom IS NOT NULL
+          AND NOT ST_IsEmpty(zm.served_geom)
+
+        UNION ALL
+
+        SELECT jsonb_build_object(
+          'type', 'Feature',
+          'id', CONCAT('unserved-', zm.district_id),
+          'geometry', ST_AsGeoJSON(zm.unserved_geom)::jsonb,
+          'properties', jsonb_build_object(
+            'zone_type', 'unserved',
+            'district_id', zm.district_id,
+            'district_name', zm.district_name,
+            'coverage_distance_km', $1 / 1000.0,
+            'coverage_pct', zm.served_pct
+          )
+        ) AS feature
+        FROM zone_metrics zm
+        WHERE zm.unserved_geom IS NOT NULL
+          AND NOT ST_IsEmpty(zm.unserved_geom)
+
+        UNION ALL
+
+        SELECT jsonb_build_object(
+          'type', 'Feature',
+          'id', CONCAT('school-', ss.school_id),
+          'geometry', ST_AsGeoJSON(ss.geom)::jsonb,
+          'properties', jsonb_build_object(
+            'zone_type', 'school_point',
+            'school_id', ss.school_id,
+            'school_name', ss.school_name,
+            'coverage_distance_km', $1 / 1000.0
+          )
+        ) AS feature
+        FROM school_scope ss
+      ) features;
+    `;
+
+    const result = await db.query(query, params);
+    res.json({
+      status: "success",
+      data: result.rows[0].jsonb_build_object || {
+        type: "FeatureCollection",
+        features: [],
+      },
+    });
+  } catch (err) {
+    console.error("Education access zones geojson error", {
+      message: err.message,
+      district,
+      bufferKm,
+    });
+    res.status(500).send("Server error");
+  }
+});
+
 // @route   GET api/v1/dashboard/education/summary
 // @desc    Get ward/district education aggregates
 router.get("/summary", async (req, res) => {
