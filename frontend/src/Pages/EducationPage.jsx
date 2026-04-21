@@ -16,6 +16,7 @@ import { usePdfExport } from "../hooks/usePdfExport";
 import { formatNumber } from "../lib/format";
 import { buildDashboardPath } from "../lib/query";
 import MapPanel from "../components/MapPanel";
+import CoverageShapePanel from "../components/CoverageShapePanel";
 import {
   Cell,
   CartesianGrid,
@@ -103,6 +104,24 @@ function getPressureCategoryColor(value) {
   return getInsightColor(value);
 }
 
+function getSchoolAccessBand(value) {
+  const coveragePct = Number(value);
+
+  if (!Number.isFinite(coveragePct)) {
+    return "unknown";
+  }
+
+  if (coveragePct >= 70) {
+    return "low";
+  }
+
+  if (coveragePct >= 40) {
+    return "medium";
+  }
+
+  return "high";
+}
+
 function EducationScatterTooltip({ active, payload }) {
   if (!active || !payload?.length) {
     return null;
@@ -174,6 +193,13 @@ function EducationPage() {
   const districtInsights = useDashboardData(
     buildDashboardPath("/dashboard/education/insights", {
       district: selectedDistrict,
+    }),
+  );
+  const coverageFocusDistrict = selectedDistrict || "Zomba";
+  const schoolServiceCoverage = useDashboardData(
+    buildDashboardPath("/dashboard/education/service-coverage/geojson", {
+      admin_type: "District",
+      district: coverageFocusDistrict,
     }),
   );
 
@@ -279,6 +305,29 @@ function EducationPage() {
       features: filteredSchoolFeatures,
     };
   }, [schoolLocations.data, filteredSchoolFeatures]);
+
+  const schoolCoverageForMap = useMemo(() => {
+    if (!schoolServiceCoverage.data) {
+      return schoolServiceCoverage.data;
+    }
+
+    return {
+      ...schoolServiceCoverage.data,
+      features: (schoolServiceCoverage.data.features || []).map((feature) => {
+        const coveragePct = Number(
+          feature?.properties?.school_service_coverage_pct,
+        );
+
+        return {
+          ...feature,
+          properties: {
+            ...feature.properties,
+            school_access_band: getSchoolAccessBand(coveragePct),
+          },
+        };
+      }),
+    };
+  }, [schoolServiceCoverage.data]);
 
   const togglePressureCategory = (category) => {
     setSelectedPressureCategories((current) =>
@@ -854,10 +903,28 @@ function EducationPage() {
             </div>
           </div>
 
-          <div className="hidden xl:flex h-[600px] rounded border border-dashed border-gray-200 bg-white items-center justify-center px-6">
-            <span className="text-xs font-semibold uppercase tracking-[0.14em] text-gray-400">
-              Panel space reserved
-            </span>
+          <div className="h-[600px] rounded border border-gray-100 bg-white p-8 shadow-sm flex flex-col">
+            <h3 className="text-[16px] font-extrabold">
+              School Service Coverage Map
+            </h3>
+            <p className="mt-2 text-sm text-gray-500 font-semibold">
+              Showing {coverageFocusDistrict} district boundary, color-coded by
+              access level.
+            </p>
+
+            {schoolServiceCoverage.error ? (
+              <div className="mt-4 rounded border border-red-100 bg-red-50 px-3 py-2 text-xs font-semibold text-red-700">
+                Could not load coverage map data: {schoolServiceCoverage.error}
+              </div>
+            ) : null}
+
+            <div className="mt-5 flex-1 rounded overflow-hidden relative border border-gray-50 bg-gray-50">
+              <CoverageShapePanel
+                geojson={schoolCoverageForMap}
+                heightClass="h-full w-full"
+                loading={schoolServiceCoverage.loading}
+              />
+            </div>
           </div>
         </div>
 

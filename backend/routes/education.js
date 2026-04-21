@@ -30,6 +30,15 @@ function toFiniteNumber(value) {
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
+function normalizeAdminType(adminType) {
+  if (!adminType) return "District";
+  const normalized = String(adminType).trim().toLowerCase();
+  if (normalized === "district") return "District";
+  if (normalized === "ta" || normalized === "admin3") return "TA";
+  if (normalized === "village") return "Village";
+  return String(adminType).trim();
+}
+
 function computeQuantile(values, quantile) {
   if (!values.length) {
     return 0;
@@ -195,6 +204,83 @@ router.get("/", async (req, res) => {
     });
   } catch (err) {
     console.error(err.message);
+    res.status(500).send("Server error");
+  }
+});
+
+// @route   GET api/v1/dashboard/education/service-coverage/geojson
+// @desc    Get education school service coverage results as GeoJSON
+router.get("/service-coverage/geojson", async (req, res) => {
+  const { district, admin_type: adminType = "District" } = req.query;
+  const normalizedAdminType = normalizeAdminType(adminType);
+
+  try {
+    const conditions = [
+      "ar.analysis_type = 'school_service_coverage'",
+      "ar.metric_name = 'school_service_coverage_pct'",
+      "LOWER(ar.admin_unit_type) = LOWER($1)",
+    ];
+    const params = [normalizedAdminType];
+
+    appendDistrictNameCondition(
+      conditions,
+      params,
+      "ar.admin_unit_name",
+      district,
+    );
+
+    const query = `
+      SELECT jsonb_build_object(
+          'type', 'FeatureCollection',
+          'features', COALESCE(jsonb_agg(feature), '[]'::jsonb)
+      )
+      FROM (
+          SELECT jsonb_build_object(
+              'type', 'Feature',
+              'id', ar.id,
+              'geometry', ST_AsGeoJSON(COALESCE(ar.geom, d.geom, a3.geom))::jsonb,
+              'properties', (
+                  jsonb_build_object(
+                    'analysis_type', ar.analysis_type,
+                    'admin_unit_id', ar.admin_unit_id,
+                    'admin_unit_code', ar.admin_unit_code,
+                    'admin_unit_name', ar.admin_unit_name,
+                    'admin_unit_type', ar.admin_unit_type,
+                    'metric_name', ar.metric_name,
+                    'metric_value', ar.metric_value,
+                    'metric_unit', ar.metric_unit,
+                    'metadata', ar.metadata,
+                    'calculated_at', ar.calculated_at
+                  ) || jsonb_build_object(ar.metric_name, ar.metric_value)
+              )
+          ) AS feature
+          FROM analysis_results ar
+          LEFT JOIN districts d
+            ON LOWER(ar.admin_unit_type) = LOWER('District')
+           AND d.id = ar.admin_unit_id
+          LEFT JOIN admin3_units a3
+            ON LOWER(ar.admin_unit_type) IN (LOWER('TA'), LOWER('Village'), LOWER('Admin3'))
+           AND a3.id = ar.admin_unit_id
+          WHERE COALESCE(ar.geom, d.geom, a3.geom) IS NOT NULL
+            AND ${conditions.join(" AND ")}
+          ORDER BY ar.admin_unit_name
+      ) features;
+    `;
+
+    const result = await db.query(query, params);
+    res.json({
+      status: "success",
+      data: result.rows[0].jsonb_build_object || {
+        type: "FeatureCollection",
+        features: [],
+      },
+    });
+  } catch (err) {
+    console.error("Education service coverage geojson error", {
+      message: err.message,
+      district,
+      adminType: normalizedAdminType,
+    });
     res.status(500).send("Server error");
   }
 });
