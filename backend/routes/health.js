@@ -1,14 +1,10 @@
 const express = require("express");
 const router = express.Router();
 const db = require("../db");
-const auth = require("../middleware/auth");
-const requireDepartmentAccess = require("../middleware/requireDepartmentAccess");
 const {
   appendDistrictGeometryCondition,
   appendDistrictNameCondition,
 } = require("./queryFilters");
-
-router.use(auth, requireDepartmentAccess("health", "read"));
 
 function normalizeAdminType(adminType = "District") {
   const normalized = String(adminType || "District")
@@ -28,12 +24,7 @@ router.get("/", async (req, res) => {
   try {
     const conditions = ["geom IS NOT NULL"];
     const params = [];
-    appendDistrictGeometryCondition(
-      conditions,
-      params,
-      "health_facilities.geom",
-      district,
-    );
+    appendDistrictGeometryCondition(conditions, params, "hf.geom", district);
     const whereClause = conditions.length
       ? `WHERE ${conditions.join(" AND ")}`
       : "";
@@ -201,11 +192,8 @@ router.get("/served-population/geojson", async (req, res) => {
 
   try {
     const params = [normalizedAdminType];
-    let districtClause = "";
-    if (district) {
-      params.push(district);
-      districtClause = ` AND LOWER(au.name) = LOWER($${params.length})`;
-    }
+    const conditions = ["au.geom IS NOT NULL", "LOWER(au.type) = LOWER($1)"];
+    appendDistrictGeometryCondition(conditions, params, "au.geom", district);
 
     const query = `
             SELECT jsonb_build_object(
@@ -213,10 +201,31 @@ router.get("/served-population/geojson", async (req, res) => {
                 'features', COALESCE(jsonb_agg(feature), '[]'::jsonb)
             )
             FROM (
+        WITH admin_units AS (
+          SELECT
+            d.id,
+            d.code,
+            d.name,
+            'District'::text AS type,
+            d.population_total,
+            d.population_density,
+            d.geom
+          FROM districts d
+          UNION ALL
+          SELECT
+            a3.id,
+            a3.code,
+            a3.name,
+            a3.type::text AS type,
+            a3.population_total,
+            a3.population_density,
+            a3.geom
+          FROM admin3_units a3
+        )
                 SELECT jsonb_build_object(
                     'type', 'Feature',
                     'id', au.id,
-                    'geometry', ST_AsGeoJSON(COALESCE(au.simplified_geom, au.geom))::jsonb,
+          'geometry', ST_AsGeoJSON(au.geom)::jsonb,
                     'properties', jsonb_build_object(
                         'admin_unit_id', au.id,
                         'admin_unit_code', au.code,
@@ -232,7 +241,7 @@ router.get("/served-population/geojson", async (req, res) => {
                         'calculated_at', ar.calculated_at
                     )
                 ) AS feature
-                FROM administrative_units au
+                FROM admin_units au
                 JOIN (
                     SELECT
                         admin_unit_id,
@@ -248,9 +257,7 @@ router.get("/served-population/geojson", async (req, res) => {
                     GROUP BY admin_unit_id
                 ) ar
                   ON ar.admin_unit_id = au.id
-                WHERE au.geom IS NOT NULL
-                  AND LOWER(au.type) = LOWER($1)
-                  ${districtClause}
+                WHERE ${conditions.join(" AND ")}
                 ORDER BY au.name
             ) rowconf;
         `;
@@ -264,6 +271,195 @@ router.get("/served-population/geojson", async (req, res) => {
     });
   } catch (err) {
     console.error(err.message);
+    res.status(500).send("Server error");
+  }
+});
+
+// @route   GET api/v1/dashboard/health/access-zones/geojson
+// @desc    Get served/unserved health access zones plus facility points
+router.get("/access-zones/geojson", async (req, res) => {
+  const { district, buffer_km: bufferKmParam } = req.query;
+  const parsedBufferKm = Number(bufferKmParam);
+  const bufferKm =
+    Number.isFinite(parsedBufferKm) && parsedBufferKm > 0
+      ? Math.min(parsedBufferKm, 30)
+      : 8;
+  const bufferMeters = bufferKm * 1000;
+
+  try {
+    const params = [bufferMeters];
+    const districtConditions = ["d.geom IS NOT NULL"];
+    appendDistrictNameCondition(districtConditions, params, "d.name", district);
+    const districtWhereClause = districtConditions.length
+      ? `WHERE ${districtConditions.join(" AND ")}`
+      : "";
+
+    const query = `
+      WITH district_ids AS (
+        SELECT d.id, d.name, d.geom
+        FROM districts d
+        ${districtWhereClause}
+      ),
+      admin3_scope AS (
+        SELECT a3.id, a3.name, a3.geom, a3.district_id, di.name AS district_name
+        FROM admin3_units a3
+        JOIN district_ids di ON a3.district_id = di.id
+        WHERE a3.geom IS NOT NULL
+      ),
+      facility_scope AS (
+        SELECT
+          hf.id AS facility_id,
+          COALESCE(hf.name, '') AS facility_name,
+          hf.geom
+        FROM health_facilities hf
+        JOIN district_ids di
+          ON hf.geom IS NOT NULL
+         AND ST_Intersects(hf.geom, di.geom)
+        WHERE hf.geom IS NOT NULL
+      ),
+      facility_buffers AS (
+        SELECT
+          ST_UnaryUnion(
+            ST_Collect(ST_Buffer(fs.geom::geography, $1)::geometry)
+          ) AS geom
+        FROM facility_scope fs
+      ),
+      zone_raw AS (
+        SELECT
+          a3.id AS admin_unit_id,
+          a3.name AS admin_unit_name,
+          a3.district_name AS district_name,
+          a3.geom AS admin_unit_geom,
+          fb.geom AS buffer_geom
+        FROM admin3_scope a3
+        LEFT JOIN facility_buffers fb ON TRUE
+      ),
+      zone_geometries AS (
+        SELECT
+          zr.admin_unit_id,
+          zr.admin_unit_name,
+          zr.district_name,
+          zr.admin_unit_geom,
+          ST_Multi(
+            COALESCE(
+              ST_CollectionExtract(
+                CASE
+                  WHEN zr.buffer_geom IS NULL
+                    THEN ST_GeomFromText('MULTIPOLYGON EMPTY', 4326)
+                  ELSE ST_Intersection(zr.admin_unit_geom, zr.buffer_geom)
+                END,
+                3
+              ),
+              ST_GeomFromText('MULTIPOLYGON EMPTY', 4326)
+            )
+          ) AS served_geom,
+          ST_Multi(
+            COALESCE(
+              ST_CollectionExtract(
+                CASE
+                  WHEN zr.buffer_geom IS NULL
+                    THEN zr.admin_unit_geom
+                  ELSE ST_Difference(
+                    zr.admin_unit_geom,
+                    ST_Intersection(zr.admin_unit_geom, zr.buffer_geom)
+                  )
+                END,
+                3
+              ),
+              ST_GeomFromText('MULTIPOLYGON EMPTY', 4326)
+            )
+          ) AS unserved_geom
+        FROM zone_raw zr
+      ),
+      zone_metrics AS (
+        SELECT
+          zg.admin_unit_id,
+          zg.admin_unit_name,
+          zg.district_name,
+          zg.served_geom,
+          zg.unserved_geom,
+          CASE
+            WHEN ST_Area(ST_Transform(zg.admin_unit_geom, 3857)) > 0
+              THEN (
+                ST_Area(ST_Transform(zg.served_geom, 3857))
+                / ST_Area(ST_Transform(zg.admin_unit_geom, 3857))
+              ) * 100
+            ELSE 0
+          END AS served_pct
+        FROM zone_geometries zg
+      )
+      SELECT jsonb_build_object(
+        'type', 'FeatureCollection',
+        'features', COALESCE(jsonb_agg(feature), '[]'::jsonb)
+      )
+      FROM (
+        SELECT jsonb_build_object(
+          'type', 'Feature',
+          'id', CONCAT('served-', zm.admin_unit_id),
+          'geometry', ST_AsGeoJSON(zm.served_geom)::jsonb,
+          'properties', jsonb_build_object(
+            'zone_type', 'served',
+            'admin_unit_id', zm.admin_unit_id,
+            'admin_unit_name', zm.admin_unit_name,
+            'district_name', zm.district_name,
+            'coverage_distance_km', $1 / 1000.0,
+            'coverage_pct', zm.served_pct
+          )
+        ) AS feature
+        FROM zone_metrics zm
+        WHERE zm.served_geom IS NOT NULL
+          AND NOT ST_IsEmpty(zm.served_geom)
+
+        UNION ALL
+
+        SELECT jsonb_build_object(
+          'type', 'Feature',
+          'id', CONCAT('unserved-', zm.admin_unit_id),
+          'geometry', ST_AsGeoJSON(zm.unserved_geom)::jsonb,
+          'properties', jsonb_build_object(
+            'zone_type', 'unserved',
+            'admin_unit_id', zm.admin_unit_id,
+            'admin_unit_name', zm.admin_unit_name,
+            'district_name', zm.district_name,
+            'coverage_distance_km', $1 / 1000.0,
+            'coverage_pct', zm.served_pct
+          )
+        ) AS feature
+        FROM zone_metrics zm
+        WHERE zm.unserved_geom IS NOT NULL
+          AND NOT ST_IsEmpty(zm.unserved_geom)
+
+        UNION ALL
+
+        SELECT jsonb_build_object(
+          'type', 'Feature',
+          'id', CONCAT('facility-', fs.facility_id),
+          'geometry', ST_AsGeoJSON(fs.geom)::jsonb,
+          'properties', jsonb_build_object(
+            'zone_type', 'facility_point',
+            'facility_id', fs.facility_id,
+            'facility_name', fs.facility_name,
+            'coverage_distance_km', $1 / 1000.0
+          )
+        ) AS feature
+        FROM facility_scope fs
+      ) features;
+    `;
+
+    const result = await db.query(query, params);
+    res.json({
+      status: "success",
+      data: result.rows[0].jsonb_build_object || {
+        type: "FeatureCollection",
+        features: [],
+      },
+    });
+  } catch (err) {
+    console.error("Health access zones geojson error", {
+      message: err.message,
+      district,
+      bufferKm,
+    });
     res.status(500).send("Server error");
   }
 });
