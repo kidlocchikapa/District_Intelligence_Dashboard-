@@ -305,10 +305,16 @@ router.get("/access-zones/geojson", async (req, res) => {
       : "";
 
     const query = `
-      WITH district_scope AS (
+      WITH district_ids AS (
         SELECT d.id, d.name, d.geom
         FROM districts d
         ${districtWhereClause}
+      ),
+      admin3_scope AS (
+        SELECT a3.id, a3.name, a3.geom, a3.district_id, di.name AS district_name
+        FROM admin3_units a3
+        JOIN district_ids di ON a3.district_id = di.id
+        WHERE a3.geom IS NOT NULL
       ),
       school_scope AS (
         SELECT
@@ -316,9 +322,9 @@ router.get("/access-zones/geojson", async (req, res) => {
           COALESCE(ef.school_name, '') AS school_name,
           ef.geom
         FROM education_facilities ef
-        JOIN district_scope ds
+        JOIN district_ids di
           ON ef.geom IS NOT NULL
-         AND ST_Intersects(ef.geom, ds.geom)
+         AND ST_Intersects(ef.geom, di.geom)
         WHERE ef.geom IS NOT NULL
       ),
       school_buffers AS (
@@ -330,25 +336,27 @@ router.get("/access-zones/geojson", async (req, res) => {
       ),
       zone_raw AS (
         SELECT
-          ds.id AS district_id,
-          ds.name AS district_name,
-          ds.geom AS district_geom,
+          a3.id AS admin_unit_id,
+          a3.name AS admin_unit_name,
+          a3.district_name AS district_name,
+          a3.geom AS admin_unit_geom,
           sb.geom AS buffer_geom
-        FROM district_scope ds
+        FROM admin3_scope a3
         LEFT JOIN school_buffers sb ON TRUE
       ),
       zone_geometries AS (
         SELECT
-          zr.district_id,
+          zr.admin_unit_id,
+          zr.admin_unit_name,
           zr.district_name,
-          zr.district_geom,
+          zr.admin_unit_geom,
           ST_Multi(
             COALESCE(
               ST_CollectionExtract(
                 CASE
                   WHEN zr.buffer_geom IS NULL
                     THEN ST_GeomFromText('MULTIPOLYGON EMPTY', 4326)
-                  ELSE ST_Intersection(zr.district_geom, zr.buffer_geom)
+                  ELSE ST_Intersection(zr.admin_unit_geom, zr.buffer_geom)
                 END,
                 3
               ),
@@ -360,10 +368,10 @@ router.get("/access-zones/geojson", async (req, res) => {
               ST_CollectionExtract(
                 CASE
                   WHEN zr.buffer_geom IS NULL
-                    THEN zr.district_geom
+                    THEN zr.admin_unit_geom
                   ELSE ST_Difference(
-                    zr.district_geom,
-                    ST_Intersection(zr.district_geom, zr.buffer_geom)
+                    zr.admin_unit_geom,
+                    ST_Intersection(zr.admin_unit_geom, zr.buffer_geom)
                   )
                 END,
                 3
@@ -375,15 +383,16 @@ router.get("/access-zones/geojson", async (req, res) => {
       ),
       zone_metrics AS (
         SELECT
-          zg.district_id,
+          zg.admin_unit_id,
+          zg.admin_unit_name,
           zg.district_name,
           zg.served_geom,
           zg.unserved_geom,
           CASE
-            WHEN ST_Area(ST_Transform(zg.district_geom, 3857)) > 0
+            WHEN ST_Area(ST_Transform(zg.admin_unit_geom, 3857)) > 0
               THEN (
                 ST_Area(ST_Transform(zg.served_geom, 3857))
-                / ST_Area(ST_Transform(zg.district_geom, 3857))
+                / ST_Area(ST_Transform(zg.admin_unit_geom, 3857))
               ) * 100
             ELSE 0
           END AS served_pct
@@ -396,11 +405,12 @@ router.get("/access-zones/geojson", async (req, res) => {
       FROM (
         SELECT jsonb_build_object(
           'type', 'Feature',
-          'id', CONCAT('served-', zm.district_id),
+          'id', CONCAT('served-', zm.admin_unit_id),
           'geometry', ST_AsGeoJSON(zm.served_geom)::jsonb,
           'properties', jsonb_build_object(
             'zone_type', 'served',
-            'district_id', zm.district_id,
+            'admin_unit_id', zm.admin_unit_id,
+            'admin_unit_name', zm.admin_unit_name,
             'district_name', zm.district_name,
             'coverage_distance_km', $1 / 1000.0,
             'coverage_pct', zm.served_pct
@@ -414,11 +424,12 @@ router.get("/access-zones/geojson", async (req, res) => {
 
         SELECT jsonb_build_object(
           'type', 'Feature',
-          'id', CONCAT('unserved-', zm.district_id),
+          'id', CONCAT('unserved-', zm.admin_unit_id),
           'geometry', ST_AsGeoJSON(zm.unserved_geom)::jsonb,
           'properties', jsonb_build_object(
             'zone_type', 'unserved',
-            'district_id', zm.district_id,
+            'admin_unit_id', zm.admin_unit_id,
+            'admin_unit_name', zm.admin_unit_name,
             'district_name', zm.district_name,
             'coverage_distance_km', $1 / 1000.0,
             'coverage_pct', zm.served_pct
