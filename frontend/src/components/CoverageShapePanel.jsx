@@ -2,27 +2,25 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import {
   createSvgProjector,
   geometryToSvgPath,
-  getFeatureLabelPosition,
   getGeoBounds,
 } from "../lib/geo";
 import { formatNumber } from "../lib/format";
 import EmptyState from "./EmptyState";
 
-const ACCESS_COLORS = {
-  low: "#16a34a",
-  medium: "#f59e0b",
-  high: "#dc2626",
+const ZONE_COLORS = {
+  served: "#16a34a",
+  unserved: "#dc2626",
   unknown: "#94a3b8",
 };
 
-function normalizeAccessBand(value) {
+function normalizeZoneType(value) {
   const normalized = String(value || "")
     .trim()
     .toLowerCase();
 
-  if (normalized === "low") return "low";
-  if (normalized === "medium") return "medium";
-  if (normalized === "high") return "high";
+  if (normalized === "served") return "served";
+  if (normalized === "unserved") return "unserved";
+  if (normalized === "school_point") return "school_point";
   return "unknown";
 }
 
@@ -57,43 +55,89 @@ function CoverageShapePanel({
     return () => observer.disconnect();
   }, []);
 
-  const shapeItems = useMemo(() => {
+  const renderedFeatures = useMemo(() => {
     if (!features.length || !size.width || !size.height) {
-      return [];
+      return {
+        zonePolygons: [],
+        schoolPoints: [],
+        districtName: null,
+        servedPct: null,
+      };
     }
 
     const bounds = getGeoBounds(features);
     if (!Number.isFinite(bounds.minLon) || !Number.isFinite(bounds.minLat)) {
-      return [];
+      return {
+        zonePolygons: [],
+        schoolPoints: [],
+        districtName: null,
+        servedPct: null,
+      };
     }
 
     const project = createSvgProjector(bounds, size.width, size.height, 28);
+    const zonePolygons = [];
+    const schoolPoints = [];
+    let districtName = null;
+    let servedPct = null;
 
-    return features
-      .map((feature, index) => {
-        const properties = feature?.properties || {};
-        const band = normalizeAccessBand(properties.school_access_band);
-        const path = geometryToSvgPath(feature?.geometry, project);
-        const label = getFeatureLabelPosition(feature, project);
-        const coveragePct = Number(
-          properties.school_service_coverage_pct ?? properties.metric_value,
-        );
+    features.forEach((feature, index) => {
+      const properties = feature?.properties || {};
+      const zoneType = normalizeZoneType(properties.zone_type);
+      const geometryType = feature?.geometry?.type;
 
-        return {
-          id:
-            feature?.id ||
-            properties.admin_unit_id ||
-            properties.admin_unit_name ||
-            index,
-          name: properties.admin_unit_name || properties.name || "Area",
-          band,
-          fill: ACCESS_COLORS[band] || ACCESS_COLORS.unknown,
-          path,
-          label,
-          coveragePct: Number.isFinite(coveragePct) ? coveragePct : null,
-        };
-      })
-      .filter((item) => item.path);
+      if (!districtName && properties.district_name) {
+        districtName = properties.district_name;
+      }
+
+      if (
+        servedPct === null &&
+        Number.isFinite(Number(properties.coverage_pct))
+      ) {
+        servedPct = Number(properties.coverage_pct);
+      }
+
+      if (geometryType === "Point" || zoneType === "school_point") {
+        const coords = feature?.geometry?.coordinates;
+        if (
+          Array.isArray(coords) &&
+          Number.isFinite(coords[0]) &&
+          Number.isFinite(coords[1])
+        ) {
+          const [x, y] = project(coords);
+          schoolPoints.push({
+            id: feature?.id || properties.school_id || `school-${index}`,
+            x,
+            y,
+            name: properties.school_name || "School",
+          });
+        }
+        return;
+      }
+
+      const path = geometryToSvgPath(feature?.geometry, project);
+      if (!path) {
+        return;
+      }
+
+      zonePolygons.push({
+        id:
+          feature?.id ||
+          properties.admin_unit_id ||
+          properties.admin_unit_name ||
+          index,
+        zoneType,
+        fill: ZONE_COLORS[zoneType] || ZONE_COLORS.unknown,
+        path,
+      });
+    });
+
+    return {
+      zonePolygons,
+      schoolPoints,
+      districtName,
+      servedPct,
+    };
   }, [features, size.height, size.width]);
 
   if (!loading && !features.length) {
@@ -130,44 +174,31 @@ function CoverageShapePanel({
         >
           <rect width="100%" height="100%" fill="#f4f4ee" />
 
-          {shapeItems.map((item) => (
+          {renderedFeatures.zonePolygons.map((item) => (
             <path
               key={`coverage-shape-${item.id}`}
               d={item.path}
               fill={item.fill}
-              fillOpacity="0.92"
+              fillOpacity={item.zoneType === "unserved" ? "0.88" : "0.82"}
               stroke="#ffffff"
               strokeWidth="2"
               vectorEffect="non-scaling-stroke"
             />
           ))}
 
-          {shapeItems.length === 1 && shapeItems[0].label ? (
-            <g>
-              <text
-                x={shapeItems[0].label.x}
-                y={shapeItems[0].label.y - 8}
-                textAnchor="middle"
-                fill="#0f172a"
-                fontSize="14"
-                fontWeight="700"
-              >
-                {shapeItems[0].name}
-              </text>
-              {shapeItems[0].coveragePct !== null ? (
-                <text
-                  x={shapeItems[0].label.x}
-                  y={shapeItems[0].label.y + 12}
-                  textAnchor="middle"
-                  fill="#334155"
-                  fontSize="12"
-                  fontWeight="600"
-                >
-                  Coverage: {formatNumber(shapeItems[0].coveragePct, 1)}%
-                </text>
-              ) : null}
-            </g>
-          ) : null}
+          {renderedFeatures.schoolPoints.map((point) => (
+            <circle
+              key={`school-point-${point.id}`}
+              cx={point.x}
+              cy={point.y}
+              r="2.6"
+              fill="#0f172a"
+              fillOpacity="0.95"
+              stroke="#ffffff"
+              strokeWidth="0.9"
+              vectorEffect="non-scaling-stroke"
+            />
+          ))}
         </svg>
 
         {loading ? (
@@ -178,25 +209,46 @@ function CoverageShapePanel({
           </div>
         ) : null}
 
+        <div className="pointer-events-none absolute left-4 top-4 rounded-xl border border-white/80 bg-white/92 px-3 py-2 shadow-sm backdrop-blur-md">
+          <p className="text-[10px] font-bold uppercase tracking-[0.14em] text-slate/50">
+            {renderedFeatures.districtName || "District"}
+          </p>
+          <p className="mt-1 text-xs font-semibold text-slate/80">
+            5km school access buffer
+          </p>
+          {renderedFeatures.servedPct !== null ? (
+            <p className="mt-1 text-xs font-bold text-slate/80">
+              Served area: {formatNumber(renderedFeatures.servedPct, 1)}%
+            </p>
+          ) : null}
+        </div>
+
         <div className="pointer-events-none absolute right-4 bottom-4 rounded-2xl border border-white/80 bg-white/92 px-4 py-3 shadow-md backdrop-blur-md min-w-[220px]">
           <p className="text-[10px] font-bold uppercase tracking-[0.15em] text-slate/50 leading-none mb-2.5">
-            Access Levels
+            Access Zones
           </p>
           <div className="grid grid-cols-2 gap-2">
             {[
-              { key: "low", label: "High Access" },
-              { key: "medium", label: "Medium Access" },
-              { key: "high", label: "Low Access" },
+              { key: "served", label: "Served (<=5km)" },
+              { key: "unserved", label: "No Access (>5km)" },
+              { key: "school", label: "School Point" },
               { key: "unknown", label: "Unknown" },
             ].map((item) => (
               <div
                 key={item.key}
                 className="flex items-center gap-2 rounded-full bg-white/80 px-3 py-1.5"
               >
-                <span
-                  className="h-2.5 w-2.5 rounded-full border border-slate/10"
-                  style={{ backgroundColor: ACCESS_COLORS[item.key] }}
-                />
+                {item.key === "school" ? (
+                  <span className="h-2.5 w-2.5 rounded-full border border-white bg-slate-900" />
+                ) : (
+                  <span
+                    className="h-2.5 w-2.5 rounded-full border border-slate/10"
+                    style={{
+                      backgroundColor:
+                        ZONE_COLORS[item.key] || ZONE_COLORS.unknown,
+                    }}
+                  />
+                )}
                 <span className="text-[10px] font-semibold text-slate/70 uppercase tracking-wide">
                   {item.label}
                 </span>
