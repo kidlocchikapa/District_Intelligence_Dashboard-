@@ -34,6 +34,7 @@ function CoverageShapePanel({
   servedColor,
   unservedColor,
   pointColor,
+  pointLabel = "Facility Point",
 }) {
   const wrapperRef = useRef(null);
   const [size, setSize] = useState({ width: 0, height: 0 });
@@ -270,7 +271,7 @@ function CoverageShapePanel({
             {[
               { key: "served", label: `Served (<=${renderedFeatures.coverageDistanceKm || 5}km)` },
               { key: "unserved", label: `No Access (>${renderedFeatures.coverageDistanceKm || 5}km)` },
-              { key: "school", label: "Facility Point" },
+              { key: "school", label: pointLabel },
               { key: "unknown", label: "Unknown" },
             ].map((item) => (
               <div

@@ -883,6 +883,7 @@ function EducationPage() {
                 geojson={schoolAccessZones.data}
                 heightClass="h-full w-full"
                 loading={schoolAccessZones.loading}
+                pointLabel="School Point"
               />
             </div>
           </div>
