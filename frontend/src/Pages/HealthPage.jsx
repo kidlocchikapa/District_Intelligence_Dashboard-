@@ -1,4 +1,4 @@
-import { Activity, HeartPulse, Bed, Users, Download } from "lucide-react";
+import { Activity, HeartPulse, Bed, Users, Download, Building2, CheckCircle2, AlertCircle, Building } from "lucide-react";
 import { useDashboardData } from "../hooks/useDashboardData";
 import { useDistrict } from "../context/DistrictContext";
 import { useDistrictOptions } from "../hooks/useDistrictOptions";
@@ -102,6 +102,28 @@ function HealthPage() {
   };
 
   const formatStat = (val) => Number(val).toLocaleString();
+
+  const facilities = healthLocations?.data?.features || [];
+  const totalFacilities = facilities.length;
+  
+  const functionalFacilities = facilities.filter(
+    (f) => f?.properties?.status === "Functional"
+  ).length;
+
+  const nonFunctionalFacilities = facilities.filter(
+    (f) => {
+      const status = f?.properties?.status;
+      return status === "Non-functional" || status === "Closed" || status === "Closed (Temporary)";
+    }
+  ).length;
+
+  const govFacilities = facilities.filter(
+    (f) => f?.properties?.ownership === "Government"
+  ).length;
+
+  const privateFacilities = facilities.filter(
+    (f) => f?.properties?.ownership !== "Government"
+  ).length;
   const facilityChartData = (districtHealthSummary.data || [])
     .filter((metric) => metric.metric_name === "health_facility_count")
     .map((metric) => ({
@@ -205,24 +227,34 @@ function HealthPage() {
         </div>
 
         {/* Stats Row */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-10">
-          {healthSummary.loading
-            ? [...Array(3)].map((_, i) => <StatCardSkeleton key={i} />)
+        <div className="grid grid-cols-2 md:grid-cols-5 gap-6 mb-10">
+          {healthLocations.loading
+            ? [...Array(5)].map((_, i) => <StatCardSkeleton key={i} />)
             : [
                 {
-                  label: "Facilities",
-                  value: formatStat(findMetricTotal("health_facility_count")),
+                  label: "Total Facilities",
+                  value: formatStat(totalFacilities),
                   icon: HeartPulse,
                 },
                 {
-                  label: "Total Beds",
-                  value: formatStat(findMetricTotal("beds_count_total")),
-                  icon: Bed,
+                  label: "Functional",
+                  value: formatStat(functionalFacilities),
+                  icon: CheckCircle2,
                 },
                 {
-                  label: "Patient Visits",
-                  value: formatStat(findMetricTotal("patient_visits_total")),
-                  icon: Users,
+                  label: "Non-functional",
+                  value: formatStat(nonFunctionalFacilities),
+                  icon: AlertCircle,
+                },
+                {
+                  label: "Govt Owned",
+                  value: formatStat(govFacilities),
+                  icon: Building2,
+                },
+                {
+                  label: "Private / Other",
+                  value: formatStat(privateFacilities),
+                  icon: Building,
                 },
               ].map((stat, i) => (
                 <div
