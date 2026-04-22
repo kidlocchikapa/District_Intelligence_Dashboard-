@@ -263,6 +263,7 @@ function OverviewPage() {
                 subtitle={null}
                 heightClass="h-full w-full"
                 loading={densityMap.loading}
+                metadataUrl="/worldpop/zomba_ppp_2020.preview.json"
               />
             </div>
           </div>
