@@ -1,5 +1,6 @@
 #import libaries
 import json
+import logging
 import os
 import shutil
 import tempfile
@@ -17,6 +18,39 @@ from pipeline_config import MISSING_VALUE_TOKENS
 GEOSPATIAL_FILE_EXTENSIONS = ['.shp', '.geojson', '.gpkg']
 TABULAR_FILE_EXTENSIONS = ['.csv', '.xls', '.xlsx', '.json']
 SUPPORTED_FILE_EXTENSIONS = GEOSPATIAL_FILE_EXTENSIONS + TABULAR_FILE_EXTENSIONS
+
+
+LOGGER = logging.getLogger('etl.ingest')
+
+
+class IngestError(Exception):
+    def __init__(self, user_message, step_name, original_error=None):
+        self.user_message = user_message
+        self.step_name = step_name
+        self.original_error = original_error
+        super().__init__(f"{user_message} (step: {step_name})")
+
+
+def log_step(step_name, message, level='info'):
+    log_method = getattr(LOGGER, level, LOGGER.info)
+    log_method(f"[{step_name}] {message}")
+
+
+def run_step(step_name, user_message_on_error, fn, *args, **kwargs):
+    log_step(step_name, 'started')
+    try:
+        result = fn(*args, **kwargs)
+    except IngestError:
+        raise
+    except Exception as exc:
+        log_step(step_name, f"failed: {exc}", level='error')
+        raise IngestError(
+            user_message=user_message_on_error,
+            step_name=step_name,
+            original_error=exc,
+        ) from exc
+    log_step(step_name, 'completed')
+    return result
 
 # normalize column names by converting to lowercase, replacing non-alphanumeric characters with underscores,
 # and collapsing multiple underscores
@@ -182,12 +216,23 @@ def extract_source(source_type, file_path=None, api_url=None, api_headers=None):
     if source_type == 'file':
         if not file_path:
             raise ValueError('file_path is required for file extraction')
-        return read_file(file_path)
+        return run_step(
+            step_name='extract_source_file',
+            user_message_on_error='Could not read the provided file. Verify file path and format.',
+            fn=read_file,
+            file_path=file_path,
+        )
 
     if source_type == 'api':
         if not api_url:
             raise ValueError('api_url is required for API extraction')
-        return extract_from_api(api_url, headers=api_headers)
+        return run_step(
+            step_name='extract_source_api',
+            user_message_on_error='Could not fetch data from API. Check URL, headers, and network access.',
+            fn=extract_from_api,
+            api_url=api_url,
+            headers=api_headers,
+        )
 
     raise ValueError(f'Unsupported source type for tabular extraction: {source_type}')
 
@@ -218,26 +263,49 @@ def prepare_dataframe(df):
 
 # Load a reference gazetteer from a specified path or from the database, and return it as a prepared DataFrame
 def load_reference_gazetteer(session, gazetteer_path=None):
-    if gazetteer_path and os.path.exists(gazetteer_path):
-        return read_file(gazetteer_path)
+    try:
+        if gazetteer_path and os.path.exists(gazetteer_path):
+            log_step('load_reference_gazetteer', f'using gazetteer file: {gazetteer_path}')
+            return run_step(
+                step_name='load_reference_gazetteer_from_file',
+                user_message_on_error='Could not read gazetteer file. Verify the file path and format.',
+                fn=read_file,
+                file_path=gazetteer_path,
+            )
 
-    gazetteer_df = read_table(
-        session,
-        'master_gazetteer',
-        columns='geo_code, district_name, ward_name, village_name, normalized_district_name, normalized_ward_name, normalized_village_name',
-    )
-
-    if gazetteer_df.empty:
-        return pd.DataFrame(
-            columns=[
-                'geo_code',
-                'district_name',
-                'ward_name',
-                'village_name',
-                'normalized_district_name',
-                'normalized_ward_name',
-                'normalized_village_name',
-            ]
+        gazetteer_df = run_step(
+            step_name='load_reference_gazetteer_from_db',
+            user_message_on_error='Could not load gazetteer reference data from the database.',
+            fn=read_table,
+            session=session,
+            table_name='master_gazetteer',
+            columns='geo_code, district_name, ward_name, village_name, normalized_district_name, normalized_ward_name, normalized_village_name',
         )
 
-    return prepare_dataframe(gazetteer_df)
+        if gazetteer_df.empty:
+            return pd.DataFrame(
+                columns=[
+                    'geo_code',
+                    'district_name',
+                    'ward_name',
+                    'village_name',
+                    'normalized_district_name',
+                    'normalized_ward_name',
+                    'normalized_village_name',
+                ]
+            )
+
+        return run_step(
+            step_name='prepare_gazetteer_dataframe',
+            user_message_on_error='Gazetteer data was loaded but could not be normalized.',
+            fn=prepare_dataframe,
+            df=gazetteer_df,
+        )
+    except IngestError:
+        raise
+    except Exception as exc:
+        raise IngestError(
+            user_message='Failed to prepare reference gazetteer data.',
+            step_name='load_reference_gazetteer',
+            original_error=exc,
+        ) from exc
