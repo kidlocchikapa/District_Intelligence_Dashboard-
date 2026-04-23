@@ -189,27 +189,32 @@ function DisasterPage() {
         </div>
 
         {/* Map Section */}
-        <div className="border border-gray-100 rounded p-8 shadow-sm bg-white h-[600px] flex flex-col">
-          <h3 className="text-[16px] font-extrabold mb-6">
-            Hazard Zone Mapping
-          </h3>
-          <div className="flex-1 rounded overflow-hidden relative border border-gray-50 bg-gray-50">
-            {floodRiskZones.loading ? (
-              <div className="absolute inset-0 flex items-center justify-center animate-pulse">
-                <span className="text-gray-400 font-bold uppercase tracking-widest">
-                  Loading Risk Data...
-                </span>
-              </div>
-            ) : (
-              <FloodRiskRasterPanel
-                geojson={floodRiskZones.data}
-                title="Flood Risk Raster Surface"
-                subtitle="Rasterized directly from database flood risk classes (low, medium, high)."
-                heightClass="h-full w-full"
-                loading={floodRiskZones.loading}
-              />
-            )}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-8 mb-10">
+          <div className="border border-gray-100 rounded p-8 shadow-sm bg-white h-[600px] flex flex-col">
+            <h3 className="text-[16px] font-extrabold mb-6">
+              Flood Risk Zone Mapping
+            </h3>
+            <div className="flex-1 rounded overflow-hidden relative border border-gray-50 bg-gray-50">
+              {floodRiskZones.loading ? (
+                <div className="absolute inset-0 flex items-center justify-center animate-pulse">
+                  <span className="text-gray-400 font-bold uppercase tracking-widest">
+                    Loading Risk Data...
+                  </span>
+                </div>
+              ) : (
+                <FloodRiskRasterPanel
+                  geojson={floodRiskZones.data}
+                  title="Flood Risk Raster Surface"
+                  subtitle="Rasterized directly from database flood risk classes (low, medium, high)."
+                  heightClass="h-full w-full"
+                  loading={floodRiskZones.loading}
+                />
+              )}
+            </div>
           </div>
+          
+          {/* Placeholder for future right-side content */}
+          <div className="hidden md:block" />
         </div>
       </div>
     </div>
