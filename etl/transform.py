@@ -9,6 +9,7 @@ import pandas as pd
 from shapely.geometry import MultiPolygon, Point, Polygon, shape
 from shapely import wkt
 from shapely.validation import make_valid
+from shapely.ops import unary_union
 
 from pipeline_config import GEOGRAPHIC_COLUMNS
 
@@ -735,6 +736,7 @@ def normalize_health_dataset(df):
     working['services_offered'] = working['services_offered'].fillna(working.get('healthcare'))
     working['services_offered'] = working['services_offered'].fillna(working.get('healthcare:speciality'))
     return working
+
 
 def to_gdf(df, lon_col='longitude', lat_col='latitude', crs='EPSG:4326'):
     working = df.copy()

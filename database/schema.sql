@@ -160,7 +160,6 @@ CREATE TABLE IF NOT EXISTS welfare_beneficiary_indicators (
     program_id INTEGER REFERENCES welfare_programs(id) ON DELETE CASCADE,
     ta_id INTEGER REFERENCES admin3_units(id) ON DELETE SET NULL,
     district_id INTEGER REFERENCES districts(id) ON DELETE SET NULL,
-    has_health_access BOOLEAN DEFAULT FALSE,
     affected_by_flood BOOLEAN DEFAULT FALSE,
     has_school_access BOOLEAN DEFAULT FALSE,
     has_health_facility_access BOOLEAN DEFAULT FALSE,

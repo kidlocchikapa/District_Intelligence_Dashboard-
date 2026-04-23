@@ -22,6 +22,7 @@ from load import (
     load_unified_indicators,
 )
 from load import load_worldpop_age_sex
+from welfare import process_welfare_beneficiary_dataset
 from pipeline_config import DATASET_CONFIG
 from transform import (
     add_harmonized_names,
@@ -436,6 +437,17 @@ def process_tabular_dataset(
         'rows_processed': rows_processed,
         'rows_loaded': rows_loaded,
         'rows_flagged': rows_flagged,
+        'indicators_loaded': indicators_loaded,
+    }
+
+
+    return {
+        'dataset_type': dataset_type,
+        'table_name': table_name,
+        'rows_read': len(raw_df),
+        'rows_processed': len(transformed_df),
+        'rows_loaded': rows_loaded,
+        'rows_flagged': 0,
         'indicators_loaded': indicators_loaded,
     }
 
@@ -961,6 +973,18 @@ def main():
                 worldpop_timeout=args.worldpop_timeout,
                 worldpop_max_attempts=args.worldpop_max_attempts,
                 analysis_date=parsed_analysis_date,
+            )
+        elif args.type == 'welfare_beneficiary':
+            result = run_step(
+                step_name='dispatch_welfare_beneficiary_pipeline',
+                user_message_on_error='Welfare beneficiary pipeline failed.',
+                fn=process_welfare_beneficiary_dataset,
+                session=session,
+                file_path=args.file,
+                api_url=args.api_url,
+                api_headers=headers if 'headers' in locals() else {},
+                health_dist_km=args.coverage_distance_km if args.coverage_distance_km != 5.0 else 8.0,
+                school_dist_km=3.0 if args.coverage_distance_km == 5.0 else args.coverage_distance_km,
             )
         else:
             source_type = 'api' if args.source_type == 'api' else 'file'

@@ -85,6 +85,12 @@ def fetch_admin_unit_lookup(session):
     return {'by_name': lookup, 'by_id': by_id}
 
 
+def fetch_welfare_programs(session):
+    query = text("SELECT program_id, program_name FROM welfare_programs")
+    rows = session.execute(query).mappings().all()
+    return {row['program_name'].strip().lower(): row['program_id'] for row in rows}
+
+
 def fetch_spatial_admin_lookup(session):
     query = text(
         """
@@ -235,7 +241,37 @@ def assign_ward_ids(df, admin_lookup, spatial_lookup=None):
     working['ward_id'] = ward_ids
     working['district_id'] = district_ids
     working['geo_code'] = geo_codes
+    working['geo_code'] = geo_codes
     return working
+
+
+def load_welfare_beneficiary_indicators(session, indicators_df):
+    if indicators_df.empty:
+        return 0
+
+    records = indicators_df.to_dict('records')
+    for record in records:
+        # Check if beneficiary_id is present
+        if pd.isna(record.get('beneficiary_id')):
+            continue
+
+        query = text(
+            """
+            INSERT INTO welfare_beneficiary_indicators (
+                beneficiary_id, program_id, ta_id, district_id,
+                affected_by_flood, has_school_access, has_health_facility_access
+            ) VALUES (
+                :beneficiary_id, :program_id, :ta_id, :district_id,
+                :affected_by_flood, :has_school_access, :has_health_facility_access
+            )
+        """
+        )
+        # Handle potential duplicates or existing records by deleting first if we want to refresh
+        # Or just use a simple insert if it's a new load
+        session.execute(query, record)
+
+    session.commit()
+    return len(records)
 
 # This function fetches administrative unit data from the database and returns it as a DataFrame, which can be used
 #  for indicator processing and assignment
