@@ -16,6 +16,7 @@ const {
   validateWelfareUpdate,
   validateDisasterCreate,
   validateDisasterUpdate,
+  validateWelfareProgramCreate,
 } = require("../validators/adminDataValidation");
 const {
   getAuthUser,
@@ -1453,6 +1454,34 @@ router.post("/health", async (req, res) => {
         status: "error",
         message: err.message || "Unable to create health record",
       });
+  }
+});
+
+router.post("/welfare/programs", async (req, res) => {
+  const { error, value } = validateWelfareProgramCreate(req.body);
+  if (error) {
+    return res.status(400).json({ status: "error", message: error });
+  }
+
+  try {
+    const result = await db.query(
+      `INSERT INTO welfare_programs (program_name, department, description)
+       VALUES ($1, $2, $3)
+       RETURNING program_id`,
+      [value.program_name, value.department, value.description],
+    );
+
+    res.status(201).json({
+      status: "success",
+      message: "Welfare program created successfully",
+      data: { program_id: result.rows[0].program_id },
+    });
+  } catch (err) {
+    console.error("Admin welfare program create error:", err.message);
+    res.status(500).json({
+      status: "error",
+      message: err.message || "Unable to create welfare program",
+    });
   }
 });
 
