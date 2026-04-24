@@ -971,6 +971,35 @@ router.get("/welfare", async (req, res) => {
   }
 });
 
+router.get("/welfare/programs", async (req, res) => {
+  try {
+    const result = await db.query(
+      `
+        SELECT
+          program_id,
+          program_name,
+          department,
+          description
+        FROM welfare_programs
+        ORDER BY program_name
+      `,
+    );
+
+    return res.json({
+      status: "success",
+      data: {
+        items: result.rows,
+      },
+    });
+  } catch (error) {
+    console.error("Admin welfare program list error:", error.message);
+    return res.status(500).json({
+      status: "error",
+      message: "Unable to load welfare programs",
+    });
+  }
+});
+
 router.get("/disaster", async (req, res) => {
   try {
     const page = parsePositiveInteger(req.query.page, 1);

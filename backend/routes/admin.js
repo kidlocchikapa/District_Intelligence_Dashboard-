@@ -227,6 +227,7 @@ const DATASET_DEPARTMENT_MAP = {
   education: "education",
   health: "health",
   welfare: "welfare",
+  welfare_beneficiary: "welfare",
   disaster: "disaster",
 };
 
@@ -590,6 +591,7 @@ function buildEtlArgs({
   apiHeaders,
   gazetteerPath,
   district,
+  programId,
   missingDataStrategy,
   worldpopYear,
   worldpopDataset,
@@ -617,6 +619,10 @@ function buildEtlArgs({
 
   if (district) {
     args.push("--district", district);
+  }
+
+  if (programId !== undefined && programId !== null && programId !== "") {
+    args.push("--program-id", String(programId));
   }
 
   if (worldpopYear) {
@@ -964,6 +970,7 @@ router.post("/upload", [auth, upload.single("file")], async (req, res) => {
     sourceType = "file",
     gazetteerPath,
     district,
+    programId,
     missingDataStrategy = "flag",
     worldpopYear = 2020,
     worldpopDataset = "wpgppop",
@@ -986,6 +993,16 @@ router.post("/upload", [auth, upload.single("file")], async (req, res) => {
       .json({ status: "error", message: "No file uploaded" });
   }
 
+  if (
+    type === "welfare_beneficiary" &&
+    (programId === undefined || programId === null || String(programId).trim() === "")
+  ) {
+    return res.status(400).json({
+      status: "error",
+      message: "Program id is required for welfare beneficiary uploads",
+    });
+  }
+
   const department = DATASET_DEPARTMENT_MAP[type];
   if (department) {
     const allowed = await requireDepartmentCapability(req, res, department, "write");
@@ -1002,6 +1019,7 @@ router.post("/upload", [auth, upload.single("file")], async (req, res) => {
     filePath: path.resolve(file.path),
     gazetteerPath,
     district,
+    programId,
     missingDataStrategy,
     worldpopYear,
     worldpopDataset,
