@@ -896,6 +896,7 @@ def main():
     parser.add_argument('--analysis-type', action='append', choices=sorted(ANALYSIS_TYPES), help='Spatial analysis to run')
     parser.add_argument('--admin-level', choices=['District', 'TA', 'Village'], help='Administrative level for analysis')
     parser.add_argument('--coverage-distance-km', type=float, default=5.0, help='Coverage buffer distance in kilometers')
+    parser.add_argument('--program-id', type=int, help='Welfare program id to attach to welfare beneficiary uploads')
     parser.add_argument(
         '--missing-data-strategy',
         default='flag',
@@ -910,6 +911,12 @@ def main():
         fn=get_session,
     )
     selected_group_districts = DISTRICT_GROUPS.get(args.district_group, [])
+    headers = run_step(
+        step_name='parse_api_headers',
+        user_message_on_error='Could not parse API headers. Use KEY=VALUE format.',
+        fn=parse_headers,
+        header_values=args.api_header,
+    )
 
     try:
         if args.type == 'worldpop':
@@ -982,7 +989,8 @@ def main():
                 session=session,
                 file_path=args.file,
                 api_url=args.api_url,
-                api_headers=headers if 'headers' in locals() else {},
+                api_headers=headers,
+                program_id=args.program_id,
                 health_dist_km=args.coverage_distance_km if args.coverage_distance_km != 5.0 else 8.0,
                 school_dist_km=3.0 if args.coverage_distance_km == 5.0 else args.coverage_distance_km,
             )
@@ -998,13 +1006,6 @@ def main():
                     user_message='An API URL is required for API-based ingestion.',
                     step_name='validate_tabular_api_url',
                 )
-
-            headers = run_step(
-                step_name='parse_api_headers',
-                user_message_on_error='Could not parse API headers. Use KEY=VALUE format.',
-                fn=parse_headers,
-                header_values=args.api_header,
-            )
 
             result = run_step(
                 step_name='dispatch_tabular_pipeline',

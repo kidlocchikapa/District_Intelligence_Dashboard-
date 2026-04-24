@@ -1,14 +1,15 @@
 import logging
 import os
 from datetime import datetime
+
 import pandas as pd
 import geopandas as gpd
 from sqlalchemy import text
-from shapely.geometry import Point
 from shapely.ops import unary_union
 
+from ingest import extract_source
+from db_utils import log_etl_run
 from load import (
-    extract_source,
     fetch_admin_unit_lookup,
     fetch_spatial_admin_lookup,
     assign_ward_ids,
@@ -17,7 +18,6 @@ from load import (
     fetch_welfare_programs,
     run_step,
     log_step,
-    log_etl_run,
 )
 from transform import (
     standardize_schema,
@@ -44,6 +44,24 @@ def normalize_welfare_beneficiary(df):
         working['household_size'] = (
             pd.to_numeric(working['household_size'], errors='coerce').fillna(1).astype(int)
         )
+
+    for column in ['start_date', 'end_date']:
+        if column in working.columns:
+            numeric_dates = pd.to_numeric(working[column], errors='coerce')
+            excel_mask = numeric_dates.notna()
+            parsed_dates = pd.to_datetime(working[column], errors='coerce')
+            if excel_mask.any():
+                parsed_dates.loc[excel_mask] = pd.to_datetime(
+                    numeric_dates.loc[excel_mask],
+                    unit='D',
+                    origin='1899-12-30',
+                    errors='coerce',
+                )
+            working[column] = parsed_dates.dt.date
+
+    if 'status' in working.columns:
+        working['status'] = working['status'].astype(str).str.strip().str.lower()
+        working['status'] = working['status'].replace({'': pd.NA, 'nan': pd.NA, '<na>': pd.NA})
 
     return working
 
@@ -99,6 +117,7 @@ def process_welfare_beneficiary_dataset(
     file_path=None,
     api_url=None,
     api_headers=None,
+    program_id=None,
     health_dist_km=8.0,
     school_dist_km=3.0,
 ):
@@ -133,27 +152,36 @@ def process_welfare_beneficiary_dataset(
         df=transformed_df,
     )
 
-    # Link to programs
     programs_lookup = run_step(
         step_name='fetch_welfare_programs',
         user_message_on_error='Could not fetch welfare programs from database.',
         fn=fetch_welfare_programs,
         session=session,
     )
+    valid_program_ids = set(programs_lookup.values())
 
-    def map_program_id(name):
-        return programs_lookup.get(str(name).strip().lower())
+    if program_id is not None:
+        if int(program_id) not in valid_program_ids:
+            raise ValueError(f'Program id {program_id} was not found in welfare_programs')
+        transformed_df['program_id'] = int(program_id)
+    else:
+        if 'program_name' not in transformed_df.columns or transformed_df['program_name'].isna().all():
+            raise ValueError(
+                'A welfare beneficiary upload must include program_name in the file or provide program_id at upload time'
+            )
 
-    transformed_df['program_id'] = transformed_df['program_name'].apply(map_program_id)
+        def map_program_id(name):
+            return programs_lookup.get(str(name).strip().lower())
 
-    # Check for missing programs
-    missing_programs = transformed_df[transformed_df['program_id'].isna()]['program_name'].unique()
-    if len(missing_programs) > 0:
-        log_step(
-            'process_welfare',
-            f"Warning: Found {len(missing_programs)} programs not in DB: {missing_programs}",
-            level='warning',
-        )
+        transformed_df['program_id'] = transformed_df['program_name'].apply(map_program_id)
+
+        missing_programs = transformed_df[transformed_df['program_id'].isna()]['program_name'].dropna().unique()
+        if len(missing_programs) > 0:
+            log_step(
+                'process_welfare',
+                f"Warning: Found {len(missing_programs)} programs not in DB: {missing_programs}",
+                level='warning',
+            )
 
     # Geography assignment
     admin_lookup = run_step(
@@ -265,6 +293,7 @@ def process_welfare_beneficiary_dataset(
         status='Success',
         metadata={
             'indicator_rows_loaded': indicators_loaded,
+            'program_id': int(program_id) if program_id is not None else None,
             'health_dist_km': health_dist_km,
             'school_dist_km': school_dist_km,
         },
