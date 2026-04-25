@@ -16,6 +16,7 @@ const datasetTypes = [
   "education",
   "health",
   "welfare",
+  "welfare_beneficiary",
   "disaster",
 ];
 
@@ -366,8 +367,10 @@ function AdminPage() {
   const [uploadFormState, setUploadFormState] = useState({
     type: "education",
     gazetteerPath: "sample_data/master_gazetteer.csv",
+    programId: "",
     file: null,
   });
+  const [welfarePrograms, setWelfarePrograms] = useState([]);
   const [status, setStatus] = useState("");
   const [jobs, setJobs] = useState([]);
   const [selectedJobId, setSelectedJobId] = useState("");
@@ -573,6 +576,34 @@ function AdminPage() {
   }, [isAuthenticated]);
 
   useEffect(() => {
+    if (!isAuthenticated) {
+      setWelfarePrograms([]);
+      return;
+    }
+
+    let ignore = false;
+
+    async function loadWelfarePrograms() {
+      try {
+        const response = await fetchJson("/admin-data/welfare/programs");
+        if (!ignore) {
+          setWelfarePrograms(response.items || []);
+        }
+      } catch {
+        if (!ignore) {
+          setWelfarePrograms([]);
+        }
+      }
+    }
+
+    loadWelfarePrograms();
+
+    return () => {
+      ignore = true;
+    };
+  }, [isAuthenticated]);
+
+  useEffect(() => {
     resetEditorState();
     loadStewardshipList();
     loadRecomputeStatus();
@@ -590,9 +621,20 @@ function AdminPage() {
       return;
     }
 
+    if (
+      uploadFormState.type === "welfare_beneficiary" &&
+      !String(uploadFormState.programId || "").trim()
+    ) {
+      setStatus("Select a welfare program before starting the beneficiary upload.");
+      return;
+    }
+
     const formData = new FormData();
     formData.append("type", uploadFormState.type);
     formData.append("gazetteerPath", uploadFormState.gazetteerPath);
+    if (uploadFormState.type === "welfare_beneficiary") {
+      formData.append("programId", uploadFormState.programId);
+    }
     formData.append("file", uploadFormState.file);
 
     setStatus(`Starting ${uploadFormState.type} upload in the background...`);
@@ -1335,6 +1377,30 @@ function AdminPage() {
                 ))}
               </select>
             </label>
+
+            {uploadFormState.type === "welfare_beneficiary" ? (
+              <label className="text-sm text-slate-700">
+                Welfare program
+                <select
+                  className="mt-2 w-full rounded-lg border border-slate-300 bg-white px-4 py-3 text-slate-900"
+                  value={uploadFormState.programId}
+                  disabled={!isAuthenticated || welfarePrograms.length === 0}
+                  onChange={(event) =>
+                    setUploadFormState((state) => ({
+                      ...state,
+                      programId: event.target.value,
+                    }))
+                  }
+                >
+                  <option value="">Select a program</option>
+                  {welfarePrograms.map((program) => (
+                    <option key={program.program_id} value={program.program_id}>
+                      {program.program_name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            ) : null}
 
             <label className="text-sm text-slate-700">
               File
