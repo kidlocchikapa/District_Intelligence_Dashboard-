@@ -6,7 +6,7 @@ const schemaStatements = [
       id SERIAL PRIMARY KEY,
       user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
       department VARCHAR(50) NOT NULL CHECK (
-        department IN ('education', 'health', 'welfare', 'disaster')
+        department IN ('education', 'health', 'social_welfare', 'disaster')
       ),
       can_read BOOLEAN NOT NULL DEFAULT TRUE,
       can_write BOOLEAN NOT NULL DEFAULT FALSE,
@@ -38,7 +38,17 @@ const schemaStatements = [
 
         ALTER TABLE users
         ADD CONSTRAINT users_role_check
-        CHECK (role IN ('super_admin', 'admin', 'department_admin', 'analyst', 'user'));
+        CHECK (role IN (
+          'super_admin', 
+          'admin', 
+          'education_admin', 
+          'health_admin', 
+          'disaster_admin', 
+          'welfare_admin',
+          'department_admin', 
+          'analyst', 
+          'user'
+        ));
       END IF;
     END $$;
   `,
