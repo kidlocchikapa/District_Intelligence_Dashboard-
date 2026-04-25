@@ -9,6 +9,7 @@ const auth = require("../middleware/auth");
 const requireRole = require("../middleware/requireRole");
 const ensureRbacSchema = require("../helpers/rbacSchema");
 const {
+  validateAdminUserCreate,
   validateAdminUserUpdate,
   validateReplaceDepartmentPermissions,
 } = require("../validators/rbacValidation");
@@ -20,6 +21,7 @@ const {
   replaceUserDepartmentPermissions,
   userHasDepartmentAccess,
 } = require("../services/rbacService");
+const { hashPassword } = require("../helpers/authHelpers");
 
 const router = express.Router();
 const uploadDirectory = path.resolve(__dirname, "../../uploads");
@@ -229,6 +231,7 @@ const DATASET_DEPARTMENT_MAP = {
   welfare: "welfare",
   welfare_beneficiary: "welfare",
   disaster: "disaster",
+  flood: "disaster",
 };
 
 const TASK_DEPARTMENT_MAP = {
@@ -582,6 +585,87 @@ router.put("/users/:id/permissions", auth, requireRole("super_admin"), async (re
   }
 });
 
+router.post("/users", auth, requireRole("super_admin"), async (req, res) => {
+  const { error, value } = validateAdminUserCreate(req.body);
+  if (error) {
+    return res.status(400).json({ status: "error", message: error });
+  }
+
+  const { fullName, email, password, role } = value;
+
+  try {
+    await ensureUsersTable();
+    await ensureRbacSchema();
+
+    const existingUser = await db.query("SELECT id FROM users WHERE email = $1 LIMIT 1", [email]);
+    if (existingUser.rowCount > 0) {
+      return res.status(409).json({ status: "error", message: "Email already registered" });
+    }
+
+    const passwordHash = await hashPassword(password);
+    
+    // Check if username column exists
+    const columnCheck = await db.query(`
+      SELECT 1 FROM information_schema.columns 
+      WHERE table_name = 'users' AND column_name = 'username'
+    `);
+    
+    let result;
+    if (columnCheck.rowCount > 0) {
+      // Simplified username generation for admin-created users
+      const username = email.split('@')[0] + '_' + Math.floor(Math.random() * 1000);
+      result = await db.query(
+        `INSERT INTO users (full_name, email, password_hash, role, username) 
+         VALUES ($1, $2, $3, $4, $5) RETURNING id`,
+        [fullName, email, passwordHash, role, username]
+      );
+    } else {
+      result = await db.query(
+        `INSERT INTO users (full_name, email, password_hash, role) 
+         VALUES ($1, $2, $3, $4) RETURNING id`,
+        [fullName, email, passwordHash, role]
+      );
+    }
+
+    const user = await loadManagedUser(result.rows[0].id);
+    return res.status(201).json({
+      status: "success",
+      message: "User created successfully",
+      data: user,
+    });
+  } catch (err) {
+    console.error("Create user error:", err.message);
+    return res.status(500).json({ status: "error", message: "Unable to create user" });
+  }
+});
+
+router.delete("/users/:id", auth, requireRole("super_admin"), async (req, res) => {
+  const userId = Number(req.params.id);
+  const authUser = getAuthUser(req);
+
+  if (userId === authUser.id) {
+    return res.status(400).json({
+      status: "error",
+      message: "You cannot delete your own account",
+    });
+  }
+
+  try {
+    const result = await db.query("DELETE FROM users WHERE id = $1 RETURNING id", [userId]);
+    if (!result.rowCount) {
+      return res.status(404).json({ status: "error", message: "User not found" });
+    }
+
+    return res.json({
+      status: "success",
+      message: "User deleted successfully",
+    });
+  } catch (err) {
+    console.error("Delete user error:", err.message);
+    return res.status(500).json({ status: "error", message: "Unable to delete user" });
+  }
+});
+
 // Helper function to construct ETL command-line arguments based on input parameters
 function buildEtlArgs({
   type,
@@ -602,6 +686,8 @@ function buildEtlArgs({
   analysisTypes,
   adminLevel,
   coverageDistanceKm,
+  districtGroup,
+  analysisDate,
 }) {
   const args = ["--type", type, "--source-type", sourceType || "file"];
 
@@ -619,6 +705,14 @@ function buildEtlArgs({
 
   if (district) {
     args.push("--district", district);
+  }
+
+  if (districtGroup) {
+    args.push("--district-group", districtGroup);
+  }
+
+  if (analysisDate) {
+    args.push("--analysis-date", analysisDate);
   }
 
   if (programId !== undefined && programId !== null && programId !== "") {
@@ -978,6 +1072,8 @@ router.post("/upload", [auth, upload.single("file")], async (req, res) => {
     schoolAgeMin = 5,
     schoolAgeMax = 17,
     childClassMax = 15,
+    districtGroup,
+    analysisDate,
   } = req.body;
   const file = req.file;
 
@@ -1027,6 +1123,8 @@ router.post("/upload", [auth, upload.single("file")], async (req, res) => {
     schoolAgeMin,
     schoolAgeMax,
     childClassMax,
+    districtGroup,
+    analysisDate,
   });
 
   const job = createJob({
