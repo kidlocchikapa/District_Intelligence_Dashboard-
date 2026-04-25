@@ -91,9 +91,23 @@ def fetch_welfare_programs(session):
     return {row['program_name'].strip().lower(): row['program_id'] for row in rows}
 
 
-def fetch_spatial_admin_lookup(session):
-    query = text(
+def fetch_spatial_admin_lookup(session, bounds=None):
+    params = {}
+    envelope_clause = ""
+
+    if bounds:
+        envelope_clause = """
+        AND d.geom && ST_MakeEnvelope(:min_lon, :min_lat, :max_lon, :max_lat, 4326)
         """
+        params = {
+            'min_lon': float(bounds['min_lon']),
+            'min_lat': float(bounds['min_lat']),
+            'max_lon': float(bounds['max_lon']),
+            'max_lat': float(bounds['max_lat']),
+        }
+
+    query = text(
+        f"""
         SELECT
             d.id AS district_id,
             d.name AS district_name,
@@ -105,10 +119,13 @@ def fetch_spatial_admin_lookup(session):
         LEFT JOIN admin3_units a
             ON a.district_id = d.id
             AND LOWER(a.type) = 'ta'
+            AND a.geom IS NOT NULL
+            {'AND a.geom && ST_MakeEnvelope(:min_lon, :min_lat, :max_lon, :max_lat, 4326)' if bounds else ''}
         WHERE d.geom IS NOT NULL
+        {envelope_clause}
         """
     )
-    rows = session.execute(query).mappings().all()
+    rows = session.execute(query, params).mappings().all()
 
     districts = {}
     ta_units = []

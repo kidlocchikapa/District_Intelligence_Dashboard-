@@ -169,6 +169,7 @@ CREATE TABLE IF NOT EXISTS welfare_beneficiary_indicators (
 
 -- Flood exposure outputs for district and TA units
 CREATE TABLE IF NOT EXISTS flood_zones (
+    id SERIAL PRIMARY KEY,
     district_id INTEGER NOT NULL REFERENCES districts(id) ON DELETE CASCADE,
     district_name VARCHAR(255) NOT NULL,
     ta_id INTEGER NOT NULL DEFAULT 0,
@@ -178,13 +179,15 @@ CREATE TABLE IF NOT EXISTS flood_zones (
     low_risk_population DOUBLE PRECISION NOT NULL DEFAULT 0,
     medium_risk_population DOUBLE PRECISION NOT NULL DEFAULT 0,
     high_risk_population DOUBLE PRECISION NOT NULL DEFAULT 0,
+    exposed_area_sq_km DOUBLE PRECISION NOT NULL DEFAULT 0,
     analysis_date DATE NOT NULL,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    PRIMARY KEY (district_id, ta_id, analysis_date)
+    UNIQUE (district_id, ta_id, analysis_date)
 );
 
 CREATE TABLE IF NOT EXISTS flood_facility_exposure (
+    id SERIAL PRIMARY KEY,
     analysis_date DATE NOT NULL,
     district_id INTEGER NOT NULL,
     district_name VARCHAR(255) NOT NULL,
@@ -198,10 +201,11 @@ CREATE TABLE IF NOT EXISTS flood_facility_exposure (
     is_exposed BOOLEAN NOT NULL DEFAULT FALSE,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    PRIMARY KEY (analysis_date, facility_type, facility_id)
+    UNIQUE (analysis_date, facility_type, facility_id)
 );
 
 CREATE TABLE IF NOT EXISTS flood_facility_exposure_summary (
+    id SERIAL PRIMARY KEY,
     analysis_date DATE NOT NULL,
     district_id INTEGER NOT NULL,
     district_name VARCHAR(255) NOT NULL,
@@ -215,7 +219,7 @@ CREATE TABLE IF NOT EXISTS flood_facility_exposure_summary (
     high_risk_count INTEGER NOT NULL DEFAULT 0,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    PRIMARY KEY (analysis_date, district_id, ta_id, facility_type)
+    UNIQUE (analysis_date, district_id, ta_id, facility_type)
 );
 
 DROP TABLE IF EXISTS disaster_zones;

@@ -27,6 +27,29 @@ from pipeline_config import DATASET_CONFIG
 
 LOGGER = logging.getLogger('etl.welfare')
 
+
+def build_spatial_lookup_bounds(df, padding_degrees=0.05):
+    if 'longitude' not in df.columns or 'latitude' not in df.columns:
+        return None
+
+    lon = pd.to_numeric(df['longitude'], errors='coerce').dropna()
+    lat = pd.to_numeric(df['latitude'], errors='coerce').dropna()
+
+    if lon.empty or lat.empty:
+        return None
+
+    min_lon = max(float(lon.min()) - padding_degrees, -180.0)
+    max_lon = min(float(lon.max()) + padding_degrees, 180.0)
+    min_lat = max(float(lat.min()) - padding_degrees, -90.0)
+    max_lat = min(float(lat.max()) + padding_degrees, 90.0)
+
+    return {
+        'min_lon': min_lon,
+        'min_lat': min_lat,
+        'max_lon': max_lon,
+        'max_lat': max_lat,
+    }
+
 def normalize_welfare_beneficiary(df):
     """Standardizes demographic and status fields for welfare beneficiaries."""
     working = df.copy()
@@ -190,11 +213,16 @@ def process_welfare_beneficiary_dataset(
         fn=fetch_admin_unit_lookup,
         session=session,
     )
+    spatial_lookup_bounds = build_spatial_lookup_bounds(transformed_df)
+    if spatial_lookup_bounds:
+        log_step('process_welfare', f'spatial_lookup_bounds={spatial_lookup_bounds}')
+
     spatial_lookup = run_step(
         step_name='fetch_spatial_admin_lookup',
         user_message_on_error='Could not load spatial lookup data.',
         fn=fetch_spatial_admin_lookup,
         session=session,
+        bounds=spatial_lookup_bounds,
     )
     transformed_df = run_step(
         step_name='assign_geography',

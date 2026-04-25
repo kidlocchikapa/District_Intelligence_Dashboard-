@@ -72,6 +72,7 @@ def ensure_flood_zones_table(session):
         text(
             """
             CREATE TABLE IF NOT EXISTS flood_zones (
+                id SERIAL PRIMARY KEY,
                 district_id INTEGER NOT NULL REFERENCES districts(id) ON DELETE CASCADE,
                 district_name VARCHAR(255) NOT NULL,
                 ta_id INTEGER NOT NULL DEFAULT 0,
@@ -85,7 +86,7 @@ def ensure_flood_zones_table(session):
                 analysis_date DATE NOT NULL,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                PRIMARY KEY (district_id, ta_id, analysis_date)
+                UNIQUE (district_id, ta_id, analysis_date)
             )
             """
         )
@@ -106,6 +107,7 @@ def ensure_flood_facility_tables(session):
         text(
             """
             CREATE TABLE IF NOT EXISTS flood_facility_exposure (
+                id SERIAL PRIMARY KEY,
                 analysis_date DATE NOT NULL,
                 district_id INTEGER NOT NULL,
                 district_name VARCHAR(255) NOT NULL,
@@ -119,7 +121,7 @@ def ensure_flood_facility_tables(session):
                 is_exposed BOOLEAN NOT NULL DEFAULT FALSE,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                PRIMARY KEY (analysis_date, facility_type, facility_id)
+                UNIQUE (analysis_date, facility_type, facility_id)
             )
             """
         )
@@ -128,6 +130,7 @@ def ensure_flood_facility_tables(session):
         text(
             """
             CREATE TABLE IF NOT EXISTS flood_facility_exposure_summary (
+                id SERIAL PRIMARY KEY,
                 analysis_date DATE NOT NULL,
                 district_id INTEGER NOT NULL,
                 district_name VARCHAR(255) NOT NULL,
@@ -141,7 +144,7 @@ def ensure_flood_facility_tables(session):
                 high_risk_count INTEGER NOT NULL DEFAULT 0,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                PRIMARY KEY (analysis_date, district_id, ta_id, facility_type)
+                UNIQUE (analysis_date, district_id, ta_id, facility_type)
             )
             """
         )
