@@ -23,7 +23,7 @@ function GlobalHospitalRegistry({ data, loading }) {
       .map(f => ({
         id: f.id || Math.random().toString(36).substr(2, 9),
         name: f.properties?.name || f.properties?.name_en || 'Unnamed Hospital',
-        district: f.properties?.admin_unit_name || 'Unknown District',
+        district: f.properties?.district_name || f.properties?.district || f.properties?.admin_unit_name || 'Unknown District',
         ward: f.properties?.ward || f.properties?.ward_name || 'N/A',
         type: f.properties?.type || 'Hospital',
         beds: Number(f.properties?.beds_count || 0),
@@ -127,9 +127,9 @@ function GlobalHospitalRegistry({ data, loading }) {
 
         {/* Dropdowns */}
         <div className="flex flex-wrap items-center gap-3">
-          <div className="relative min-w-[140px]">
+          <div className="relative">
             <select
-              className="w-full pl-3 pr-8 py-2.5 bg-gray-50 border border-gray-100 rounded text-[12px] font-bold text-black appearance-none focus:bg-white focus:border-black outline-none cursor-pointer"
+              className="bg-black text-white rounded px-5 py-2 text-[13px] font-bold appearance-none cursor-pointer min-w-[140px]"
               value={districtFilter}
               onChange={(e) => setDistrictFilter(e.target.value)}
             >
@@ -138,9 +138,9 @@ function GlobalHospitalRegistry({ data, loading }) {
             </select>
           </div>
 
-          <div className="relative min-w-[140px]">
+          <div className="relative">
              <select
-              className="w-full pl-3 pr-8 py-2.5 bg-gray-50 border border-gray-100 rounded text-[12px] font-bold text-black appearance-none focus:bg-white focus:border-black outline-none cursor-pointer"
+              className="bg-black text-white rounded px-5 py-2 text-[13px] font-bold appearance-none cursor-pointer min-w-[140px]"
               value={typeFilter}
               onChange={(e) => setTypeFilter(e.target.value)}
             >
@@ -149,9 +149,9 @@ function GlobalHospitalRegistry({ data, loading }) {
             </select>
           </div>
 
-          <div className="relative min-w-[140px]">
+          <div className="relative">
              <select
-              className="w-full pl-3 pr-8 py-2.5 bg-gray-50 border border-gray-100 rounded text-[12px] font-bold text-black appearance-none focus:bg-white focus:border-black outline-none cursor-pointer"
+              className="bg-black text-white rounded px-5 py-2 text-[13px] font-bold appearance-none cursor-pointer min-w-[140px]"
               value={wardFilter}
               onChange={(e) => setWardFilter(e.target.value)}
             >
@@ -189,11 +189,11 @@ function GlobalHospitalRegistry({ data, loading }) {
           <table className="w-full text-left border-collapse">
             <thead className="sticky top-0 z-10 bg-gray-50 border-b border-gray-100">
               <tr>
-                <th className="px-6 py-4 text-[11px] font-black text-gray-400 uppercase tracking-[0.15em]">Hospital Name</th>
-                <th className="px-6 py-4 text-[11px] font-black text-gray-400 uppercase tracking-[0.15em]">District</th>
-                <th className="px-6 py-4 text-[11px] font-black text-gray-400 uppercase tracking-[0.15em]">Type</th>
-                <th className="px-6 py-4 text-[11px] font-black text-gray-400 uppercase tracking-[0.15em]">Capacity</th>
-                <th className="px-6 py-4 text-[11px] font-black text-gray-400 uppercase tracking-[0.15em]">Demand</th>
+                <th className="px-6 py-4 text-[12px] font-bold text-gray-500 text-left">Hospital Name</th>
+                <th className="px-6 py-4 text-[12px] font-bold text-gray-500 text-left">District</th>
+                <th className="px-6 py-4 text-[12px] font-bold text-gray-500 text-left">Type</th>
+                <th className="px-6 py-4 text-[12px] font-bold text-gray-500 text-left">Capacity</th>
+                <th className="px-6 py-4 text-[12px] font-bold text-gray-500 text-left">Demand</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-50">
@@ -201,23 +201,23 @@ function GlobalHospitalRegistry({ data, loading }) {
                 filteredHospitals.map(h => (
                   <tr key={h.id} className="hover:bg-gray-50/50 transition-colors">
                     <td className="px-6 py-5">
-                      <p className="text-sm font-extrabold text-black">{h.name}</p>
+                      <p className="text-sm font-bold text-black">{h.name}</p>
                       <div className="flex items-center gap-1.5 mt-0.5 text-gray-400">
                         <MapPin className="h-3 w-3" />
-                        <span className="text-[10px] font-bold uppercase tracking-wide">Ward: {h.ward}</span>
+                        <span className="text-[10px] font-semibold uppercase tracking-wide">Ward: {h.ward}</span>
                       </div>
                     </td>
-                    <td className="px-6 py-5 text-[12px] font-bold text-gray-600">
+                    <td className="px-6 py-5 text-[12px] font-semibold text-gray-600">
                       {h.district}
                     </td>
-                    <td className="px-6 py-5 text-[11px] font-black text-gray-400 uppercase tracking-widest">
+                    <td className="px-6 py-5 text-[11px] font-bold text-gray-400 uppercase tracking-widest">
                       {h.type}
                     </td>
                     <td className="px-6 py-5">
                       <div className="flex items-center gap-2">
                          <BedSingle className={`h-4 w-4 ${h.beds < 20 ? 'text-red-500' : 'text-gray-300'}`} />
                          <div>
-                            <p className="text-sm font-black text-black leading-none">{h.beds}</p>
+                            <p className="text-sm font-bold text-black leading-none">{h.beds}</p>
                             <p className="text-[9px] font-bold text-gray-400 uppercase mt-0.5">Beds</p>
                          </div>
                       </div>
@@ -226,7 +226,7 @@ function GlobalHospitalRegistry({ data, loading }) {
                       <div className="flex items-center gap-2">
                          <Users2 className={`h-4 w-4 ${h.visits > 20000 ? 'text-black' : 'text-gray-300'}`} />
                          <div>
-                            <p className="text-sm font-black text-black leading-none">{h.visits.toLocaleString()}</p>
+                            <p className="text-sm font-bold text-black leading-none">{h.visits.toLocaleString()}</p>
                             <p className="text-[9px] font-bold text-gray-400 uppercase mt-0.5">Visits</p>
                          </div>
                       </div>

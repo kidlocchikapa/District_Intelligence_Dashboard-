@@ -3,6 +3,19 @@ const router = express.Router();
 const db = require("../db");
 const auth = require("../middleware/auth");
 const requireRole = require("../middleware/requireRole");
+const {
+  appendDistrictGeometryCondition,
+  appendDistrictNameCondition,
+} = require("./queryFilters");
+
+function normalizeAdminType(adminType) {
+  if (!adminType) return null;
+  const normalized = String(adminType).trim().toLowerCase();
+  if (normalized === "district") return "District";
+  if (normalized === "ta" || normalized === "admin3") return "TA";
+  if (normalized === "village") return "Village";
+  return String(adminType).trim();
+}
 
 // Import sub-routers for different dashboard sections
 const educationRoutes = require("./education");
@@ -14,8 +27,12 @@ const analysisRoutes = require("./analysis");
 router.use("/education", educationRoutes);
 router.use("/health", healthRoutes);
 router.use("/disaster", disasterRoutes);
-router.use("/analysis", auth, requireRole("admin", "super_admin"), analysisRoutes);
-router.use(auth, requireRole("admin", "super_admin"));
+router.use(
+  "/analysis",
+  auth,
+  requireRole("admin", "super_admin"),
+  analysisRoutes,
+);
 
 /**
  * @route   GET /api/v1/dashboard/summary
@@ -30,49 +47,70 @@ router.get("/summary", async (req, res) => {
     let populationTotal;
 
     if (district) {
-      // For district-specific summary, we need to count facilities that intersect with the district geometry
+      const schoolConditions = ["ef.geom IS NOT NULL"];
+      const schoolParams = [];
+      appendDistrictGeometryCondition(
+        schoolConditions,
+        schoolParams,
+        "ef.geom",
+        district,
+      );
+
+      const schoolWhereClause = schoolConditions.length
+        ? `WHERE ${schoolConditions.join(" AND ")}`
+        : "";
+
       schoolsCount = await db.query(
         `
                 SELECT COUNT(*)
                 FROM education_facilities ef
-                WHERE ef.geom IS NOT NULL
-                  AND EXISTS (
-                    SELECT 1
-                    FROM administrative_units au
-                    WHERE au.geom IS NOT NULL
-                      AND LOWER(au.type) = LOWER('District')
-                      AND LOWER(au.name) = LOWER($1)
-                      AND ST_Intersects(ef.geom, au.geom)
-                  )
+                ${schoolWhereClause}
                 `,
-        [district],
+        schoolParams,
       );
-      // For health facilities, we do the same spatial intersection count
+
+      const healthConditions = ["hf.geom IS NOT NULL"];
+      const healthParams = [];
+      appendDistrictGeometryCondition(
+        healthConditions,
+        healthParams,
+        "hf.geom",
+        district,
+      );
+
+      const healthWhereClause = healthConditions.length
+        ? `WHERE ${healthConditions.join(" AND ")}`
+        : "";
+
       healthCount = await db.query(
         `
                 SELECT COUNT(*)
                 FROM health_facilities hf
-                WHERE hf.geom IS NOT NULL
-                  AND EXISTS (
-                    SELECT 1
-                    FROM administrative_units au
-                    WHERE au.geom IS NOT NULL
-                      AND LOWER(au.type) = LOWER('District')
-                      AND LOWER(au.name) = LOWER($1)
-                      AND ST_Intersects(hf.geom, au.geom)
-                  )
+                ${healthWhereClause}
                 `,
-        [district],
+        healthParams,
       );
-      // For population, we sum the population_total for the specific district
+
+      const populationConditions = [];
+      const populationParams = [];
+      appendDistrictNameCondition(
+        populationConditions,
+        populationParams,
+        "name",
+        district,
+      );
+
+      const populationWhereClause = populationConditions.length
+        ? `WHERE ${populationConditions.join(" AND ")}`
+        : "";
+
       populationTotal = await db.query(
         `
                 SELECT SUM(population_total)
-                FROM administrative_units
-                WHERE LOWER(type) = LOWER('District')
-                  AND LOWER(name) = LOWER($1)
+                FROM districts
+                ${populationWhereClause}
                 `,
-        [district],
+        populationParams,
       );
     } else {
       schoolsCount = await db.query(
@@ -80,7 +118,7 @@ router.get("/summary", async (req, res) => {
       );
       healthCount = await db.query("SELECT COUNT(*) FROM health_facilities");
       populationTotal = await db.query(
-        "SELECT SUM(population_total) FROM administrative_units WHERE LOWER(type) = LOWER('District')",
+        "SELECT SUM(population_total) FROM districts",
       );
     }
 
@@ -99,7 +137,6 @@ router.get("/summary", async (req, res) => {
   }
 });
 
-
 /**
  * @route   GET /api/v1/dashboard/districts
  * @desc    Get list of districts for dropdown filter
@@ -109,8 +146,7 @@ router.get("/districts", async (req, res) => {
     const result = await db.query(
       `
             SELECT DISTINCT name
-            FROM administrative_units
-            WHERE LOWER(type) = LOWER('District')
+            FROM districts
             ORDER BY name
             `,
     );
@@ -134,7 +170,7 @@ router.get("/population-by-district", async (req, res) => {
 
   try {
     const params = [];
-    let whereClause = "WHERE LOWER(type) = LOWER('District')";
+    let whereClause = "WHERE 1=1";
 
     if (district) {
       params.push(district);
@@ -146,7 +182,7 @@ router.get("/population-by-district", async (req, res) => {
         SELECT
           name AS district,
           COALESCE(population_total, 0) AS population
-        FROM administrative_units
+        FROM districts
         ${whereClause}
         ORDER BY name
       `,
@@ -166,6 +202,70 @@ router.get("/population-by-district", async (req, res) => {
   }
 });
 
+/**
+ * @route   GET /api/v1/dashboard/population-by-admin3
+ * @desc    Get TA/admin3 population totals for the overview bar chart
+ */
+router.get("/population-by-admin3", async (req, res) => {
+  const { district, type = "TA" } = req.query;
+
+  try {
+    const params = [];
+    const conditions = ["a3.geom IS NOT NULL"];
+
+    if (type) {
+      params.push(type);
+      conditions.push(`LOWER(a3.type) = LOWER($${params.length})`);
+    }
+
+    if (district) {
+      const districtConditions = [];
+      appendDistrictNameCondition(
+        districtConditions,
+        params,
+        "d.name",
+        district,
+      );
+      if (districtConditions.length) {
+        conditions.push(districtConditions.join(" AND "));
+      }
+    }
+
+    const whereClause = conditions.length
+      ? `WHERE ${conditions.join(" AND ")}`
+      : "";
+
+    const result = await db.query(
+      `
+        SELECT
+          a3.id AS admin3_id,
+          a3.name AS admin3_name,
+          a3.type AS admin3_type,
+          d.name AS district,
+          COALESCE(a3.population_total, 0) AS population
+        FROM admin3_units a3
+        LEFT JOIN districts d ON d.id = a3.district_id
+        ${whereClause}
+        ORDER BY a3.name
+      `,
+      params,
+    );
+
+    res.json({
+      status: "success",
+      data: result.rows.map((row) => ({
+        admin3_id: Number(row.admin3_id),
+        admin3_name: row.admin3_name,
+        admin3_type: row.admin3_type,
+        district: row.district,
+        population: parseInt(row.population || 0, 10),
+      })),
+    });
+  } catch (err) {
+    console.error(err.message);
+    res.status(500).send("Server error");
+  }
+});
 
 /**
  * @route   GET /api/v1/dashboard/admin-units
@@ -173,49 +273,130 @@ router.get("/population-by-district", async (req, res) => {
  */
 router.get("/admin-units", async (req, res) => {
   const { type: adminType, district } = req.query;
+  const normalizedAdminType = normalizeAdminType(adminType);
 
   try {
-    const params = [];
-    let whereClause = "WHERE geom IS NOT NULL";
+    const includeDistrict =
+      !normalizedAdminType || normalizedAdminType === "District";
+    const includeAdmin3 =
+      !normalizedAdminType ||
+      ["TA", "Village", "Admin3"].includes(normalizedAdminType);
 
-    if (adminType) {
-      params.push(adminType);
-      whereClause += ` AND type = $${params.length}`;
+    const params = [];
+    let districtFilterDistricts = "";
+    let districtFilterAdmin3 = "";
+
+    if (includeDistrict) {
+      const districtConditions = [];
+      appendDistrictNameCondition(
+        districtConditions,
+        params,
+        "d.name",
+        district,
+      );
+      districtFilterDistricts = districtConditions.length
+        ? ` AND ${districtConditions.join(" AND ")}`
+        : "";
     }
 
-    if (district) {
-      params.push(district);
-      whereClause += ` AND LOWER(name) = LOWER($${params.length})`;
+    if (includeAdmin3) {
+      const admin3DistrictConditions = [];
+      appendDistrictNameCondition(
+        admin3DistrictConditions,
+        params,
+        "d.name",
+        district,
+      );
+      districtFilterAdmin3 = admin3DistrictConditions.length
+        ? ` AND ${admin3DistrictConditions.join(" AND ")}`
+        : "";
+    }
+
+    const districtTypePredicate =
+      !normalizedAdminType || normalizedAdminType === "District"
+        ? "TRUE"
+        : "FALSE";
+
+    const admin3TypePredicate =
+      normalizedAdminType && normalizedAdminType !== "District"
+        ? `LOWER(a3.type) = LOWER('${normalizedAdminType}')`
+        : "TRUE";
+
+    const subqueries = [];
+
+    if (includeDistrict) {
+      subqueries.push(`
+        SELECT jsonb_build_object(
+          'type', 'Feature',
+          'id', d.id,
+          'geometry', ST_AsGeoJSON(d.geom)::jsonb,
+          'properties', jsonb_build_object(
+            'code', d.code,
+            'name', d.name,
+            'type', 'District',
+            'parent_id', NULL,
+            'source', NULL,
+            'level', 2,
+            'population_total', d.population_total,
+            'population_density', d.population_density,
+            'area_sq_km', d.area_sq_km,
+            'metadata', d.metadata
+          )
+        ) AS feature,
+        'District'::text AS sort_type,
+        d.name AS sort_name
+        FROM districts d
+        WHERE d.geom IS NOT NULL
+          AND ${districtTypePredicate}
+          ${districtFilterDistricts}
+      `);
+    }
+
+    if (includeAdmin3) {
+      subqueries.push(`
+        SELECT jsonb_build_object(
+          'type', 'Feature',
+          'id', a3.id,
+          'geometry', ST_AsGeoJSON(a3.geom)::jsonb,
+          'properties', jsonb_build_object(
+            'code', a3.code,
+            'name', a3.name,
+            'type', a3.type,
+            'parent_id', a3.district_id,
+            'source', NULL,
+            'level', 3,
+            'population_total', a3.population_total,
+            'population_density', a3.population_density,
+            'area_sq_km', NULL,
+            'metadata', a3.metadata
+          )
+        ) AS feature,
+        a3.type AS sort_type,
+        a3.name AS sort_name
+        FROM admin3_units a3
+        LEFT JOIN districts d ON d.id = a3.district_id
+        WHERE a3.geom IS NOT NULL
+          AND ${admin3TypePredicate}
+          ${districtFilterAdmin3}
+      `);
+    }
+
+    if (!subqueries.length) {
+      subqueries.push(
+        "SELECT NULL::jsonb AS feature, NULL::text AS sort_type, NULL::text AS sort_name WHERE FALSE",
+      );
     }
 
     const query = `
-            SELECT jsonb_build_object(
-                'type', 'FeatureCollection',
-                'features', COALESCE(jsonb_agg(feature), '[]'::jsonb)
-            )
-            FROM (
-                SELECT jsonb_build_object(
-                    'type', 'Feature',
-                    'id', id,
-                    'geometry', ST_AsGeoJSON(COALESCE(simplified_geom, geom))::jsonb,
-                    'properties', jsonb_build_object(
-                        'code', code,
-                        'name', name,
-                        'type', type,
-                        'parent_id', parent_id,
-                        'source', source,
-                        'level', level,
-                        'population_total', population_total,
-                        'population_density', population_density,
-                        'area_sq_km', area_sq_km,
-                        'metadata', metadata
-                    )
-                ) AS feature
-                FROM administrative_units
-                ${whereClause}
-                ORDER BY type, name
-            ) rowconf;
-        `;
+      SELECT jsonb_build_object(
+        'type', 'FeatureCollection',
+        'features', COALESCE(jsonb_agg(feature), '[]'::jsonb)
+      )
+      FROM (
+        ${subqueries.join("\nUNION ALL\n")}
+      ) rowconf
+      WHERE rowconf.feature IS NOT NULL;
+    `;
     const result = await db.query(query, params);
     res.json({
       status: "success",

@@ -77,7 +77,7 @@ function PopulationPage() {
         <p className="mb-6 text-[14px] font-semibold text-gray-500">
           {selectedDistrict
             ? `Population surface focused on ${selectedDistrict}`
-            : "National population surface from the WorldPop raster"}
+            : "Zomba and Zomba City population surface from the WorldPop raster"}
         </p>
 
         <div className="mb-8 flex gap-4">
@@ -110,9 +110,10 @@ function PopulationPage() {
             <PopulationRasterPanel
               geojson={districtBoundaries.data}
               title="WorldPop Population Surface"
-              subtitle="Rendered directly from the Malawi 2020 GeoTIFF so the map keeps the fine-grained heatmap pattern instead of district-wide color blocks."
+              subtitle="Rendered directly from the Zomba 2020 GeoTIFF so the map keeps the fine-grained heatmap pattern instead of district-wide color blocks."
               heightClass="h-[620px]"
               loading={districtBoundaries.loading}
+              metadataUrl="/worldpop/zomba_ppp_2020.preview.json"
             />
           </div>
 

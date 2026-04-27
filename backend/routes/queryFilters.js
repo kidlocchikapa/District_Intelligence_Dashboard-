@@ -1,10 +1,29 @@
+const DISTRICT_GROUPS = {
+  zomba: ["Zomba", "Zomba City", "Zomba (All)"],
+  "zomba city": ["Zomba", "Zomba City", "Zomba (All)"],
+  "zomba (all)": ["Zomba", "Zomba City", "Zomba (All)"],
+};
+
+function resolveDistrictFilterValues(district) {
+  const normalized = String(district || "").trim();
+  if (!normalized) {
+    return [];
+  }
+
+  const groupKey = normalized.toLowerCase();
+  if (DISTRICT_GROUPS[groupKey]) {
+    return DISTRICT_GROUPS[groupKey];
+  }
+  return [normalized];
+}
+
 /**
- * 
- * @param {*} conditions 
- * @param {*} params 
- * @param {*} columnExpression 
- * @param {*} district 
- * @returns 
+ *
+ * @param {*} conditions
+ * @param {*} params
+ * @param {*} columnExpression
+ * @param {*} district
+ * @returns
  */
 function appendDistrictNameCondition(
   conditions,
@@ -12,22 +31,31 @@ function appendDistrictNameCondition(
   columnExpression,
   district,
 ) {
-  if (!district) {
+  const districtValues = resolveDistrictFilterValues(district);
+  if (!districtValues.length) return;
+
+  const placeholders = districtValues.map((value) => {
+    params.push(value);
+    return `$${params.length}`;
+  });
+
+  if (placeholders.length === 1) {
+    conditions.push(`LOWER(${columnExpression}) = LOWER(${placeholders[0]})`);
     return;
   }
 
-  params.push(district);
-  conditions.push(`LOWER(${columnExpression}) = LOWER($${params.length})`);
+  conditions.push(
+    `LOWER(${columnExpression}) IN (${placeholders.map((placeholder) => `LOWER(${placeholder})`).join(", ")})`,
+  );
 }
 
-
 /**
- * 
- * @param {*} conditions 
- * @param {*} params 
- * @param {*} geometryExpression 
- * @param {*} district 
- * @returns 
+ *
+ * @param {*} conditions
+ * @param {*} params
+ * @param {*} geometryExpression
+ * @param {*} district
+ * @returns
  */
 function appendDistrictGeometryCondition(
   conditions,
@@ -35,19 +63,26 @@ function appendDistrictGeometryCondition(
   geometryExpression,
   district,
 ) {
-  if (!district) {
-    return;
-  }
+  const districtValues = resolveDistrictFilterValues(district);
+  if (!districtValues.length) return;
 
-  params.push(district);
-  const districtParam = `$${params.length}`;
+  const placeholders = districtValues.map((value) => {
+    params.push(value);
+    return `$${params.length}`;
+  });
+  const districtNamePredicate =
+    placeholders.length === 1
+      ? `LOWER(district_filter.name) = LOWER(${placeholders[0]})`
+      : `LOWER(district_filter.name) IN (${placeholders
+          .map((placeholder) => `LOWER(${placeholder})`)
+          .join(", ")})`;
+
   conditions.push(`
       EXISTS (
         SELECT 1
-        FROM administrative_units district_filter
+        FROM districts district_filter
         WHERE district_filter.geom IS NOT NULL
-          AND LOWER(district_filter.type) = LOWER('District')
-          AND LOWER(district_filter.name) = LOWER(${districtParam})
+          AND ${districtNamePredicate}
           AND ST_Intersects(${geometryExpression}, district_filter.geom)
       )
     `);
@@ -56,4 +91,5 @@ function appendDistrictGeometryCondition(
 module.exports = {
   appendDistrictGeometryCondition,
   appendDistrictNameCondition,
+  resolveDistrictFilterValues,
 };

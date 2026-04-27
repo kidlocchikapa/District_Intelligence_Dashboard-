@@ -5,6 +5,7 @@ import os
 import re
 import time
 import ssl
+from http.client import IncompleteRead, RemoteDisconnected
 from urllib.error import URLError
 from urllib.request import urlopen, Request
 from urllib.parse import urlencode
@@ -15,6 +16,7 @@ import pandas as pd
 import numpy as np
 import rasterio
 from rasterio.mask import mask
+from rasterio.windows import Window
 from sqlalchemy import text
 
 # WorldPop API and dataset configuration
@@ -98,7 +100,7 @@ def fetch_json(url, timeout=60, retries=3, backoff_seconds=2):
             log_step('fetch_json', f'fetching URL (attempt {attempt + 1}/{retries}): {url}')
             with urlopen(request, timeout=timeout) as response:
                 return json.loads(response.read().decode('utf-8'))
-        except (URLError, ssl.SSLError, TimeoutError) as exc:
+        except (URLError, ssl.SSLError, TimeoutError, RemoteDisconnected, IncompleteRead) as exc:
             if attempt == retries - 1:
                 raise
             time.sleep(backoff_seconds * (attempt + 1))
@@ -159,9 +161,11 @@ def download_worldpop_raster(raster_url, download_dir, filename=None, timeout=30
         target_name = filename or os.path.basename(raster_url.split('?', 1)[0])
         target_path = os.path.join(download_dir, target_name)
 
-        if os.path.exists(target_path) and os.path.getsize(target_path) > 0:
+        if os.path.exists(target_path) and os.path.getsize(target_path) > 0 and validate_raster_readable(target_path, strict=True):
             log_step('download_worldpop_raster', f'using cached raster: {target_path}')
             return target_path
+        if os.path.exists(target_path):
+            os.remove(target_path)
 
         log_step('download_worldpop_raster', f'downloading raster from {raster_url}')
         with urlopen(raster_url, timeout=timeout) as response, open(target_path, 'wb') as output:
@@ -171,6 +175,11 @@ def download_worldpop_raster(raster_url, download_dir, filename=None, timeout=30
                     break
                 output.write(chunk)
 
+        if not validate_raster_readable(target_path, strict=True):
+            if os.path.exists(target_path):
+                os.remove(target_path)
+            raise ValueError(f'Downloaded WorldPop raster is not readable: {target_path}')
+
         return target_path
     except Exception as exc:
         raise WorldPopError(
@@ -178,6 +187,30 @@ def download_worldpop_raster(raster_url, download_dir, filename=None, timeout=30
             step_name='download_worldpop_raster',
             original_error=exc,
         ) from exc
+
+
+def validate_raster_readable(raster_path, strict=False):
+    try:
+        with rasterio.open(raster_path) as src:
+            if not strict:
+                src.read(1, window=Window(0, 0, min(1, src.width), min(1, src.height)))
+                return True
+
+            sample_rows = sorted(
+                {
+                    0,
+                    max(src.height // 4, 0),
+                    max(src.height // 2, 0),
+                    max((src.height * 3) // 4, 0),
+                    max(src.height - 1, 0),
+                }
+            )
+            window_width = min(256, src.width)
+            for row in sample_rows:
+                src.read(1, window=Window(0, row, window_width, 1), masked=True)
+        return True
+    except Exception:
+        return False
 
 ## Function to resolve the appropriate WorldPop raster dataset for a given year 
 # and ISO3 country code, downloading the raster file and returning metadata about the selected dataset
@@ -559,81 +592,86 @@ def build_age_sex_outputs(
                 api_url=api_url,
                 api_key=api_key,
             )
-        stats_data = response_payload.get('data') or {}
-        agesex_pyramid = stats_data.get('agesexpyramid') or []
+            stats_data = response_payload.get('data') or {}
+            agesex_pyramid = stats_data.get('agesexpyramid') or []
 
-        for bucket in agesex_pyramid:
-            bucket_class = str(bucket.get('class') or '').strip()
-            age_label = str(bucket.get('age') or '').strip()
-            if not bucket_class:
-                continue
+            for bucket in agesex_pyramid:
+                bucket_class = str(bucket.get('class') or '').strip()
+                age_label = str(bucket.get('age') or '').strip()
+                if not bucket_class:
+                    continue
 
-            age_sex_records.append(build_age_sex_record(row, year, bucket, response_payload))
-
-            bucket_metadata = {
-                'worldpop_dataset': DEFAULT_WORLDPOP_AGE_SEX_DATASET,
-                'worldpop_year': year,
-                'class': bucket_class,
-                'age': age_label,
-            }
-            male_value = float(bucket.get('male') or 0.0)
-            female_value = float(bucket.get('female') or 0.0)
-            total_value = male_value + female_value
-
-            indicator_records.append(
-                build_indicator_record(
-                    row,
-                    indicator_name=f'agesex_class_{bucket_class}_male',
-                    indicator_value=male_value,
-                    source_filename=source_filename,
-                    metadata={**bucket_metadata, 'sex': 'male'},
+                age_sex_records.append(
+                    build_age_sex_record(row, year, bucket, response_payload),
                 )
-            )
-            indicator_records.append(
-                build_indicator_record(
-                    row,
-                    indicator_name=f'agesex_class_{bucket_class}_female',
-                    indicator_value=female_value,
-                    source_filename=source_filename,
-                    metadata={**bucket_metadata, 'sex': 'female'},
+
+                bucket_metadata = {
+                    'worldpop_dataset': DEFAULT_WORLDPOP_AGE_SEX_DATASET,
+                    'worldpop_year': year,
+                    'class': bucket_class,
+                    'age': age_label,
+                }
+                male_value = float(bucket.get('male') or 0.0)
+                female_value = float(bucket.get('female') or 0.0)
+                total_value = male_value + female_value
+
+                indicator_records.append(
+                    build_indicator_record(
+                        row,
+                        indicator_name=f'agesex_class_{bucket_class}_male',
+                        indicator_value=male_value,
+                        source_filename=source_filename,
+                        metadata={**bucket_metadata, 'sex': 'male'},
+                    )
                 )
-            )
-            indicator_records.append(
-                build_indicator_record(
-                    row,
-                    indicator_name=f'agesex_class_{bucket_class}_total',
-                    indicator_value=total_value,
-                    source_filename=source_filename,
-                    metadata={**bucket_metadata, 'sex': 'total'},
+                indicator_records.append(
+                    build_indicator_record(
+                        row,
+                        indicator_name=f'agesex_class_{bucket_class}_female',
+                        indicator_value=female_value,
+                        source_filename=source_filename,
+                        metadata={**bucket_metadata, 'sex': 'female'},
+                    )
                 )
+                indicator_records.append(
+                    build_indicator_record(
+                        row,
+                        indicator_name=f'agesex_class_{bucket_class}_total',
+                        indicator_value=total_value,
+                        source_filename=source_filename,
+                        metadata={**bucket_metadata, 'sex': 'total'},
+                    )
+                )
+
+            school_age_metrics = aggregate_school_age_population(
+                agesex_pyramid,
+                school_age_min=school_age_min,
+                school_age_max=school_age_max,
+            )
+            child_population_metrics = aggregate_child_population_from_classes(
+                agesex_pyramid,
+                max_class=child_class_max,
             )
 
-        school_age_metrics = aggregate_school_age_population(
-            agesex_pyramid,
-            school_age_min=school_age_min,
-            school_age_max=school_age_max,
-        )
-        child_population_metrics = aggregate_child_population_from_classes(
-            agesex_pyramid,
-            max_class=child_class_max,
-        )
-
-        for indicator_name, indicator_value in {**school_age_metrics, **child_population_metrics}.items():
-            indicator_records.append(
-                build_indicator_record(
-                    row,
-                    indicator_name=indicator_name,
-                    indicator_value=indicator_value,
-                    source_filename=source_filename,
-                    metadata={
-                        'worldpop_dataset': DEFAULT_WORLDPOP_AGE_SEX_DATASET,
-                        'worldpop_year': year,
-                        'school_age_min': school_age_min,
-                        'school_age_max': school_age_max,
-                        'child_class_max': child_class_max,
-                    },
+            for indicator_name, indicator_value in {
+                **school_age_metrics,
+                **child_population_metrics,
+            }.items():
+                indicator_records.append(
+                    build_indicator_record(
+                        row,
+                        indicator_name=indicator_name,
+                        indicator_value=indicator_value,
+                        source_filename=source_filename,
+                        metadata={
+                            'worldpop_dataset': DEFAULT_WORLDPOP_AGE_SEX_DATASET,
+                            'worldpop_year': year,
+                            'school_age_min': school_age_min,
+                            'school_age_max': school_age_max,
+                            'child_class_max': child_class_max,
+                        },
+                    )
                 )
-            )
 
         log_step('build_age_sex_outputs', f'age_sex_records={len(age_sex_records)}, indicators={len(indicator_records)}')
         return pd.DataFrame(age_sex_records), pd.DataFrame(indicator_records)

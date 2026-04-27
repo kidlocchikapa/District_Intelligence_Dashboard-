@@ -1,14 +1,11 @@
 const express = require("express");
 const router = express.Router();
 const db = require("../db");
-const auth = require("../middleware/auth");
-const requireDepartmentAccess = require("../middleware/requireDepartmentAccess");
 const {
   appendDistrictGeometryCondition,
   appendDistrictNameCondition,
+  resolveDistrictFilterValues,
 } = require("./queryFilters");
-
-router.use(auth, requireDepartmentAccess("education", "read"));
 
 function parseNumericValue(value) {
   if (value === null || value === undefined) {
@@ -33,6 +30,15 @@ function toFiniteNumber(value) {
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
+function normalizeAdminType(adminType) {
+  if (!adminType) return "District";
+  const normalized = String(adminType).trim().toLowerCase();
+  if (normalized === "district") return "District";
+  if (normalized === "ta" || normalized === "admin3") return "TA";
+  if (normalized === "village") return "Village";
+  return String(adminType).trim();
+}
+
 function computeQuantile(values, quantile) {
   if (!values.length) {
     return 0;
@@ -48,7 +54,9 @@ function computeQuantile(values, quantile) {
   }
 
   const weight = position - lowerIndex;
-  return sorted[lowerIndex] + (sorted[upperIndex] - sorted[lowerIndex]) * weight;
+  return (
+    sorted[lowerIndex] + (sorted[upperIndex] - sorted[lowerIndex]) * weight
+  );
 }
 
 function buildEducationThresholds(rows) {
@@ -75,7 +83,8 @@ function buildEducationThresholds(rows) {
 
 function classifyEducationDistrict(row, thresholds) {
   const isUnderserved = row.schools_per_10k <= thresholds.schools_per_10k_low;
-  const isOvercrowded = row.students_per_school >= thresholds.students_per_school_high;
+  const isOvercrowded =
+    row.students_per_school >= thresholds.students_per_school_high;
   const isUnderutilized =
     row.schools_per_10k >= thresholds.schools_per_10k_high &&
     row.students_per_school <= thresholds.students_per_school_low;
@@ -99,7 +108,9 @@ function classifyEducationDistrict(row, thresholds) {
   return {
     ...row,
     classification,
-    classification_label: classification.replace(/\b\w/g, (letter) => letter.toUpperCase()),
+    classification_label: classification.replace(/\b\w/g, (letter) =>
+      letter.toUpperCase(),
+    ),
     insight,
     insight_label: insight.replace(/\b\w/g, (letter) => letter.toUpperCase()),
   };
@@ -148,8 +159,10 @@ router.get("/", async (req, res) => {
   try {
     const conditions = ["geom IS NOT NULL"];
     const params = [];
-    appendDistrictGeometryCondition(conditions, params, "education_facilities.geom", district);
-    const whereClause = conditions.length ? `WHERE ${conditions.join(" AND ")}` : "";
+    appendDistrictGeometryCondition(conditions, params, "ef.geom", district);
+    const whereClause = conditions.length
+      ? `WHERE ${conditions.join(" AND ")}`
+      : "";
 
     const query = `
             SELECT jsonb_build_object(
@@ -159,34 +172,25 @@ router.get("/", async (req, res) => {
             FROM (
               SELECT jsonb_build_object(
                 'type',       'Feature',
-                'id',         school_id,
-                'geometry',   ST_AsGeoJSON(geom)::jsonb,
-                'properties', jsonb_build_object(
-                    'name', name,
-                    'name_en', "name:en",
-                    'amenity', amenity,
-                    'building', building,
-                    'operator_type', "operator:type",
-                    'capacity_persons', "capacity:persons",
-                    'address_full', "addr:full",
-                    'address_city', "addr:city",
-                    'source', source,
-                    'name_ny', "name:ny",
-                    'source_school_id', source_school_id,
-                    'source_gid', source_gid,
-                    'status', status,
-                    'comments', comments,
-                    'student_enrollment', student_enrollment,
-                    'student_enrollment_total', student_enrollment_total,
-                    'teacher_distribution', teacher_distribution,
-                    'teacher_count', teacher_count,
-                    'osm_id', osm_id,
-                    'osm_type', osm_type,
-                    'ward_id', ward_id,
-                    'district_id', district_id
+                'id',         ef.school_id,
+                'geometry',   ST_AsGeoJSON(ef.geom)::jsonb,
+                'properties', (
+                  (to_jsonb(ef) - 'geom')
+                  || jsonb_build_object(
+                      'name', COALESCE(ef.school_name, ''),
+                      'school_name', ef.school_name,
+                      'operator_type', ef.operator,
+                      'status', ef.status,
+                      'student_enrollment_total', ef.student_enrollment_total,
+                      'teacher_distribution', ef.teacher_distribution,
+                      'teacher_count', ef.teacher_count,
+                      'ward_id', ef.ta_id,
+                      'ta_id', ef.ta_id,
+                      'district_id', ef.district_id
+                  )
                 )
               ) AS feature
-              FROM education_facilities
+              FROM education_facilities ef
               ${whereClause}
             ) rowconf;
         `;
@@ -204,6 +208,272 @@ router.get("/", async (req, res) => {
   }
 });
 
+// @route   GET api/v1/dashboard/education/service-coverage/geojson
+// @desc    Get education school service coverage results as GeoJSON
+router.get("/service-coverage/geojson", async (req, res) => {
+  const { district, admin_type: adminType = "District" } = req.query;
+  const normalizedAdminType = normalizeAdminType(adminType);
+
+  try {
+    const conditions = [
+      "ar.analysis_type = 'school_service_coverage'",
+      "ar.metric_name = 'school_service_coverage_pct'",
+      "LOWER(ar.admin_unit_type) = LOWER($1)",
+    ];
+    const params = [normalizedAdminType];
+
+    appendDistrictNameCondition(
+      conditions,
+      params,
+      "ar.admin_unit_name",
+      district,
+    );
+
+    const query = `
+      SELECT jsonb_build_object(
+          'type', 'FeatureCollection',
+          'features', COALESCE(jsonb_agg(feature), '[]'::jsonb)
+      )
+      FROM (
+          SELECT jsonb_build_object(
+              'type', 'Feature',
+              'id', ar.id,
+              'geometry', ST_AsGeoJSON(COALESCE(ar.geom, d.geom, a3.geom))::jsonb,
+              'properties', (
+                  jsonb_build_object(
+                    'analysis_type', ar.analysis_type,
+                    'admin_unit_id', ar.admin_unit_id,
+                    'admin_unit_code', ar.admin_unit_code,
+                    'admin_unit_name', ar.admin_unit_name,
+                    'admin_unit_type', ar.admin_unit_type,
+                    'metric_name', ar.metric_name,
+                    'metric_value', ar.metric_value,
+                    'metric_unit', ar.metric_unit,
+                    'metadata', ar.metadata,
+                    'calculated_at', ar.calculated_at
+                  ) || jsonb_build_object(ar.metric_name, ar.metric_value)
+              )
+          ) AS feature
+          FROM analysis_results ar
+          LEFT JOIN districts d
+            ON LOWER(ar.admin_unit_type) = LOWER('District')
+           AND d.id = ar.admin_unit_id
+          LEFT JOIN admin3_units a3
+            ON LOWER(ar.admin_unit_type) IN (LOWER('TA'), LOWER('Village'), LOWER('Admin3'))
+           AND a3.id = ar.admin_unit_id
+          WHERE COALESCE(ar.geom, d.geom, a3.geom) IS NOT NULL
+            AND ${conditions.join(" AND ")}
+          ORDER BY ar.admin_unit_name
+      ) features;
+    `;
+
+    const result = await db.query(query, params);
+    res.json({
+      status: "success",
+      data: result.rows[0].jsonb_build_object || {
+        type: "FeatureCollection",
+        features: [],
+      },
+    });
+  } catch (err) {
+    console.error("Education service coverage geojson error", {
+      message: err.message,
+      district,
+      adminType: normalizedAdminType,
+    });
+    res.status(500).send("Server error");
+  }
+});
+
+// @route   GET api/v1/dashboard/education/access-zones/geojson
+// @desc    Get served/unserved education access zones plus school points
+router.get("/access-zones/geojson", async (req, res) => {
+  const { district, buffer_km: bufferKmParam } = req.query;
+  const parsedBufferKm = Number(bufferKmParam);
+  const bufferKm =
+    Number.isFinite(parsedBufferKm) && parsedBufferKm > 0
+      ? Math.min(parsedBufferKm, 30)
+      : 5;
+  const bufferMeters = bufferKm * 1000;
+
+  try {
+    const params = [bufferMeters];
+    const districtConditions = ["d.geom IS NOT NULL"];
+    appendDistrictNameCondition(districtConditions, params, "d.name", district);
+    const districtWhereClause = districtConditions.length
+      ? `WHERE ${districtConditions.join(" AND ")}`
+      : "";
+
+    const query = `
+      WITH district_ids AS (
+        SELECT d.id, d.name, d.geom
+        FROM districts d
+        ${districtWhereClause}
+      ),
+      admin3_scope AS (
+        SELECT a3.id, a3.name, a3.geom, a3.district_id, di.name AS district_name
+        FROM admin3_units a3
+        JOIN district_ids di ON a3.district_id = di.id
+        WHERE a3.geom IS NOT NULL
+      ),
+      school_scope AS (
+        SELECT
+          ef.school_id,
+          COALESCE(ef.school_name, '') AS school_name,
+          ef.geom
+        FROM education_facilities ef
+        JOIN district_ids di
+          ON ef.geom IS NOT NULL
+         AND ST_Intersects(ef.geom, di.geom)
+        WHERE ef.geom IS NOT NULL
+      ),
+      school_buffers AS (
+        SELECT
+          ST_UnaryUnion(
+            ST_Collect(ST_Buffer(ss.geom::geography, $1)::geometry)
+          ) AS geom
+        FROM school_scope ss
+      ),
+      zone_raw AS (
+        SELECT
+          a3.id AS admin_unit_id,
+          a3.name AS admin_unit_name,
+          a3.district_name AS district_name,
+          a3.geom AS admin_unit_geom,
+          sb.geom AS buffer_geom
+        FROM admin3_scope a3
+        LEFT JOIN school_buffers sb ON TRUE
+      ),
+      zone_geometries AS (
+        SELECT
+          zr.admin_unit_id,
+          zr.admin_unit_name,
+          zr.district_name,
+          zr.admin_unit_geom,
+          ST_Multi(
+            COALESCE(
+              ST_CollectionExtract(
+                CASE
+                  WHEN zr.buffer_geom IS NULL
+                    THEN ST_GeomFromText('MULTIPOLYGON EMPTY', 4326)
+                  ELSE ST_Intersection(zr.admin_unit_geom, zr.buffer_geom)
+                END,
+                3
+              ),
+              ST_GeomFromText('MULTIPOLYGON EMPTY', 4326)
+            )
+          ) AS served_geom,
+          ST_Multi(
+            COALESCE(
+              ST_CollectionExtract(
+                CASE
+                  WHEN zr.buffer_geom IS NULL
+                    THEN zr.admin_unit_geom
+                  ELSE ST_Difference(
+                    zr.admin_unit_geom,
+                    ST_Intersection(zr.admin_unit_geom, zr.buffer_geom)
+                  )
+                END,
+                3
+              ),
+              ST_GeomFromText('MULTIPOLYGON EMPTY', 4326)
+            )
+          ) AS unserved_geom
+        FROM zone_raw zr
+      ),
+      zone_metrics AS (
+        SELECT
+          zg.admin_unit_id,
+          zg.admin_unit_name,
+          zg.district_name,
+          zg.served_geom,
+          zg.unserved_geom,
+          CASE
+            WHEN ST_Area(ST_Transform(zg.admin_unit_geom, 3857)) > 0
+              THEN (
+                ST_Area(ST_Transform(zg.served_geom, 3857))
+                / ST_Area(ST_Transform(zg.admin_unit_geom, 3857))
+              ) * 100
+            ELSE 0
+          END AS served_pct
+        FROM zone_geometries zg
+      )
+      SELECT jsonb_build_object(
+        'type', 'FeatureCollection',
+        'features', COALESCE(jsonb_agg(feature), '[]'::jsonb)
+      )
+      FROM (
+        SELECT jsonb_build_object(
+          'type', 'Feature',
+          'id', CONCAT('served-', zm.admin_unit_id),
+          'geometry', ST_AsGeoJSON(zm.served_geom)::jsonb,
+          'properties', jsonb_build_object(
+            'zone_type', 'served',
+            'admin_unit_id', zm.admin_unit_id,
+            'admin_unit_name', zm.admin_unit_name,
+            'district_name', zm.district_name,
+            'coverage_distance_km', $1 / 1000.0,
+            'coverage_pct', zm.served_pct
+          )
+        ) AS feature
+        FROM zone_metrics zm
+        WHERE zm.served_geom IS NOT NULL
+          AND NOT ST_IsEmpty(zm.served_geom)
+
+        UNION ALL
+
+        SELECT jsonb_build_object(
+          'type', 'Feature',
+          'id', CONCAT('unserved-', zm.admin_unit_id),
+          'geometry', ST_AsGeoJSON(zm.unserved_geom)::jsonb,
+          'properties', jsonb_build_object(
+            'zone_type', 'unserved',
+            'admin_unit_id', zm.admin_unit_id,
+            'admin_unit_name', zm.admin_unit_name,
+            'district_name', zm.district_name,
+            'coverage_distance_km', $1 / 1000.0,
+            'coverage_pct', zm.served_pct
+          )
+        ) AS feature
+        FROM zone_metrics zm
+        WHERE zm.unserved_geom IS NOT NULL
+          AND NOT ST_IsEmpty(zm.unserved_geom)
+
+        UNION ALL
+
+        SELECT jsonb_build_object(
+          'type', 'Feature',
+          'id', CONCAT('school-', ss.school_id),
+          'geometry', ST_AsGeoJSON(ss.geom)::jsonb,
+          'properties', jsonb_build_object(
+            'zone_type', 'school_point',
+            'school_id', ss.school_id,
+            'school_name', ss.school_name,
+            'coverage_distance_km', $1 / 1000.0
+          )
+        ) AS feature
+        FROM school_scope ss
+      ) features;
+    `;
+
+    const result = await db.query(query, params);
+    res.json({
+      status: "success",
+      data: result.rows[0].jsonb_build_object || {
+        type: "FeatureCollection",
+        features: [],
+      },
+    });
+  } catch (err) {
+    console.error("Education access zones geojson error", {
+      message: err.message,
+      district,
+      bufferKm,
+    });
+    res.status(500).send("Server error");
+  }
+});
+
 // @route   GET api/v1/dashboard/education/summary
 // @desc    Get ward/district education aggregates
 router.get("/summary", async (req, res) => {
@@ -212,12 +482,7 @@ router.get("/summary", async (req, res) => {
   try {
     const conditions = ["ef.geom IS NOT NULL"];
     const params = [];
-    appendDistrictGeometryCondition(
-      conditions,
-      params,
-      "ef.geom",
-      district,
-    );
+    appendDistrictGeometryCondition(conditions, params, "ef.geom", district);
     const whereClause = conditions.length
       ? `WHERE ${conditions.join(" AND ")}`
       : "";
@@ -227,7 +492,6 @@ router.get("/summary", async (req, res) => {
           school_id,
           student_enrollment_total,
           teacher_count,
-          student_enrollment,
           teacher_distribution
         FROM education_facilities ef
         ${whereClause}
@@ -239,7 +503,7 @@ router.get("/summary", async (req, res) => {
       (accumulator, row) => {
         accumulator.school_count += 1;
         accumulator.student_enrollment_total += parseNumericValue(
-          row.student_enrollment_total ?? row.student_enrollment,
+          row.student_enrollment_total,
         );
         accumulator.teacher_count_total += parseNumericValue(
           row.teacher_count ?? row.teacher_distribution,
@@ -269,12 +533,28 @@ router.get("/summary", async (req, res) => {
       `
         SELECT COALESCE(
           SUM(
-            CASE
-              WHEN age_class = '5' THEN total_population
-              WHEN age_class = '10' THEN total_population
-              WHEN age_class = '15' THEN total_population * 0.6
-              ELSE 0
-            END
+            COALESCE(
+              total_population,
+              0
+            )
+            * GREATEST(
+                LEAST(
+                  COALESCE(
+                    NULLIF(REGEXP_REPLACE(COALESCE(age_class, ''), '[^0-9.]', '', 'g'), '')::numeric,
+                    -9999
+                  ) + 5,
+                  18
+                )
+                - GREATEST(
+                  COALESCE(
+                    NULLIF(REGEXP_REPLACE(COALESCE(age_class, ''), '[^0-9.]', '', 'g'), '')::numeric,
+                    -9999
+                  ),
+                  5
+                ),
+                0
+              )
+            / 5.0
           ),
           0
         ) AS school_age_population_total
@@ -311,35 +591,60 @@ router.get("/insights", async (req, res) => {
   const { district } = req.query;
 
   try {
-    const result = await db.query(`
+    const params = [];
+    const conditions = ["LOWER(a3.type) IN ('ta', 'ward', 'admin3')"];
+    appendDistrictNameCondition(conditions, params, "d.name", district);
+    const whereClause = conditions.length
+      ? `WHERE ${conditions.join(" AND ")}`
+      : "";
+
+    const result = await db.query(
+      `
       WITH school_age AS (
         SELECT
-          LOWER(admin_unit_name) AS district_key,
+          admin_unit_id,
+          SUM(COALESCE(total_population, 0)) AS population_total,
           SUM(
-            CASE
-              WHEN age_class = '5' THEN total_population
-              WHEN age_class = '10' THEN total_population
-              WHEN age_class = '15' THEN total_population * 0.6
-              ELSE 0
-            END
+            COALESCE(
+              total_population,
+              0
+            )
+            * GREATEST(
+                LEAST(
+                  COALESCE(
+                    NULLIF(REGEXP_REPLACE(COALESCE(age_class, ''), '[^0-9.]', '', 'g'), '')::numeric,
+                    -9999
+                  ) + 5,
+                  18
+                )
+                - GREATEST(
+                  COALESCE(
+                    NULLIF(REGEXP_REPLACE(COALESCE(age_class, ''), '[^0-9.]', '', 'g'), '')::numeric,
+                    -9999
+                  ),
+                  5
+                ),
+                0
+              )
+            / 5.0
           ) AS school_age_population_total
         FROM worldpop_age_sex
-        WHERE admin_unit_type = 'District'
+        WHERE admin_unit_type = 'TA'
           AND worldpop_year = (SELECT MAX(worldpop_year) FROM worldpop_age_sex)
-        GROUP BY LOWER(admin_unit_name)
+        GROUP BY admin_unit_id
       )
       SELECT
-        au.id AS admin_unit_id,
-        au.code AS admin_unit_code,
-        au.name AS district,
-        COALESCE(au.population_total, 0) AS population_total,
+        a3.id AS admin_unit_id,
+        a3.code AS admin_unit_code,
+        a3.name AS admin_unit_name,
+        d.name AS district,
+        COALESCE(NULLIF(a3.population_total, 0), sa.population_total, 0) AS population_total,
         COALESCE(sa.school_age_population_total, 0) AS school_age_population_total,
         COUNT(ef.school_id) AS school_count,
         COALESCE(
           SUM(
             COALESCE(
-              ef.student_enrollment_total::numeric,
-              NULLIF(REGEXP_REPLACE(COALESCE(ef.student_enrollment, ''), '[^0-9.]', '', 'g'), '')::numeric,
+              NULLIF(TRIM(COALESCE(ef.student_enrollment_total::text, '')), '')::numeric,
               0
             )
           ),
@@ -348,35 +653,54 @@ router.get("/insights", async (req, res) => {
         COALESCE(
           SUM(
             COALESCE(
-              ef.teacher_count::numeric,
-              NULLIF(REGEXP_REPLACE(COALESCE(ef.teacher_distribution, ''), '[^0-9.]', '', 'g'), '')::numeric,
+              NULLIF(TRIM(COALESCE(ef.teacher_count::text, '')), '')::numeric,
+              NULLIF(REGEXP_REPLACE(COALESCE(ef.teacher_distribution::text, ''), '[^0-9.]', '', 'g'), '')::numeric,
               0
             )
           ),
           0
         ) AS teacher_count_total
-      FROM administrative_units au
+      FROM admin3_units a3
+      LEFT JOIN districts d
+          ON d.id = a3.district_id
       LEFT JOIN school_age sa
-        ON sa.district_key = LOWER(au.name)
+          ON sa.admin_unit_id = a3.id
       LEFT JOIN education_facilities ef
-        ON au.geom IS NOT NULL
+          ON a3.geom IS NOT NULL
        AND ef.geom IS NOT NULL
-       AND ST_Intersects(ef.geom, au.geom)
-      WHERE LOWER(au.type) = LOWER('District')
-      GROUP BY au.id, au.code, au.name, au.population_total, sa.school_age_population_total
-      ORDER BY au.name
-    `);
+         AND ST_Intersects(ef.geom, a3.geom)
+      ${whereClause}
+      GROUP BY
+        a3.id,
+        a3.code,
+        a3.name,
+        d.name,
+        a3.population_total,
+        sa.population_total,
+        sa.school_age_population_total
+      ORDER BY d.name, a3.name
+    `,
+      params,
+    );
 
     const thresholds = buildEducationThresholds(
       result.rows.map((row) => {
         const schoolCount = toFiniteNumber(row.school_count);
         const populationTotal = toFiniteNumber(row.population_total);
-        const schoolAgePopulationTotal = toFiniteNumber(row.school_age_population_total);
-        const studentEnrollmentTotal = toFiniteNumber(row.student_enrollment_total);
+        const schoolAgePopulationTotal = toFiniteNumber(
+          row.school_age_population_total,
+        );
+        const studentEnrollmentTotal = toFiniteNumber(
+          row.student_enrollment_total,
+        );
 
         return {
-          schools_per_10k: populationTotal ? (schoolCount / populationTotal) * 10000 : 0,
-          students_per_school: schoolCount ? studentEnrollmentTotal / schoolCount : 0,
+          schools_per_10k: populationTotal
+            ? (schoolCount / populationTotal) * 10000
+            : 0,
+          students_per_school: schoolCount
+            ? studentEnrollmentTotal / schoolCount
+            : 0,
           population_total: populationTotal,
         };
       }),
@@ -393,21 +717,28 @@ router.get("/insights", async (req, res) => {
       .map((row) => {
         const schoolCount = toFiniteNumber(row.school_count);
         const populationTotal = toFiniteNumber(row.population_total);
-        const schoolAgePopulationTotal = toFiniteNumber(row.school_age_population_total);
-        const studentEnrollmentTotal = toFiniteNumber(row.student_enrollment_total);
+        const schoolAgePopulationTotal = toFiniteNumber(
+          row.school_age_population_total,
+        );
+        const studentEnrollmentTotal = toFiniteNumber(
+          row.student_enrollment_total,
+        );
         const teacherCountTotal = toFiniteNumber(row.teacher_count_total);
 
         return classifyEducationDistrict(
           {
             admin_unit_id: row.admin_unit_id,
             admin_unit_code: row.admin_unit_code,
+            admin_unit_name: row.admin_unit_name,
             district: row.district,
             population_total: populationTotal,
             school_age_population_total: schoolAgePopulationTotal,
             school_count: schoolCount,
             student_enrollment_total: studentEnrollmentTotal,
             teacher_count_total: teacherCountTotal,
-            schools_per_10k: populationTotal ? (schoolCount / populationTotal) * 10000 : 0,
+            schools_per_10k: populationTotal
+              ? (schoolCount / populationTotal) * 10000
+              : 0,
             schools_per_children: schoolAgePopulationTotal
               ? schoolCount / schoolAgePopulationTotal
               : 0,
@@ -418,10 +749,17 @@ router.get("/insights", async (req, res) => {
           thresholds,
         );
       })
-      .filter((row) => row.population_total > 0)
+      .filter(
+        (row) =>
+          row.population_total > 0 ||
+          row.school_age_population_total > 0 ||
+          row.school_count > 0 ||
+          row.student_enrollment_total > 0,
+      )
       .sort((left, right) => {
         const insightOrder =
-          (insightPriority[left.insight] ?? 99) - (insightPriority[right.insight] ?? 99);
+          (insightPriority[left.insight] ?? 99) -
+          (insightPriority[right.insight] ?? 99);
         if (insightOrder !== 0) {
           return insightOrder;
         }
@@ -433,9 +771,12 @@ router.get("/insights", async (req, res) => {
         return right.students_per_school - left.students_per_school;
       });
 
-    const visibleDistrictInsights = district
-      ? allDistrictInsights.filter(
-          (row) => row.district.toLowerCase() === district.toLowerCase(),
+    const selectedDistrictValues = resolveDistrictFilterValues(district).map(
+      (value) => value.toLowerCase(),
+    );
+    const visibleDistrictInsights = selectedDistrictValues.length
+      ? allDistrictInsights.filter((row) =>
+          selectedDistrictValues.includes(row.district.toLowerCase()),
         )
       : allDistrictInsights;
 
@@ -451,7 +792,15 @@ router.get("/insights", async (req, res) => {
       },
     });
   } catch (err) {
-    console.error(err.message);
+    console.error("Education insights query error", {
+      message: err.message,
+      code: err.code,
+      detail: err.detail,
+      hint: err.hint,
+      where: err.where,
+      position: err.position,
+      routine: err.routine,
+    });
     res.status(500).send("Server error");
   }
 });

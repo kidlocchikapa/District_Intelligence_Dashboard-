@@ -79,7 +79,7 @@ def fetch_admin_units_for_analysis(session, admin_level=None):
                 END AS type,
                 geom,
                 (ST_Area(ST_Transform(geom, 3857)) / 1000000.0) AS area_sq_km,
-                0::INTEGER AS population_total
+                COALESCE(population_total, 0)::INTEGER AS population_total
             FROM admin3_units
         ) admin_units
         WHERE geom IS NOT NULL
@@ -95,13 +95,29 @@ def fetch_admin_units_for_analysis(session, admin_level=None):
 def fetch_facilities(session, table_name):
     if table_name == 'education_facilities':
         query = """
-            SELECT school_id AS id, name, ward_id, district_id, student_enrollment_total, teacher_count, geom
+            SELECT
+                school_id AS id,
+                school_name AS name,
+                ta_id,
+                ta_id AS ward_id,
+                district_id,
+                student_enrollment_total,
+                teacher_count,
+                geom
             FROM education_facilities
             WHERE geom IS NOT NULL
         """
     elif table_name == 'health_facilities':
         query = """
-            SELECT id, name, COALESCE(ta_id, ward_id) AS ward_id, district_id, beds_count, patient_visits_total, geom
+            SELECT
+                id,
+                name,
+                ta_id,
+                ta_id AS ward_id,
+                district_id,
+                beds_count,
+                patient_visits_total,
+                geom
             FROM health_facilities
             WHERE geom IS NOT NULL
         """
@@ -361,7 +377,12 @@ def compute_education_summary(admin_units_gdf, schools_gdf, school_age_lookup=No
 
     admin_units = admin_units_gdf.copy()
     selected_level = (admin_level or '').lower()
-    join_column = 'ward_id' if selected_level == 'ward' else 'district_id'
+    if selected_level == 'ta':
+        join_column = 'ta_id'
+    elif selected_level == 'ward':
+        join_column = 'ward_id'
+    else:
+        join_column = 'district_id'
 
     grouped = schools_gdf.groupby(join_column, dropna=True).agg(
         school_count=('id', 'count'),

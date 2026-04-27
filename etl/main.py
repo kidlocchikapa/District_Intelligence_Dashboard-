@@ -317,12 +317,97 @@ def process_tabular_dataset(
         source_filename=source_name,
     )
 
+    health_access_rows_loaded = 0
+    education_analysis_rows_loaded = 0
+    if dataset_type == 'health':
+        resolved_worldpop = run_step(
+            step_name='health_access_resolve_worldpop_raster',
+            user_message_on_error='Could not resolve WorldPop raster for health access analysis.',
+            fn=resolve_worldpop_raster,
+            api_url=None,
+            year=DEFAULT_WORLDPOP_YEAR,
+        )
+        district_access_df = run_step(
+            step_name='health_access_compute_district',
+            user_message_on_error='Could not compute district-level health access analysis.',
+            fn=run_spatial_analyses,
+            session=session,
+            analysis_types=['health_population_served'],
+            admin_level='District',
+            coverage_distance_km=5.0,
+            raster_path=resolved_worldpop['raster_path'],
+        )
+        health_access_rows_loaded += run_step(
+            step_name='health_access_load_district',
+            user_message_on_error='District-level health access analysis was computed but could not be saved.',
+            fn=load_analysis_results,
+            session=session,
+            analysis_df=district_access_df,
+        )
+
+        ta_access_df = run_step(
+            step_name='health_access_compute_ta',
+            user_message_on_error='Could not compute TA-level health access analysis.',
+            fn=run_spatial_analyses,
+            session=session,
+            analysis_types=['health_population_served'],
+            admin_level='TA',
+            coverage_distance_km=5.0,
+            raster_path=resolved_worldpop['raster_path'],
+        )
+        health_access_rows_loaded += run_step(
+            step_name='health_access_load_ta',
+            user_message_on_error='TA-level health access analysis was computed but could not be saved.',
+            fn=load_analysis_results,
+            session=session,
+            analysis_df=ta_access_df,
+        )
+
+    if dataset_type == 'education':
+        district_education_df = run_step(
+            step_name='education_analysis_compute_district',
+            user_message_on_error='Could not compute district-level education analyses.',
+            fn=run_spatial_analyses,
+            session=session,
+            analysis_types=['education_summary', 'nearest_school_distance', 'school_service_coverage'],
+            admin_level='District',
+            coverage_distance_km=5.0,
+            raster_path=None,
+        )
+        education_analysis_rows_loaded += run_step(
+            step_name='education_analysis_load_district',
+            user_message_on_error='District-level education analyses were computed but could not be saved.',
+            fn=load_analysis_results,
+            session=session,
+            analysis_df=district_education_df,
+        )
+
+        ta_education_df = run_step(
+            step_name='education_analysis_compute_ta',
+            user_message_on_error='Could not compute TA-level education analyses.',
+            fn=run_spatial_analyses,
+            session=session,
+            analysis_types=['education_summary', 'nearest_school_distance', 'school_service_coverage'],
+            admin_level='TA',
+            coverage_distance_km=5.0,
+            raster_path=None,
+        )
+        education_analysis_rows_loaded += run_step(
+            step_name='education_analysis_load_ta',
+            user_message_on_error='TA-level education analyses were computed but could not be saved.',
+            fn=load_analysis_results,
+            session=session,
+            analysis_df=ta_education_df,
+        )
+
     metadata = {
         'missing_data_strategy': missing_data_strategy,
         'gazetteer_rows': len(gazetteer_df),
         'indicator_rows_loaded': indicators_loaded,
         'source_name': source_name,
         'post_load_spatial_fk_enrichment': enrichment_result,
+        'health_access_rows_loaded': health_access_rows_loaded,
+        'education_analysis_rows_loaded': education_analysis_rows_loaded,
     }
 
     run_step(
