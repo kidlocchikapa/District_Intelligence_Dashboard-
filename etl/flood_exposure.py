@@ -7,10 +7,11 @@ from collections import defaultdict
 
 import numpy as np
 import rasterio
-from rasterio.features import geometry_mask
+from rasterio.features import geometry_mask, shapes
 from rasterio.mask import mask
 from rasterio.warp import Resampling, reproject, transform, transform_geom
 from shapely import wkb
+from shapely.geometry import MultiPolygon, Polygon, shape
 from shapely.ops import unary_union
 from sqlalchemy import text
 
@@ -25,6 +26,15 @@ from worldpop import (
 
 
 LOGGER = logging.getLogger('flood_exposure_pipeline')
+
+# Flood value classification (0=None, 1-2=Low, 3-4=Medium, 5=High).
+RISK_CLASS_MAP = {
+    1: 'Low',
+    2: 'Low',
+    3: 'Medium',
+    4: 'Medium',
+    5: 'High',
+}
 
 
 class FloodPipelineError(Exception):
@@ -99,6 +109,148 @@ def ensure_flood_zones_table(session):
             """
         )
     )
+    session.commit()
+
+
+def ensure_flood_risk_polygons_table(session):
+    session.execute(
+        text(
+            """
+            CREATE TABLE IF NOT EXISTS flood_risk_polygons (
+                id SERIAL PRIMARY KEY,
+                analysis_date DATE NOT NULL,
+                risk_level VARCHAR(20) NOT NULL,
+                source_raster VARCHAR(255),
+                geom GEOMETRY(MultiPolygon, 4326) NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+            """
+        )
+    )
+    session.execute(
+        text(
+            """
+            CREATE INDEX IF NOT EXISTS idx_flood_risk_polygons_date
+            ON flood_risk_polygons (analysis_date)
+            """
+        )
+    )
+    session.execute(
+        text(
+            """
+            CREATE INDEX IF NOT EXISTS idx_flood_risk_polygons_risk
+            ON flood_risk_polygons (risk_level)
+            """
+        )
+    )
+    session.execute(
+        text(
+            """
+            CREATE INDEX IF NOT EXISTS idx_flood_risk_polygons_geom
+            ON flood_risk_polygons USING GIST (geom)
+            """
+        )
+    )
+    session.commit()
+
+
+def _risk_level_from_value(value):
+    try:
+        return RISK_CLASS_MAP.get(int(value))
+    except (TypeError, ValueError):
+        return None
+
+
+def _normalize_union_geom(geom):
+    if geom.is_empty:
+        return None
+    if geom.geom_type == 'Polygon':
+        return MultiPolygon([geom])
+    if geom.geom_type == 'MultiPolygon':
+        return geom
+    # Filter to polygonal parts only
+    polygon_parts = [
+        part
+        for part in getattr(geom, 'geoms', [])
+        if part.geom_type in ('Polygon', 'MultiPolygon')
+    ]
+    if not polygon_parts:
+        return None
+    merged = unary_union(polygon_parts)
+    if merged.is_empty:
+        return None
+    if merged.geom_type == 'Polygon':
+        return MultiPolygon([merged])
+    if merged.geom_type == 'MultiPolygon':
+        return merged
+    return None
+
+
+def build_flood_risk_polygons(session, flood_raster_path, analysis_date, source_raster=None):
+    with rasterio.open(flood_raster_path) as src:
+        band = src.read(1)
+        nodata = src.nodata
+        mask = np.isfinite(band)
+        if nodata is not None:
+            mask &= band != nodata
+        mask &= band > 0
+
+        geoms_by_level = defaultdict(list)
+        for geom, value in shapes(band, mask=mask, transform=src.transform):
+            risk_level = _risk_level_from_value(value)
+            if not risk_level:
+                continue
+            if src.crs and src.crs.to_string() != 'EPSG:4326':
+                geom = transform_geom(src.crs, 'EPSG:4326', geom, precision=6)
+            geoms_by_level[risk_level].append(shape(geom))
+
+    session.execute(
+        text(
+            """
+            DELETE FROM flood_risk_polygons
+            WHERE analysis_date = :analysis_date
+            """
+        ),
+        {'analysis_date': analysis_date},
+    )
+
+    rows = []
+    for risk_level, geoms in geoms_by_level.items():
+        if not geoms:
+            continue
+        merged = unary_union(geoms)
+        normalized = _normalize_union_geom(merged)
+        if not normalized:
+            continue
+        rows.append(
+            {
+                'analysis_date': analysis_date,
+                'risk_level': risk_level,
+                'source_raster': source_raster,
+                'geom_wkt': normalized.wkt,
+            }
+        )
+
+    if rows:
+        session.execute(
+            text(
+                """
+                INSERT INTO flood_risk_polygons (
+                    analysis_date,
+                    risk_level,
+                    source_raster,
+                    geom
+                )
+                VALUES (
+                    :analysis_date,
+                    :risk_level,
+                    :source_raster,
+                    ST_SetSRID(ST_Multi(ST_GeomFromText(:geom_wkt)), 4326)
+                )
+                """
+            ),
+            rows,
+        )
     session.commit()
 
 
@@ -247,10 +399,10 @@ def _classify_flood_risk(flood_value):
     if flood_value is None or (isinstance(flood_value, float) and np.isnan(flood_value)):
         return 'none', False
     
-    # Categorical intensity: 0=None, 1=Low, 3=Medium, 5=High
-    if flood_value == 1:
+    # Categorical intensity: 0=None, 1-2=Low, 3-4=Medium, 5=High
+    if flood_value in (1, 2):
         return 'low', True
-    if flood_value == 3:
+    if flood_value in (3, 4):
         return 'medium', True
     if flood_value == 5:
         return 'high', True
@@ -586,8 +738,8 @@ def _compute_population_stats_for_geom(flood_src, pop_src, geom_geojson):
     total_population = float(np.nansum(pop_on_flood_grid[total_mask]))
 
     exposed_mask = total_mask & valid_flood & (flood_data > 0)
-    low_mask = total_mask & valid_flood & (flood_data == 1)
-    med_mask = total_mask & valid_flood & (flood_data == 3)
+    low_mask = total_mask & valid_flood & np.isin(flood_data, [1, 2])
+    med_mask = total_mask & valid_flood & np.isin(flood_data, [3, 4])
     high_mask = total_mask & valid_flood & (flood_data == 5)
 
     # Calculate exposed area in sq km
@@ -703,6 +855,21 @@ def run_flood_exposure_analysis(
         user_message_on_error='Failed to prepare flood facility output tables in the database.',
         fn=ensure_flood_facility_tables,
         session=session,
+    )
+    run_step(
+        step_name='schema_setup_flood_risk_polygons',
+        user_message_on_error='Failed to prepare flood risk polygon table in the database.',
+        fn=ensure_flood_risk_polygons_table,
+        session=session,
+    )
+    run_step(
+        step_name='build_flood_risk_polygons',
+        user_message_on_error='Failed to build flood risk polygons from raster.',
+        fn=build_flood_risk_polygons,
+        session=session,
+        flood_raster_path=flood_raster_path,
+        analysis_date=analysis_date,
+        source_raster=os.path.basename(flood_raster_path),
     )
     boundaries = run_step(
         step_name='load_boundaries',

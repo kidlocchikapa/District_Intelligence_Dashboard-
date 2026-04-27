@@ -243,7 +243,17 @@ def process_welfare_beneficiary_dataset(
     # Indicator computation
     log_step('process_welfare', 'Fetching reference layers for indicator computation...')
     flood_gdf = gpd.read_postgis(
-        text("SELECT id, risk_level, geom FROM flood_zones"), session.bind, geom_col='geom'
+        text(
+            """
+            SELECT id, risk_level, geom
+            FROM flood_risk_polygons
+            WHERE analysis_date = (
+                SELECT MAX(analysis_date) FROM flood_risk_polygons
+            )
+            """
+        ),
+        session.bind,
+        geom_col='geom',
     )
     health_gdf = gpd.read_postgis(
         text("SELECT id, geom FROM health_facilities"), session.bind, geom_col='geom'

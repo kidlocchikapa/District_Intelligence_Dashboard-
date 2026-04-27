@@ -186,6 +186,24 @@ CREATE TABLE IF NOT EXISTS flood_zones (
     UNIQUE (district_id, ta_id, analysis_date)
 );
 
+CREATE TABLE IF NOT EXISTS flood_risk_polygons (
+    id SERIAL PRIMARY KEY,
+    analysis_date DATE NOT NULL,
+    risk_level VARCHAR(20) NOT NULL,
+    source_raster VARCHAR(255),
+    geom GEOMETRY(MultiPolygon, 4326) NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_flood_risk_polygons_date
+    ON flood_risk_polygons (analysis_date);
+
+CREATE INDEX IF NOT EXISTS idx_flood_risk_polygons_risk
+    ON flood_risk_polygons (risk_level);
+
+CREATE INDEX IF NOT EXISTS idx_flood_risk_polygons_geom
+    ON flood_risk_polygons USING GIST (geom);
+
 CREATE TABLE IF NOT EXISTS flood_facility_exposure (
     id SERIAL PRIMARY KEY,
     analysis_date DATE NOT NULL,
