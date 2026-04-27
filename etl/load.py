@@ -3,6 +3,7 @@ import json
 import logging
 
 import pandas as pd
+import numpy as np
 from geoalchemy2 import Geometry, WKTElement
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy import text
@@ -266,28 +267,47 @@ def load_welfare_beneficiary_indicators(session, indicators_df):
     if indicators_df.empty:
         return 0
 
+    def _normalize_int(value):
+        if value is None or value is pd.NA:
+            return None
+        if isinstance(value, float) and np.isnan(value):
+            return None
+        try:
+            return int(value)
+        except (TypeError, ValueError):
+            return None
+
     records = indicators_df.to_dict('records')
-    for record in records:
-        # Check if beneficiary_id is present
-        if pd.isna(record.get('beneficiary_id')):
-            continue
+    try:
+        for record in records:
+            # Check if beneficiary_id is present
+            if pd.isna(record.get('beneficiary_id')):
+                continue
 
-        query = text(
+            record['beneficiary_id'] = _normalize_int(record.get('beneficiary_id'))
+            record['program_id'] = _normalize_int(record.get('program_id'))
+            record['ta_id'] = _normalize_int(record.get('ta_id'))
+            record['district_id'] = _normalize_int(record.get('district_id'))
+
+            query = text(
+                """
+                INSERT INTO welfare_beneficiary_indicators (
+                    beneficiary_id, program_id, ta_id, district_id,
+                    affected_by_flood, has_school_access, has_health_facility_access
+                ) VALUES (
+                    :beneficiary_id, :program_id, :ta_id, :district_id,
+                    :affected_by_flood, :has_school_access, :has_health_facility_access
+                )
             """
-            INSERT INTO welfare_beneficiary_indicators (
-                beneficiary_id, program_id, ta_id, district_id,
-                affected_by_flood, has_school_access, has_health_facility_access
-            ) VALUES (
-                :beneficiary_id, :program_id, :ta_id, :district_id,
-                :affected_by_flood, :has_school_access, :has_health_facility_access
             )
-        """
-        )
-        # Handle potential duplicates or existing records by deleting first if we want to refresh
-        # Or just use a simple insert if it's a new load
-        session.execute(query, record)
+            # Handle potential duplicates or existing records by deleting first if we want to refresh
+            # Or just use a simple insert if it's a new load
+            session.execute(query, record)
 
-    session.commit()
+        session.commit()
+    except Exception:
+        session.rollback()
+        raise
     return len(records)
 
 # This function fetches administrative unit data from the database and returns it as a DataFrame, which can be used
