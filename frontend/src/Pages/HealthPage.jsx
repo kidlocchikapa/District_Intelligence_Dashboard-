@@ -7,6 +7,7 @@ import { usePdfExport } from "../hooks/usePdfExport";
 import MapPanel from "../components/MapPanel";
 import CoverageShapePanel from "../components/CoverageShapePanel";
 import GlobalHospitalRegistry from "../components/GlobalHospitalRegistry";
+import IntegrationSummaryPanel from "../components/IntegrationSummaryPanel";
 import {
   Bar,
   BarChart,
@@ -77,6 +78,12 @@ function HealthPage() {
     buildDashboardPath("/dashboard/health/access-zones/geojson", {
       district: districtScope,
       buffer_km: 8,
+    }),
+  );
+  const healthIntegration = useDashboardData(
+    buildDashboardPath("/dashboard/welfare/integration", {
+      district: selectedDistrict,
+      admin_type: "District",
     }),
   );
 
@@ -272,6 +279,50 @@ function HealthPage() {
                   </div>
                 </div>
               ))}
+        </div>
+
+        <div className="mb-10">
+          <IntegrationSummaryPanel
+            title="Integrated Health Context"
+            subtitle="Health planning shown with linked beneficiary access, public and private hospital reach, and flood-sensitive welfare context."
+            loading={healthIntegration.loading}
+            items={[
+              {
+                label: "Health Access",
+                metrics: {
+                  beneficiaries_with_health_access:
+                    healthIntegration.data?.summary?.health_access_count || 0,
+                  health_access_pct:
+                    healthIntegration.data?.summary?.health_access_pct || 0,
+                  public_hospital_access:
+                    healthIntegration.data?.summary
+                      ?.public_hospital_access_count || 0,
+                  private_hospital_access:
+                    healthIntegration.data?.summary
+                      ?.private_hospital_access_count || 0,
+                },
+              },
+              {
+                label: "Education Link",
+                metrics: {
+                  beneficiaries_with_school_access:
+                    healthIntegration.data?.summary?.school_access_count || 0,
+                  school_age_unenrolled:
+                    healthIntegration.data?.summary
+                      ?.school_age_population_unenrolled || 0,
+                },
+              },
+              {
+                label: "Risk Link",
+                metrics: {
+                  flood_affected_beneficiaries:
+                    healthIntegration.data?.summary?.flood_affected_count || 0,
+                  flood_affected_pct:
+                    healthIntegration.data?.summary?.flood_affected_pct || 0,
+                },
+              },
+            ]}
+          />
         </div>
 
         {/* Map + Heatmap Section */}
