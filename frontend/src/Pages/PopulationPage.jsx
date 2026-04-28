@@ -114,7 +114,7 @@ function PopulationPage() {
         <p className="mb-6 text-[14px] font-semibold text-gray-500">
           {selectedDistrict
             ? `Population surface focused on ${selectedDistrict}`
-            : "Zomba and Zomba City population surface from the WorldPop raster"}
+            : "Zomba population surface from the WorldPop raster"}
         </p>
 
         <div className="mb-8 flex gap-4">

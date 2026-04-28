@@ -417,7 +417,10 @@ router.get("/integration", async (req, res) => {
         COUNT(*) FILTER (WHERE COALESCE(bs.age, 0) < 18)::int AS beneficiary_records_under_18,
         COUNT(*) FILTER (WHERE bs.has_school_access)::int AS school_access_count,
         COUNT(*) FILTER (WHERE bs.has_health_facility_access)::int AS health_access_count,
-        COUNT(*) FILTER (WHERE bs.affected_by_flood)::int AS flood_affected_count,
+        COUNT(*) FILTER (
+          WHERE bs.affected_by_flood
+             OR COALESCE(fc.area_exposed_population, 0) > 0
+        )::int AS flood_affected_count,
         COUNT(*) FILTER (
           WHERE nh.distance_km <= 8
             AND nh.ownership_category = 'public'
@@ -474,7 +477,7 @@ router.get("/integration", async (req, res) => {
         bs.program_name,
         bs.district_name,
         bs.ta_name,
-        bs.affected_by_flood,
+        (bs.affected_by_flood OR COALESCE(fc.area_exposed_population, 0) > 0) AS affected_by_flood,
         bs.has_school_access,
         bs.has_health_facility_access,
         ROUND(COALESCE(nh.distance_km, 0)::numeric, 2) AS nearest_facility_distance_km,
@@ -489,8 +492,10 @@ router.get("/integration", async (req, res) => {
         ON bs.beneficiary_id = nh.beneficiary_id
       LEFT JOIN nearest_hospital hosp
         ON bs.beneficiary_id = hosp.beneficiary_id
+      LEFT JOIN flood_context fc
+        ON fc.admin_unit_id = ${adminUnitIdExpression}
       ORDER BY
-        bs.affected_by_flood DESC,
+        (bs.affected_by_flood OR COALESCE(fc.area_exposed_population, 0) > 0) DESC,
         bs.has_health_facility_access ASC,
         bs.has_school_access ASC,
         bs.lastname ASC,

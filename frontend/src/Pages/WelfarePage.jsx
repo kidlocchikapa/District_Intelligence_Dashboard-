@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import {
   UserCheck,
   Heart,
@@ -105,11 +105,36 @@ function WelfarePage() {
   const { contentRef, exportPdf } = usePdfExport("Welfare_Integration_Report.pdf");
   const districts = useDistrictOptions();
   const [adminType, setAdminType] = useState("TA");
+  const [selectedTa, setSelectedTa] = useState("");
+  const [selectedProgram, setSelectedProgram] = useState("");
+  const [areaSearch, setAreaSearch] = useState("");
+  const [beneficiarySearch, setBeneficiarySearch] = useState("");
+  const [riskFilter, setRiskFilter] = useState("all");
+  const [serviceFilter, setServiceFilter] = useState("all");
+  const programCatalog = useDashboardData(
+    buildDashboardPath("/dashboard/welfare/integration", {
+      district: selectedDistrict,
+      admin_type: adminType,
+      preview_limit: 1,
+    }),
+  );
+
+  const programOptions = useMemo(
+    () => programCatalog.data?.program_breakdown || [],
+    [programCatalog.data],
+  );
+  const selectedProgramId = useMemo(
+    () =>
+      programOptions.find((item) => item.program_name === selectedProgram)
+        ?.program_id || "",
+    [programOptions, selectedProgram],
+  );
 
   const integration = useDashboardData(
     buildDashboardPath("/dashboard/welfare/integration", {
       district: selectedDistrict,
       admin_type: adminType,
+      program_id: selectedProgramId || undefined,
       preview_limit: 15,
     }),
   );
@@ -126,6 +151,116 @@ function WelfarePage() {
     name: item.program_name,
     value: item.beneficiary_count,
   }));
+
+  const taOptions = useMemo(() => {
+    const names = new Set();
+
+    byArea.forEach((row) => {
+      if (row.admin_unit_name && adminType === "TA") {
+        names.add(row.admin_unit_name);
+      }
+    });
+
+    beneficiaryPreview.forEach((row) => {
+      if (row.ta_name) {
+        names.add(row.ta_name);
+      }
+    });
+
+    return Array.from(names).sort((left, right) => left.localeCompare(right));
+  }, [adminType, beneficiaryPreview, byArea]);
+
+  const programNamesLabel = useMemo(() => {
+    const names = programBreakdown
+      .map((item) => item.program_name)
+      .filter(Boolean);
+
+    if (!names.length) {
+      return "No program names available";
+    }
+
+    return names.join(", ");
+  }, [programBreakdown]);
+
+  const filteredByArea = useMemo(() => {
+    return byArea.filter((row) => {
+      const areaName = String(row.admin_unit_name || "").toLowerCase();
+      const districtName = String(row.district_name || "").toLowerCase();
+      const searchValue = areaSearch.trim().toLowerCase();
+      const matchesSearch =
+        !searchValue ||
+        areaName.includes(searchValue) ||
+        districtName.includes(searchValue);
+      const matchesTa =
+        !selectedTa ||
+        adminType !== "TA" ||
+        String(row.admin_unit_name || "").toLowerCase() ===
+          selectedTa.toLowerCase();
+      const matchesRisk =
+        riskFilter === "all" ||
+        (riskFilter === "flood_only" &&
+          Number(row.flood_affected_count || 0) > 0) ||
+        (riskFilter === "clear_only" &&
+          Number(row.flood_affected_count || 0) === 0);
+      const matchesService =
+        serviceFilter === "all" ||
+        (serviceFilter === "school_limited" &&
+          Number(row.school_access_count || 0) <
+            Number(row.beneficiary_count || 0)) ||
+        (serviceFilter === "health_limited" &&
+          Number(row.health_access_count || 0) <
+            Number(row.beneficiary_count || 0));
+
+      return matchesSearch && matchesTa && matchesRisk && matchesService;
+    });
+  }, [adminType, areaSearch, byArea, riskFilter, selectedTa, serviceFilter]);
+
+  const filteredBeneficiaryPreview = useMemo(() => {
+    return beneficiaryPreview.filter((row) => {
+      const fullName = `${row.firstname || ""} ${row.lastname || ""}`
+        .trim()
+        .toLowerCase();
+      const taName = String(row.ta_name || "").toLowerCase();
+      const districtName = String(row.district_name || "").toLowerCase();
+      const programName = String(row.program_name || "").toLowerCase();
+      const searchValue = beneficiarySearch.trim().toLowerCase();
+      const matchesSearch =
+        !searchValue ||
+        fullName.includes(searchValue) ||
+        taName.includes(searchValue) ||
+        districtName.includes(searchValue) ||
+        programName.includes(searchValue);
+      const matchesTa =
+        !selectedTa || taName === selectedTa.toLowerCase();
+      const matchesProgram =
+        !selectedProgram || programName === selectedProgram.toLowerCase();
+      const matchesRisk =
+        riskFilter === "all" ||
+        (riskFilter === "flood_only" && Boolean(row.affected_by_flood)) ||
+        (riskFilter === "clear_only" && !Boolean(row.affected_by_flood));
+      const matchesService =
+        serviceFilter === "all" ||
+        (serviceFilter === "school_limited" &&
+          !Boolean(row.has_school_access)) ||
+        (serviceFilter === "health_limited" &&
+          !Boolean(row.has_health_facility_access));
+
+      return (
+        matchesSearch &&
+        matchesTa &&
+        matchesProgram &&
+        matchesRisk &&
+        matchesService
+      );
+    });
+  }, [
+    beneficiaryPreview,
+    beneficiarySearch,
+    riskFilter,
+    selectedProgram,
+    selectedTa,
+    serviceFilter,
+  ]);
 
   const areaColumns = [
     {
@@ -294,6 +429,58 @@ function WelfarePage() {
               </button>
             ))}
           </div>
+
+          <div className="relative">
+            <select
+              className="bg-white text-gray-700 rounded border border-gray-200 px-4 py-2 text-[13px] font-bold min-w-[220px] cursor-pointer shadow-sm"
+              value={selectedProgram}
+              onChange={(e) => setSelectedProgram(e.target.value)}
+            >
+              <option value="">All Programs</option>
+              {programOptions.map((option) => (
+                <option
+                  key={option.program_id || option.program_name}
+                  value={option.program_name}
+                >
+                  {option.program_name}
+                </option>
+              ))}
+            </select>
+          </div>
+        </div>
+
+        <div className="mb-8 rounded border border-gray-100 bg-white p-5 shadow-sm">
+          <div className="flex flex-wrap items-center gap-3">
+            <span className="text-[11px] font-bold uppercase tracking-[0.18em] text-gray-400">
+              Programs
+            </span>
+            {programOptions.length ? (
+              programOptions.map((program) => {
+                const isActive = selectedProgram === program.program_name;
+                return (
+                  <button
+                    key={program.program_id || program.program_name}
+                    onClick={() =>
+                      setSelectedProgram((current) =>
+                        current === program.program_name ? "" : program.program_name,
+                      )
+                    }
+                    className={`rounded border px-3 py-1.5 text-[12px] font-bold transition-colors ${
+                      isActive
+                        ? "border-black bg-black text-white"
+                        : "border-gray-200 bg-gray-50 text-gray-700 hover:border-gray-400"
+                    }`}
+                  >
+                    {program.program_name} ({formatWholeNumber(program.beneficiary_count)})
+                  </button>
+                );
+              })
+            ) : (
+              <span className="text-[13px] font-semibold text-gray-500">
+                No program records available.
+              </span>
+            )}
+          </div>
         </div>
 
         <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-6 mb-10">
@@ -304,7 +491,9 @@ function WelfarePage() {
                   label: "Total Beneficiaries",
                   value: formatWholeNumber(summary.total_beneficiaries),
                   icon: Heart,
-                  helper: `${formatWholeNumber(summary.active_programs)} active programs`,
+                  helper: selectedProgram
+                    ? selectedProgram
+                    : programNamesLabel,
                 },
                 {
                   label: "Estimated Household Reach",
@@ -443,8 +632,53 @@ function WelfarePage() {
         </div>
 
         <div className="mb-10">
+          <div className="mb-5 rounded border border-gray-100 bg-white p-5 shadow-sm">
+            <div className="flex flex-wrap items-center gap-3">
+              <input
+                type="text"
+                value={areaSearch}
+                onChange={(event) => setAreaSearch(event.target.value)}
+                placeholder={`Search ${adminType === "TA" ? "TAs or districts" : "district records"}`}
+                className="min-w-[220px] flex-1 rounded border border-gray-200 px-3 py-2 text-[13px] font-semibold text-gray-700 outline-none focus:border-black"
+              />
+              <select
+                value={selectedTa}
+                onChange={(event) => setSelectedTa(event.target.value)}
+                className="min-w-[180px] rounded border border-gray-200 px-3 py-2 text-[13px] font-bold text-gray-700"
+                disabled={adminType !== "TA" && !taOptions.length}
+              >
+                <option value="">{adminType === "TA" ? "All TAs" : "All TAs in Preview"}</option>
+                {taOptions.map((option) => (
+                  <option key={option} value={option}>
+                    {option}
+                  </option>
+                ))}
+              </select>
+              <select
+                value={riskFilter}
+                onChange={(event) => setRiskFilter(event.target.value)}
+                className="min-w-[170px] rounded border border-gray-200 px-3 py-2 text-[13px] font-bold text-gray-700"
+              >
+                <option value="all">All Risk States</option>
+                <option value="flood_only">Flood Affected Only</option>
+                <option value="clear_only">Not Flood Affected</option>
+              </select>
+              <select
+                value={serviceFilter}
+                onChange={(event) => setServiceFilter(event.target.value)}
+                className="min-w-[190px] rounded border border-gray-200 px-3 py-2 text-[13px] font-bold text-gray-700"
+              >
+                <option value="all">All Service States</option>
+                <option value="school_limited">Limited School Access</option>
+                <option value="health_limited">Limited Health Access</option>
+              </select>
+            </div>
+            <p className="mt-3 text-[12px] font-semibold text-gray-500">
+              Showing {formatWholeNumber(filteredByArea.length)} {adminType === "TA" ? "TA" : "district"} records after filtering.
+            </p>
+          </div>
           <DataTable
-            rows={byArea}
+            rows={filteredByArea}
             columns={areaColumns}
             title={`${adminType} Decision View`}
             subtitle={`Previewing linked social welfare, education, health, and disaster indicators at ${adminType === "TA" ? "TA" : "district"} level.`}
@@ -452,8 +686,49 @@ function WelfarePage() {
         </div>
 
         <div className="mb-10">
+          <div className="mb-5 rounded border border-gray-100 bg-white p-5 shadow-sm">
+            <div className="flex flex-wrap items-center gap-3">
+              <input
+                type="text"
+                value={beneficiarySearch}
+                onChange={(event) => setBeneficiarySearch(event.target.value)}
+                placeholder="Search beneficiary, TA, district, or program"
+                className="min-w-[240px] flex-1 rounded border border-gray-200 px-3 py-2 text-[13px] font-semibold text-gray-700 outline-none focus:border-black"
+              />
+              <select
+                value={selectedProgram}
+                onChange={(event) => setSelectedProgram(event.target.value)}
+                className="min-w-[210px] rounded border border-gray-200 px-3 py-2 text-[13px] font-bold text-gray-700"
+              >
+                <option value="">All Programs</option>
+                {programOptions.map((option) => (
+                  <option
+                    key={option.program_id || option.program_name}
+                    value={option.program_name}
+                  >
+                    {option.program_name}
+                  </option>
+                ))}
+              </select>
+              <select
+                value={selectedTa}
+                onChange={(event) => setSelectedTa(event.target.value)}
+                className="min-w-[180px] rounded border border-gray-200 px-3 py-2 text-[13px] font-bold text-gray-700"
+              >
+                <option value="">All TAs</option>
+                {taOptions.map((option) => (
+                  <option key={option} value={option}>
+                    {option}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <p className="mt-3 text-[12px] font-semibold text-gray-500">
+              Showing {formatWholeNumber(filteredBeneficiaryPreview.length)} beneficiary preview records after filtering.
+            </p>
+          </div>
           <DataTable
-            rows={beneficiaryPreview}
+            rows={filteredBeneficiaryPreview}
             columns={beneficiaryColumns}
             title="Beneficiary Preview"
             subtitle="A record-level sample showing program membership, residence, nearby services, and flood context."

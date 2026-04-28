@@ -175,7 +175,7 @@ function OverviewPage() {
         <p className="text-[14px] font-semibold text-gray-500 mb-6">
           {selectedDistrict
             ? `Showing ${selectedDistrict} Records`
-            : "Showing Zomba Records (merged from Zomba and Zomba City)"}
+            : "Showing Zomba Records"}
         </p>
 
         {/* Actions Row */}

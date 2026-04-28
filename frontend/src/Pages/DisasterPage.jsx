@@ -198,7 +198,7 @@ function DisasterPage() {
         <p className="text-[14px] font-semibold text-gray-500 mb-6">
           {selectedDistrict
             ? `Risk analysis for ${selectedDistrict}`
-            : "Risk analysis for Zomba + Zomba City"}
+            : "Risk analysis for Zomba"}
         </p>
 
         {/* Actions Row */}

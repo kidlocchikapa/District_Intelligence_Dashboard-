@@ -5,7 +5,6 @@ import { useDistrictOptions } from "../hooks/useDistrictOptions";
 import { buildDashboardPath } from "../lib/query";
 import { usePdfExport } from "../hooks/usePdfExport";
 import MapPanel from "../components/MapPanel";
-import CoverageShapePanel from "../components/CoverageShapePanel";
 import GlobalHospitalRegistry from "../components/GlobalHospitalRegistry";
 import IntegrationSummaryPanel from "../components/IntegrationSummaryPanel";
 import {
@@ -13,6 +12,8 @@ import {
   BarChart,
   CartesianGrid,
   Cell,
+  Line,
+  LineChart,
   Pie,
   PieChart,
   Rectangle,
@@ -73,17 +74,16 @@ function HealthPage() {
       admin_type: "District",
     }),
   );
-
-  const healthAccessZones = useDashboardData(
-    buildDashboardPath("/dashboard/health/access-zones/geojson", {
-      district: districtScope,
-      buffer_km: 8,
-    }),
-  );
   const healthIntegration = useDashboardData(
     buildDashboardPath("/dashboard/welfare/integration", {
       district: selectedDistrict,
       admin_type: "District",
+    }),
+  );
+  const servedPopulationTrend = useDashboardData(
+    buildDashboardPath("/dashboard/health/served-population", {
+      district: districtScope,
+      admin_type: "TA",
     }),
   );
 
@@ -99,7 +99,7 @@ function HealthPage() {
     districtHealthSummary.error,
     servedPopulationSummary.error,
     healthLocations.error,
-    healthAccessZones.error,
+    servedPopulationTrend.error,
   ].filter(Boolean);
 
   const findMetricTotal = (name) => {
@@ -174,6 +174,38 @@ function HealthPage() {
   const accessShare = totalPopulationInAccessView
     ? (accessTotal / totalPopulationInAccessView) * 100
     : 0;
+  const servedPopulationTrendData = Object.values(
+    (servedPopulationTrend.data || []).reduce((accumulator, metric) => {
+      const key = metric.admin_unit_name || "Unknown";
+
+      if (!accumulator[key]) {
+        accumulator[key] = {
+          area: key,
+          served_population_pct: 0,
+          served_population_total: 0,
+          unserved_population_total: 0,
+        };
+      }
+
+      const numericValue = Number(metric.metric_value || 0);
+
+      if (metric.metric_name === "health_population_served_pct") {
+        accumulator[key].served_population_pct = numericValue;
+      }
+
+      if (metric.metric_name === "health_population_served_total") {
+        accumulator[key].served_population_total = numericValue;
+      }
+
+      if (metric.metric_name === "health_population_unserved_total") {
+        accumulator[key].unserved_population_total = numericValue;
+      }
+
+      return accumulator;
+    }, {}),
+  ).sort(
+    (left, right) => left.served_population_pct - right.served_population_pct,
+  );
 
   const StatCardSkeleton = () => (
     <div className="border border-gray-100 rounded p-6 shadow-md bg-white animate-pulse">
@@ -197,7 +229,7 @@ function HealthPage() {
         <p className="text-[14px] font-semibold text-gray-500 mb-6">
           {selectedDistrict
             ? `Health infrastructure for ${selectedDistrict}`
-            : "Whole Zomba Overview (Zomba + Zomba City)"}
+            : "Health infrastructure overview"}
         </p>
 
         {healthApiErrors.length ? (
@@ -223,7 +255,7 @@ function HealthPage() {
               value={selectedDistrict}
               onChange={(e) => setSelectedDistrict(e.target.value)}
             >
-              <option value="">Whole Zomba (Zomba + Zomba City)</option>
+              <option value="">All Districts</option>
               {districts.options?.map((opt) => (
                 <option key={opt.value} value={opt.value}>
                   {opt.label}
@@ -325,7 +357,7 @@ function HealthPage() {
           />
         </div>
 
-        {/* Map + Heatmap Section */}
+        {/* Map + Coverage Trend Section */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-8">
           <div className="border border-gray-100 rounded p-8 shadow-sm bg-white h-[600px] flex flex-col">
             <h3 className="text-[16px] font-extrabold mb-6">
@@ -355,17 +387,87 @@ function HealthPage() {
 
           <div className="border border-gray-100 rounded p-8 shadow-sm bg-white h-[600px] flex flex-col">
             <h3 className="text-[16px] font-extrabold mb-6">
-              Health Service Coverage Heatmap
+              Health Service Coverage Trend
             </h3>
-            <div className="flex-1 rounded overflow-hidden relative border border-gray-50 bg-gray-50">
-              <CoverageShapePanel
-                geojson={healthAccessZones.data}
-                loading={healthAccessZones.loading}
-                servedColor="#2563eb"
-                unservedColor="#dc2626"
-                pointColor="#8b5e3c"
-                heightClass="h-full w-full"
-              />
+            <p className="text-xs text-gray-500 font-semibold mb-4">
+              Served population coverage by TA so weaker health access areas stand out in sequence.
+            </p>
+            <div className="flex-1 rounded overflow-hidden relative border border-gray-50 bg-gray-50 p-4">
+              {servedPopulationTrend.loading ? (
+                <div className="h-full w-full animate-pulse rounded bg-white" />
+              ) : servedPopulationTrendData.length === 0 ? (
+                <div className="h-full flex items-center justify-center text-center text-sm text-gray-500 px-6">
+                  No TA-level health coverage trend is available for this filter yet.
+                </div>
+              ) : (
+                <ResponsiveContainer width="100%" height="100%">
+                  <LineChart
+                    data={servedPopulationTrendData}
+                    margin={{ top: 16, right: 20, left: 4, bottom: 84 }}
+                  >
+                    <CartesianGrid
+                      stroke="#f1f5f9"
+                      strokeDasharray="3 3"
+                      vertical={false}
+                    />
+                    <XAxis
+                      dataKey="area"
+                      axisLine={false}
+                      tick={{
+                        fill: "#64748b",
+                        fontSize: 9,
+                        fontWeight: 700,
+                      }}
+                      tickFormatter={formatDistrictAxisLabel}
+                      tickLine={false}
+                      angle={-35}
+                      textAnchor="end"
+                      interval={0}
+                      height={72}
+                    />
+                    <YAxis
+                      axisLine={false}
+                      tick={{
+                        fill: "#64748b",
+                        fontSize: 11,
+                        fontWeight: 700,
+                      }}
+                      tickLine={false}
+                      domain={[0, 100]}
+                      tickFormatter={(value) => `${Number(value).toFixed(0)}%`}
+                    />
+                    <Tooltip
+                      formatter={(value, name, item) => {
+                        if (name === "Coverage") {
+                          return [`${Number(value).toFixed(1)}%`, name];
+                        }
+
+                        return [
+                          Number(value).toLocaleString(),
+                          name,
+                          item,
+                        ];
+                      }}
+                      labelFormatter={(label) => label}
+                      contentStyle={{
+                        borderRadius: "4px",
+                        border: "none",
+                        boxShadow: "0 4px 6px -1px rgb(0 0 0 / 0.1)",
+                        fontSize: "12px",
+                      }}
+                    />
+                    <Line
+                      type="monotone"
+                      dataKey="served_population_pct"
+                      name="Coverage"
+                      stroke="#2563eb"
+                      strokeWidth={3}
+                      dot={{ r: 3, fill: "#2563eb" }}
+                      activeDot={{ r: 5 }}
+                    />
+                  </LineChart>
+                </ResponsiveContainer>
+              )}
             </div>
           </div>
         </div>
@@ -376,7 +478,7 @@ function HealthPage() {
             <h3 className="text-[16px] font-extrabold mb-4">
               {selectedDistrict
                 ? `Hospitals in ${selectedDistrict}`
-                : "Health Facilities in Whole Zomba"}
+                : "Health Facilities Across Zomba"}
             </h3>
 
             <div className="flex-1 overflow-hidden">
@@ -430,7 +532,7 @@ function HealthPage() {
                         No hospitals found in this district
                       </p>
                       <p className="text-[11px] text-gray-300 mt-1">
-                        Try selecting another district or "Whole Zomba"
+                        Try selecting another district or "All Districts"
                       </p>
                     </div>
                   )}
@@ -520,7 +622,7 @@ function HealthPage() {
                 <p className="text-[13px] text-gray-500 font-semibold mt-1">
                   {selectedDistrict
                     ? `Estimated access split for ${selectedDistrict}`
-                    : "Estimated access split for Whole Zomba (Zomba + Zomba City)"}
+                    : "Estimated access split across Zomba"}
                 </p>
               </div>
               <div className="text-right">
@@ -610,7 +712,7 @@ function HealthPage() {
           </div>
         </div>
 
-        {/* Global Hospital Registry - shown for the default Whole Zomba view */}
+        {/* Global Hospital Registry - shown for the default all-district view */}
         {!selectedDistrict && (
           <GlobalHospitalRegistry
             data={healthLocations.data}
