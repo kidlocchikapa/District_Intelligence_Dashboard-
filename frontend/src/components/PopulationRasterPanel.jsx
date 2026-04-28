@@ -115,6 +115,22 @@ function PopulationRasterPanel({
     : `${metadataUrl.slice(0, metadataUrl.lastIndexOf("/") + 1)}${metadata.image}`;
   const features = activeGeojson?.features || [];
 
+  function getFeatureName(feature) {
+    return (
+      feature?.properties?.admin_unit_name ||
+      feature?.properties?.name ||
+      null
+    );
+  }
+
+  function getFeatureType(feature) {
+    return (
+      feature?.properties?.admin_unit_type ||
+      feature?.properties?.type ||
+      null
+    );
+  }
+
   return (
     <div className={wrapperClassName}>
       {hasHeader ? (
@@ -147,15 +163,22 @@ function PopulationRasterPanel({
               data={activeGeojson}
               style={(feature) => ({
                 color: "#6d7a65",
-                weight: features.length === 1 || feature.properties.admin_unit_name === hoveredDistrict ? 2.5 : 1,
+                weight:
+                  features.length === 1 || getFeatureName(feature) === hoveredDistrict
+                    ? 2.5
+                    : 1,
                 opacity: 0.6,
-                fillColor: feature.properties.admin_unit_name === hoveredDistrict ? "#6d7a65" : "transparent",
-                fillOpacity: feature.properties.admin_unit_name === hoveredDistrict ? 0.1 : 0,
+                fillColor:
+                  getFeatureName(feature) === hoveredDistrict
+                    ? "#6d7a65"
+                    : "transparent",
+                fillOpacity:
+                  getFeatureName(feature) === hoveredDistrict ? 0.1 : 0,
               })}
               onEachFeature={(feature, layer) => {
                 layer.on({
                   mouseover: (e) => {
-                    const name = feature.properties.admin_unit_name || feature.properties.name;
+                    const name = getFeatureName(feature);
                     setHoveredDistrict(name);
                     const layer = e.target;
                     layer.setStyle({
@@ -174,8 +197,11 @@ function PopulationRasterPanel({
                     });
                   },
                   click: () => {
-                    const name = feature.properties.admin_unit_name || feature.properties.name;
-                    if (name) setSelectedDistrict(name);
+                    const name = getFeatureName(feature);
+                    const featureType = getFeatureType(feature);
+                    if (name && String(featureType).toLowerCase() === "district") {
+                      setSelectedDistrict(name);
+                    }
                   }
                 });
               }}
@@ -197,7 +223,7 @@ function PopulationRasterPanel({
           <div className="rounded-2xl border border-white/80 bg-white/92 px-5 py-4 shadow-md backdrop-blur-md min-w-[220px]">
             {hoveredDistrict && (
               <div className="mb-3 pb-3 border-b border-slate/10 animate-in fade-in slide-in-from-bottom-2 duration-300">
-                <p className="text-[10px] font-bold uppercase tracking-wider text-blue-600/60 leading-none">Hovering District</p>
+                <p className="text-[10px] font-bold uppercase tracking-wider text-blue-600/60 leading-none">Hovering Area</p>
                 <p className="mt-1.5 text-[15px] font-black text-slate leading-none">{hoveredDistrict}</p>
               </div>
             )}

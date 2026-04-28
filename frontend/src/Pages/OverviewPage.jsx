@@ -83,7 +83,6 @@ function OverviewPage() {
   );
   const densityMap = useDashboardData(
     buildDashboardPath("/dashboard/admin-units", {
-      type: "District",
       district: districtScope,
     }),
   );
