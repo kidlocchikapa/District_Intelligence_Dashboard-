@@ -39,12 +39,24 @@ function formatDistrictAxisLabel(value) {
     return value;
   }
 
-  return `${value.slice(0, 8)}…`;
+  return `${value.slice(0, 8)}...`;
+}
+
+function formatTaAxisLabel(value) {
+  if (!value) {
+    return "";
+  }
+
+  if (value.length <= 16) {
+    return value;
+  }
+
+  return `${value.slice(0, 16)}...`;
 }
 
 function PopulationPage() {
   const { selectedDistrict, setSelectedDistrict } = useDistrict();
-  const { contentRef, exportPdf } = usePdfExport('Population_Report.pdf');
+  const { contentRef, exportPdf } = usePdfExport("Population_Report.pdf");
   const districts = useDistrictOptions();
   const summary = useDashboardData(
     buildDashboardPath("/dashboard/summary", { district: selectedDistrict }),
@@ -56,10 +68,23 @@ function PopulationPage() {
     }),
   );
   const populationDistribution = useDashboardData(
-    "/dashboard/population-by-district",
+    selectedDistrict
+      ? buildDashboardPath("/dashboard/population-by-admin3", {
+          district: selectedDistrict,
+          type: "TA",
+        })
+      : "/dashboard/population-by-district",
   );
 
-  const chartData = populationDistribution.data || [];
+  const chartData = selectedDistrict
+    ? (populationDistribution.data || []).map((item) => ({
+        label: item.admin3_name,
+        population: Number(item.population || 0),
+      }))
+    : (populationDistribution.data || []).map((item) => ({
+        label: item.district,
+        population: Number(item.population || 0),
+      }));
   const totalPopulation = Number(summary.data?.total_estimated_population || 0);
   const maxPopulation = Math.max(
     ...chartData.map((item) => Number(item.population) || 0),
@@ -67,10 +92,15 @@ function PopulationPage() {
   );
 
   return (
-    <div ref={contentRef} className="min-h-screen bg-white text-black font-sans pb-10">
+    <div
+      ref={contentRef}
+      className="min-h-screen bg-white text-black font-sans pb-10"
+    >
       <div className="flex items-center gap-4 border-b border-gray-200 px-8 py-8">
         <Users2 className="h-8 w-8 text-black" />
-        <h1 className="text-[28px] font-extrabold tracking-tight">POPULATION</h1>
+        <h1 className="text-[28px] font-extrabold tracking-tight">
+          POPULATION
+        </h1>
       </div>
 
       <div className="mt-8 px-8">
@@ -81,7 +111,7 @@ function PopulationPage() {
         </p>
 
         <div className="mb-8 flex gap-4">
-          <button 
+          <button
             onClick={exportPdf}
             className="flex items-center gap-2 rounded border border-gray-300 px-3 py-1.5 text-[13px] font-bold transition-all hover:bg-gray-50 active:scale-95 shadow-sm"
           >
@@ -125,7 +155,8 @@ function PopulationPage() {
               {totalPopulation.toLocaleString()}
             </div>
             <p className="mt-2 text-sm leading-6 text-gray-500">
-              Estimated total population currently visible in the dashboard summary.
+              Estimated total population currently visible in the dashboard
+              summary.
             </p>
 
             <div className="mt-8 space-y-5">
@@ -137,7 +168,8 @@ function PopulationPage() {
                   Malawi WorldPop 2020
                 </p>
                 <p className="mt-2 text-sm leading-6 text-gray-500">
-                  Styled from the GeoTIFF so dense urban pockets remain visible at a much finer resolution.
+                  Styled from the GeoTIFF so dense urban pockets remain visible
+                  at a much finer resolution.
                 </p>
               </div>
 
@@ -149,7 +181,8 @@ function PopulationPage() {
                   {selectedDistrict || "All district outlines"}
                 </p>
                 <p className="mt-2 text-sm leading-6 text-gray-500">
-                  Administrative boundaries are drawn on top only as a guide, not as the color source.
+                  Administrative boundaries are drawn on top only as a guide,
+                  not as the color source.
                 </p>
               </div>
             </div>
@@ -158,7 +191,9 @@ function PopulationPage() {
 
         <div className="rounded border border-gray-100 bg-white p-8 shadow-sm">
           <h3 className="mb-6 text-[16px] font-extrabold">
-            Population by district
+            {selectedDistrict
+              ? `Population by TA in ${selectedDistrict}`
+              : "Population by district"}
           </h3>
           <div className="h-[420px]">
             <ResponsiveContainer width="100%" height="100%">
@@ -172,10 +207,12 @@ function PopulationPage() {
                   vertical={false}
                 />
                 <XAxis
-                  dataKey="district"
+                  dataKey="label"
                   axisLine={false}
                   tick={{ fill: "#64748b", fontSize: 9, fontWeight: 700 }}
-                  tickFormatter={formatDistrictAxisLabel}
+                  tickFormatter={
+                    selectedDistrict ? formatTaAxisLabel : formatDistrictAxisLabel
+                  }
                   tickLine={false}
                   angle={-90}
                   textAnchor="end"
@@ -211,7 +248,7 @@ function PopulationPage() {
                 >
                   {chartData.map((entry) => (
                     <Cell
-                      key={`population-bar-${entry.district}`}
+                      key={`population-bar-${entry.label}`}
                       fill={getPopulationBarColor(
                         Number(entry.population),
                         maxPopulation,
