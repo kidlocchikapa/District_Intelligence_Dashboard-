@@ -88,7 +88,7 @@ function OverviewPage() {
     }),
   );
   const populationDistribution = useDashboardData(
-    buildDashboardPath("/dashboard/population-by", {
+    buildDashboardPath("/dashboard/population-by-admin3", {
       district: districtScope,
       type: "TA",
     }),
