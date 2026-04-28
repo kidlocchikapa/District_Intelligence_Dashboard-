@@ -17,6 +17,7 @@ import { formatNumber } from "../lib/format";
 import { buildDashboardPath } from "../lib/query";
 import MapPanel from "../components/MapPanel";
 import CoverageShapePanel from "../components/CoverageShapePanel";
+import IntegrationSummaryPanel from "../components/IntegrationSummaryPanel";
 import {
   Cell,
   CartesianGrid,
@@ -182,6 +183,12 @@ function EducationPage() {
     buildDashboardPath("/dashboard/education/access-zones/geojson", {
       district: coverageFocusDistrict,
       buffer_km: 5,
+    }),
+  );
+  const educationIntegration = useDashboardData(
+    buildDashboardPath("/dashboard/welfare/integration", {
+      district: selectedDistrict,
+      admin_type: "District",
     }),
   );
 
@@ -379,6 +386,7 @@ function EducationPage() {
     { key: "students_per_school", label: "Students / School", digits: 0 },
   ];
 
+
   const StatCardSkeleton = () => (
     <div className="border border-gray-100 rounded p-6 shadow-md bg-white animate-pulse">
       <div className="h-4 w-32 bg-gray-200 rounded mb-4"></div>
@@ -481,6 +489,51 @@ function EducationPage() {
                   </div>
                 </div>
               ))}
+        </div>
+
+        <div className="mb-10">
+          <IntegrationSummaryPanel
+            title="Integrated Education Context"
+            subtitle="Education planning shown with linked beneficiary access, health reach, and flood-sensitive welfare context."
+            loading={educationIntegration.loading}
+            items={[
+              {
+                label: "Education Access",
+                metrics: {
+                  beneficiaries_with_school_access:
+                    educationIntegration.data?.summary?.school_access_count || 0,
+                  school_access_pct:
+                    educationIntegration.data?.summary?.school_access_pct || 0,
+                  school_age_unenrolled:
+                    educationIntegration.data?.summary
+                      ?.school_age_population_unenrolled || 0,
+                },
+              },
+              {
+                label: "Health Link",
+                metrics: {
+                  beneficiaries_with_health_access:
+                    educationIntegration.data?.summary?.health_access_count || 0,
+                  public_hospital_access:
+                    educationIntegration.data?.summary
+                      ?.public_hospital_access_count || 0,
+                  private_hospital_access:
+                    educationIntegration.data?.summary
+                      ?.private_hospital_access_count || 0,
+                },
+              },
+              {
+                label: "Risk Link",
+                metrics: {
+                  flood_affected_beneficiaries:
+                    educationIntegration.data?.summary?.flood_affected_count ||
+                    0,
+                  flood_affected_pct:
+                    educationIntegration.data?.summary?.flood_affected_pct || 0,
+                },
+              },
+            ]}
+          />
         </div>
 
         <div className="mb-10 rounded border border-gray-100 bg-[#f8f8f3] p-6 shadow-sm">

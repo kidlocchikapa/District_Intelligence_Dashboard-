@@ -100,10 +100,33 @@ function collectGeometryCoordinates(geometry, bucket) {
 }
 
 export function getGeoBounds(features = []) {
-  const coordinates = [];
-  features.forEach((feature) => collectGeometryCoordinates(feature?.geometry, coordinates));
+  let minLon = Infinity;
+  let maxLon = -Infinity;
+  let minLat = Infinity;
+  let maxLat = -Infinity;
 
-  if (!coordinates.length) {
+  features.forEach((feature) => {
+    const coordinates = [];
+    collectGeometryCoordinates(feature?.geometry, coordinates);
+
+    coordinates.forEach(([lon, lat]) => {
+      if (!Number.isFinite(lon) || !Number.isFinite(lat)) {
+        return;
+      }
+
+      if (lon < minLon) minLon = lon;
+      if (lon > maxLon) maxLon = lon;
+      if (lat < minLat) minLat = lat;
+      if (lat > maxLat) maxLat = lat;
+    });
+  });
+
+  if (
+    !Number.isFinite(minLon) ||
+    !Number.isFinite(maxLon) ||
+    !Number.isFinite(minLat) ||
+    !Number.isFinite(maxLat)
+  ) {
     return {
       minLon: 32,
       maxLon: 36,
@@ -112,15 +135,7 @@ export function getGeoBounds(features = []) {
     };
   }
 
-  const longitudes = coordinates.map(([lon]) => lon);
-  const latitudes = coordinates.map(([, lat]) => lat);
-
-  return {
-    minLon: Math.min(...longitudes),
-    maxLon: Math.max(...longitudes),
-    minLat: Math.min(...latitudes),
-    maxLat: Math.max(...latitudes),
-  };
+  return { minLon, maxLon, minLat, maxLat };
 }
 
 export function createSvgProjector(bounds, width, height, padding = 16) {

@@ -10,6 +10,7 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
+import IntegrationSummaryPanel from "../components/IntegrationSummaryPanel";
 import PopulationRasterPanel from "../components/PopulationRasterPanel";
 import { useDistrict } from "../context/DistrictContext";
 import { useDashboardData } from "../hooks/useDashboardData";
@@ -57,6 +58,12 @@ function PopulationPage() {
   );
   const populationDistribution = useDashboardData(
     "/dashboard/population-by-district",
+  );
+  const populationIntegration = useDashboardData(
+    buildDashboardPath("/dashboard/welfare/integration", {
+      district: selectedDistrict,
+      admin_type: "District",
+    }),
   );
 
   const chartData = populationDistribution.data || [];
@@ -154,6 +161,49 @@ function PopulationPage() {
               </div>
             </div>
           </div>
+        </div>
+
+        <div className="mb-8">
+          <IntegrationSummaryPanel
+            title="Integrated Population Context"
+            subtitle="Population distribution shown with linked beneficiary concentration, education access, health access, and flood exposure."
+            loading={populationIntegration.loading}
+            items={[
+              {
+                label: "Beneficiary Footprint",
+                metrics: {
+                  total_beneficiaries:
+                    populationIntegration.data?.summary?.total_beneficiaries ||
+                    0,
+                  total_household_members:
+                    populationIntegration.data?.summary
+                      ?.total_household_members || 0,
+                },
+              },
+              {
+                label: "Service Access",
+                metrics: {
+                  beneficiaries_with_school_access:
+                    populationIntegration.data?.summary?.school_access_count ||
+                    0,
+                  beneficiaries_with_health_access:
+                    populationIntegration.data?.summary?.health_access_count ||
+                    0,
+                },
+              },
+              {
+                label: "Risk Link",
+                metrics: {
+                  flood_affected_beneficiaries:
+                    populationIntegration.data?.summary?.flood_affected_count ||
+                    0,
+                  flood_affected_pct:
+                    populationIntegration.data?.summary?.flood_affected_pct ||
+                    0,
+                },
+              },
+            ]}
+          />
         </div>
 
         <div className="rounded border border-gray-100 bg-white p-8 shadow-sm">
