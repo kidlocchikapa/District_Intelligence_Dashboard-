@@ -1,13 +1,13 @@
 import { Activity, HeartPulse, Bed, Users, Download, Building2, CheckCircle2, AlertCircle, Building } from "lucide-react";
 import { useDashboardData } from "../hooks/useDashboardData";
 import { useDistrict } from "../context/DistrictContext";
-import { useDistrictOptions } from "../hooks/useDistrictOptions";
 import { buildDashboardPath } from "../lib/query";
 import { usePdfExport } from "../hooks/usePdfExport";
 import MapPanel from "../components/MapPanel";
 import CoverageShapePanel from "../components/CoverageShapePanel";
 import GlobalHospitalRegistry from "../components/GlobalHospitalRegistry";
 import IntegrationSummaryPanel from "../components/IntegrationSummaryPanel";
+import SharedDistrictSelector from "../components/SharedDistrictSelector";
 import {
   Bar,
   BarChart,
@@ -48,9 +48,8 @@ function formatDistrictAxisLabel(value) {
 }
 
 function HealthPage() {
-  const { selectedDistrict, setSelectedDistrict } = useDistrict();
+  const { selectedDistrict } = useDistrict();
   const { contentRef, exportPdf } = usePdfExport("Health_Report.pdf");
-  const districts = useDistrictOptions();
   const districtScope = selectedDistrict || "Zomba";
 
   const servedPopulationSummary = useDashboardData(
@@ -216,21 +215,8 @@ function HealthPage() {
             <Download className="h-4 w-4" />
             Download PDF
           </button>
+          <SharedDistrictSelector />
 
-          <div className="relative">
-            <select
-              className="bg-black text-white rounded px-6 py-2 text-[14px] font-bold appearance-none min-w-[160px] cursor-pointer"
-              value={selectedDistrict}
-              onChange={(e) => setSelectedDistrict(e.target.value)}
-            >
-              <option value="">Whole Zomba (Zomba + Zomba City)</option>
-              {districts.options?.map((opt) => (
-                <option key={opt.value} value={opt.value}>
-                  {opt.label}
-                </option>
-              ))}
-            </select>
-          </div>
         </div>
 
         {/* Stats Row */}

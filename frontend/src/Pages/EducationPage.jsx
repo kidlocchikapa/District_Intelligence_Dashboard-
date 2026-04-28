@@ -11,13 +11,13 @@ import { useMemo, useState } from "react";
 import DataTable from "../components/DataTable";
 import { useDashboardData } from "../hooks/useDashboardData";
 import { useDistrict } from "../context/DistrictContext";
-import { useDistrictOptions } from "../hooks/useDistrictOptions";
 import { usePdfExport } from "../hooks/usePdfExport";
 import { formatNumber } from "../lib/format";
 import { buildDashboardPath } from "../lib/query";
 import MapPanel from "../components/MapPanel";
 import CoverageShapePanel from "../components/CoverageShapePanel";
 import IntegrationSummaryPanel from "../components/IntegrationSummaryPanel";
+import SharedDistrictSelector from "../components/SharedDistrictSelector";
 import {
   Cell,
   CartesianGrid,
@@ -155,12 +155,11 @@ function EducationCategoryPieTooltip({ active, payload }) {
 }
 
 function EducationPage() {
-  const { selectedDistrict, setSelectedDistrict } = useDistrict();
+  const { selectedDistrict } = useDistrict();
   const [selectedPressureCategories, setSelectedPressureCategories] = useState(
     PRESSURE_FILTER_CATEGORIES,
   );
   const { contentRef, exportPdf } = usePdfExport("Education_Report.pdf");
-  const districts = useDistrictOptions();
 
   const educationSummary = useDashboardData(
     buildDashboardPath("/dashboard/education/summary", {
@@ -419,21 +418,8 @@ function EducationPage() {
             <Download className="h-4 w-4" />
             Download PDF
           </button>
+          <SharedDistrictSelector />
 
-          <div className="relative">
-            <select
-              className="bg-black text-white rounded px-6 py-2 text-[14px] font-bold appearance-none min-w-[160px] cursor-pointer"
-              value={selectedDistrict}
-              onChange={(event) => setSelectedDistrict(event.target.value)}
-            >
-              <option value="">All Districts</option>
-              {districts.options?.map((option) => (
-                <option key={option.value} value={option.value}>
-                  {option.label}
-                </option>
-              ))}
-            </select>
-          </div>
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-5 gap-6 mb-10">

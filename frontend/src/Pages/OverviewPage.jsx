@@ -7,11 +7,11 @@ import {
   Accessibility,
 } from "lucide-react";
 import { useDashboardData } from "../hooks/useDashboardData";
-import { useDistrictOptions } from "../hooks/useDistrictOptions";
 import { useDistrict } from "../context/DistrictContext";
 import { buildDashboardPath } from "../lib/query";
 import { usePdfExport } from "../hooks/usePdfExport";
 import { useImageDownload } from "../hooks/useImageDownload";
+import SharedDistrictSelector from "../components/SharedDistrictSelector";
 import PopulationRasterPanel from "../components/PopulationRasterPanel";
 import {
   BarChart,
@@ -67,8 +67,7 @@ function formatTaAxisLabel(value) {
 }
 
 function OverviewPage() {
-  const { selectedDistrict, setSelectedDistrict } = useDistrict();
-  const districts = useDistrictOptions();
+  const { selectedDistrict } = useDistrict();
   const districtScope = selectedDistrict || "Zomba";
 
   const summary = useDashboardData(
@@ -194,26 +193,8 @@ function OverviewPage() {
             <Map className="h-4 w-4" />
             Download Map
           </button>
+          <SharedDistrictSelector />
 
-          <div className="relative">
-            <select
-              className="bg-black text-white rounded px-6 py-2 text-[14px] font-bold appearance-none min-w-[160px] cursor-pointer hover:bg-black/90"
-              value={selectedDistrict}
-              onChange={(e) => setSelectedDistrict(e.target.value)}
-            >
-              <option value="">Zomba</option>
-              {districts.options?.map((opt) => (
-                <option key={opt.value} value={opt.value}>
-                  {opt.label}
-                </option>
-              ))}
-            </select>
-            <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-4 text-white">
-              <svg className="h-4 w-4 fill-current" viewBox="0 0 20 20">
-                <path d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" />
-              </svg>
-            </div>
-          </div>
         </div>
 
         {/* Stats Row */}

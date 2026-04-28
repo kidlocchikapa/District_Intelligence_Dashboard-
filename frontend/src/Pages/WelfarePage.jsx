@@ -9,10 +9,10 @@ import {
 } from "lucide-react";
 import { useDashboardData } from "../hooks/useDashboardData";
 import { useDistrict } from "../context/DistrictContext";
-import { useDistrictOptions } from "../hooks/useDistrictOptions";
 import { usePdfExport } from "../hooks/usePdfExport";
 import { buildDashboardPath } from "../lib/query";
 import DataTable from "../components/DataTable";
+import SharedDistrictSelector from "../components/SharedDistrictSelector";
 import {
   PieChart,
   Pie,
@@ -101,9 +101,8 @@ function StatCard({ label, value, icon: Icon, helper }) {
 }
 
 function WelfarePage() {
-  const { selectedDistrict, setSelectedDistrict } = useDistrict();
+  const { selectedDistrict } = useDistrict();
   const { contentRef, exportPdf } = usePdfExport("Welfare_Integration_Report.pdf");
-  const districts = useDistrictOptions();
   const [adminType, setAdminType] = useState("TA");
 
   const integration = useDashboardData(
@@ -263,21 +262,7 @@ function WelfarePage() {
             <Download className="h-4 w-4" />
             Download PDF
           </button>
-
-          <div className="relative">
-            <select
-              className="bg-black text-white rounded px-6 py-2 text-[14px] font-bold appearance-none min-w-[180px] cursor-pointer"
-              value={selectedDistrict}
-              onChange={(e) => setSelectedDistrict(e.target.value)}
-            >
-              <option value="">All Districts</option>
-              {districts.options?.map((opt) => (
-                <option key={opt.value} value={opt.value}>
-                  {opt.label}
-                </option>
-              ))}
-            </select>
-          </div>
+          <SharedDistrictSelector />
 
           <div className="inline-flex rounded border border-gray-200 bg-white p-1 shadow-sm">
             {["TA", "District"].map((value) => (

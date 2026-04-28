@@ -12,9 +12,9 @@ import {
 } from "recharts";
 import IntegrationSummaryPanel from "../components/IntegrationSummaryPanel";
 import PopulationRasterPanel from "../components/PopulationRasterPanel";
+import SharedDistrictSelector from "../components/SharedDistrictSelector";
 import { useDistrict } from "../context/DistrictContext";
 import { useDashboardData } from "../hooks/useDashboardData";
-import { useDistrictOptions } from "../hooks/useDistrictOptions";
 import { usePdfExport } from "../hooks/usePdfExport";
 import { buildDashboardPath } from "../lib/query";
 
@@ -56,9 +56,8 @@ function formatTaAxisLabel(value) {
 }
 
 function PopulationPage() {
-  const { selectedDistrict, setSelectedDistrict } = useDistrict();
+  const { selectedDistrict } = useDistrict();
   const { contentRef, exportPdf } = usePdfExport("Population_Report.pdf");
-  const districts = useDistrictOptions();
   const summary = useDashboardData(
     buildDashboardPath("/dashboard/summary", { district: selectedDistrict }),
   );
@@ -125,21 +124,8 @@ function PopulationPage() {
             <Download className="h-4 w-4" />
             Download PDF
           </button>
+          <SharedDistrictSelector />
 
-          <div className="relative">
-            <select
-              className="min-w-[160px] cursor-pointer appearance-none rounded bg-black px-6 py-2 text-[14px] font-bold text-white"
-              value={selectedDistrict}
-              onChange={(event) => setSelectedDistrict(event.target.value)}
-            >
-              <option value="">All Districts</option>
-              {districts.options?.map((option) => (
-                <option key={option.value} value={option.value}>
-                  {option.label}
-                </option>
-              ))}
-            </select>
-          </div>
         </div>
 
         <div className="mb-8 grid grid-cols-1 gap-6 lg:grid-cols-[minmax(0,1.5fr)_minmax(280px,0.75fr)]">
