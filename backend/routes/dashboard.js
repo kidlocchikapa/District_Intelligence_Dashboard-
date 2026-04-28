@@ -17,6 +17,13 @@ function normalizeAdminType(adminType) {
   return String(adminType).trim();
 }
 
+function buildCanonicalDistrictNameExpression(columnExpression) {
+  return `CASE
+    WHEN LOWER(${columnExpression}) IN ('zomba', 'zomba city') THEN 'Zomba'
+    ELSE ${columnExpression}
+  END`;
+}
+
 // Import sub-routers for different dashboard sections
 const educationRoutes = require("./education");
 const healthRoutes = require("./health");
@@ -145,15 +152,18 @@ router.get("/districts", async (req, res) => {
   try {
     const result = await db.query(
       `
-            SELECT DISTINCT name
-            FROM districts
-            ORDER BY name
+            SELECT canonical_name
+            FROM (
+              SELECT DISTINCT ${buildCanonicalDistrictNameExpression("name")} AS canonical_name
+              FROM districts
+            ) district_names
+            ORDER BY canonical_name
             `,
     );
 
     res.json({
       status: "success",
-      data: result.rows.map((row) => row.name),
+      data: result.rows.map((row) => row.canonical_name),
     });
   } catch (err) {
     console.error(err.message);
@@ -170,21 +180,22 @@ router.get("/population-by-district", async (req, res) => {
 
   try {
     const params = [];
-    let whereClause = "WHERE 1=1";
-
-    if (district) {
-      params.push(district);
-      whereClause += ` AND LOWER(name) = LOWER($${params.length})`;
-    }
+    const conditions = [];
+    appendDistrictNameCondition(conditions, params, "name", district);
+    const whereClause = conditions.length
+      ? `WHERE ${conditions.join(" AND ")}`
+      : "";
+    const canonicalDistrictName = buildCanonicalDistrictNameExpression("name");
 
     const result = await db.query(
       `
         SELECT
-          name AS district,
-          COALESCE(population_total, 0) AS population
+          ${canonicalDistrictName} AS district,
+          SUM(COALESCE(population_total, 0)) AS population
         FROM districts
         ${whereClause}
-        ORDER BY name
+        GROUP BY ${canonicalDistrictName}
+        ORDER BY ${canonicalDistrictName}
       `,
       params,
     );

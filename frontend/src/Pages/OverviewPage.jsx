@@ -1,5 +1,6 @@
 import {
   Download,
+  Map,
   Users,
   School,
   HeartPulse,
@@ -10,6 +11,7 @@ import { useDistrictOptions } from "../hooks/useDistrictOptions";
 import { useDistrict } from "../context/DistrictContext";
 import { buildDashboardPath } from "../lib/query";
 import { usePdfExport } from "../hooks/usePdfExport";
+import { useImageDownload } from "../hooks/useImageDownload";
 import PopulationRasterPanel from "../components/PopulationRasterPanel";
 import {
   BarChart,
@@ -125,6 +127,9 @@ function OverviewPage() {
   );
 
   const { contentRef, exportPdf } = usePdfExport("Overview_Report.pdf");
+  const { targetRef: mapRef, downloadImage } = useImageDownload(
+    "Zomba_Overview_Map.png",
+  );
 
   const formatStat = (val) => {
     if (!val) return "0";
@@ -171,7 +176,7 @@ function OverviewPage() {
         <p className="text-[14px] font-semibold text-gray-500 mb-6">
           {selectedDistrict
             ? `Showing ${selectedDistrict} Records`
-            : "Showing Whole Zomba Records (Zomba + Zomba City)"}
+            : "Showing Zomba Records (merged from Zomba and Zomba City)"}
         </p>
 
         {/* Actions Row */}
@@ -183,6 +188,13 @@ function OverviewPage() {
             <Download className="h-4 w-4" />
             Download PDF
           </button>
+          <button
+            onClick={downloadImage}
+            className="flex items-center gap-2 border border-gray-300 rounded px-3 py-1.5 text-[13px] font-bold hover:bg-gray-50 transition-all shadow-sm active:scale-95"
+          >
+            <Map className="h-4 w-4" />
+            Download Map
+          </button>
 
           <div className="relative">
             <select
@@ -190,7 +202,7 @@ function OverviewPage() {
               value={selectedDistrict}
               onChange={(e) => setSelectedDistrict(e.target.value)}
             >
-              <option value="">Whole Zomba</option>
+              <option value="">Zomba</option>
               {districts.options?.map((opt) => (
                 <option key={opt.value} value={opt.value}>
                   {opt.label}
@@ -256,7 +268,10 @@ function OverviewPage() {
             <h3 className="text-[16px] font-extrabold mb-6">
               District Map Overview
             </h3>
-            <div className="w-full flex-1 rounded overflow-hidden relative border border-gray-50 shadow-inner bg-gray-50">
+            <div
+              ref={mapRef}
+              className="w-full flex-1 rounded overflow-hidden relative border border-gray-50 shadow-inner bg-gray-50"
+            >
               <PopulationRasterPanel
                 geojson={densityMap.data}
                 title={null}
