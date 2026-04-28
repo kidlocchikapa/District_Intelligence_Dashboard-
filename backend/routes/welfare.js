@@ -6,12 +6,26 @@ const {
   appendDistrictNameCondition,
 } = require("./queryFilters");
 
+function appendOptionalTaCondition(
+  conditions,
+  params,
+  columnExpression,
+  taName,
+) {
+  if (!taName) {
+    return;
+  }
+
+  params.push(taName);
+  conditions.push(`LOWER(${columnExpression}) = LOWER($${params.length})`);
+}
+
 /**
  * @route   GET api/v1/dashboard/welfare
  * @desc    Get welfare beneficiary locations (GeoJSON)
  */
 router.get("/", async (req, res) => {
-  const { district, program_id } = req.query;
+  const { district, ta, program_id } = req.query;
 
   try {
     const conditions = ["wb.geom IS NOT NULL"];
@@ -20,6 +34,8 @@ router.get("/", async (req, res) => {
     if (district) {
       appendDistrictGeometryCondition(conditions, params, "wb.geom", district);
     }
+
+    appendOptionalTaCondition(conditions, params, "a3.name", ta);
 
     if (program_id) {
       params.push(program_id);
@@ -38,11 +54,11 @@ router.get("/", async (req, res) => {
             FROM (
               SELECT jsonb_build_object(
                 'type',       'Feature',
-                'id',         wb.beneficiary_id,
+                'id',         wb.id,
                 'geometry',   ST_AsGeoJSON(wb.geom)::jsonb,
                 'properties', (
                   jsonb_build_object(
-                      'beneficiary_id', wb.beneficiary_id,
+                      'beneficiary_id', wb.id,
                       'program_id', wb.program_id,
                       'program_name', wp.program_name,
                       'firstname', wb.firstname,
@@ -51,6 +67,8 @@ router.get("/", async (req, res) => {
                       'age', wb.age,
                       'household_size', wb.household_size,
                       'status', wb.status,
+                      'district_name', d.name,
+                      'ta_name', a3.name,
                       'has_health_facility_access', wbi.has_health_facility_access,
                       'has_school_access', wbi.has_school_access,
                       'affected_by_flood', wbi.affected_by_flood
@@ -59,7 +77,9 @@ router.get("/", async (req, res) => {
               ) AS feature
               FROM welfare_beneficiary wb
               JOIN welfare_programs wp ON wb.program_id = wp.program_id
-              LEFT JOIN welfare_beneficiary_indicators wbi ON wb.beneficiary_id = wbi.beneficiary_id
+              LEFT JOIN welfare_beneficiary_indicators wbi ON wb.id = wbi.beneficiary_id
+              LEFT JOIN districts d ON wb.district_id = d.id
+              LEFT JOIN admin3_units a3 ON wb.ta_id = a3.id
               ${whereClause}
             ) rowconf;
         `;
@@ -82,7 +102,7 @@ router.get("/", async (req, res) => {
  * @desc    Get aggregate welfare statistics
  */
 router.get("/summary", async (req, res) => {
-  const { district } = req.query;
+  const { district, ta } = req.query;
 
   try {
     const params = [];
@@ -92,6 +112,8 @@ router.get("/summary", async (req, res) => {
       appendDistrictNameCondition(conditions, params, "d.name", district);
     }
 
+    appendOptionalTaCondition(conditions, params, "a3.name", ta);
+
     const whereClause = conditions.length
       ? `WHERE ${conditions.join(" AND ")}`
       : "";
@@ -99,14 +121,15 @@ router.get("/summary", async (req, res) => {
     const query = `
       SELECT 
         wp.program_name,
-        COUNT(wb.beneficiary_id) as beneficiary_count,
-        COUNT(CASE WHEN wbi.affected_by_flood THEN 1 END) as flood_affected_count,
-        COUNT(CASE WHEN wbi.has_health_facility_access THEN 1 END) as health_access_count,
-        COUNT(CASE WHEN wbi.has_school_access THEN 1 END) as school_access_count
+        COUNT(DISTINCT wb.id) as beneficiary_count,
+        COUNT(DISTINCT CASE WHEN wbi.affected_by_flood THEN wb.id END) as flood_affected_count,
+        COUNT(DISTINCT CASE WHEN wbi.has_health_facility_access THEN wb.id END) as health_access_count,
+        COUNT(DISTINCT CASE WHEN wbi.has_school_access THEN wb.id END) as school_access_count
       FROM welfare_programs wp
       LEFT JOIN welfare_beneficiary wb ON wp.program_id = wb.program_id
-      LEFT JOIN welfare_beneficiary_indicators wbi ON wb.beneficiary_id = wbi.beneficiary_id
+      LEFT JOIN welfare_beneficiary_indicators wbi ON wb.id = wbi.beneficiary_id
       LEFT JOIN districts d ON wb.district_id = d.id
+      LEFT JOIN admin3_units a3 ON wb.ta_id = a3.id
       ${whereClause}
       GROUP BY wp.program_name
     `;
