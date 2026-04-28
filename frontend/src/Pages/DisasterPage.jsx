@@ -61,7 +61,7 @@ function DisasterPage() {
       .toLowerCase();
 
     if (!normalized) {
-      return "zomba";
+      return "";
     }
 
     if (
@@ -69,7 +69,7 @@ function DisasterPage() {
       normalized === "zomba city" ||
       normalized === "zomba (all)"
     ) {
-      return "zomba";
+      return "";
     }
 
     return selectedDistrict;
