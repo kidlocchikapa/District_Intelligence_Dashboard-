@@ -86,7 +86,7 @@ function OverviewPage() {
     }),
   );
   const populationDistribution = useDashboardData(
-    buildDashboardPath("/dashboard/population-by-admin3", {
+    buildDashboardPath("/dashboard/population-by", {
       district: districtScope,
       type: "TA",
     }),
@@ -190,7 +190,7 @@ function OverviewPage() {
               value={selectedDistrict}
               onChange={(e) => setSelectedDistrict(e.target.value)}
             >
-              <option value="">Whole Zomba (Zomba + Zomba City)</option>
+              <option value="">Whole Zomba</option>
               {districts.options?.map((opt) => (
                 <option key={opt.value} value={opt.value}>
                   {opt.label}
