@@ -39,6 +39,20 @@ function normalizeAdminType(adminType) {
   return String(adminType).trim();
 }
 
+function appendOptionalTaCondition(
+  conditions,
+  params,
+  columnExpression,
+  taName,
+) {
+  if (!taName) {
+    return;
+  }
+
+  params.push(taName);
+  conditions.push(`LOWER(${columnExpression}) = LOWER($${params.length})`);
+}
+
 function computeQuantile(values, quantile) {
   if (!values.length) {
     return 0;
@@ -800,6 +814,353 @@ router.get("/insights", async (req, res) => {
       where: err.where,
       position: err.position,
       routine: err.routine,
+    });
+    res.status(500).send("Server error");
+  }
+});
+
+// @route   GET api/v1/dashboard/education/drilldown
+// @desc    Get education drilldown summary, TA breakdown, and facility-level details
+router.get("/drilldown", async (req, res) => {
+  const {
+    district,
+    ta,
+    admin_type: adminType = "District",
+    buffer_km: bufferKmParam,
+  } = req.query;
+  const normalizedAdminType = normalizeAdminType(adminType);
+  const parsedBufferKm = Number(bufferKmParam);
+  const bufferKm =
+    Number.isFinite(parsedBufferKm) && parsedBufferKm > 0
+      ? Math.min(parsedBufferKm, 30)
+      : 5;
+  const bufferMeters = bufferKm * 1000;
+
+  try {
+    const facilityParams = [bufferMeters];
+    const facilityConditions = ["ef.geom IS NOT NULL"];
+    appendDistrictGeometryCondition(
+      facilityConditions,
+      facilityParams,
+      "ef.geom",
+      district,
+    );
+    appendOptionalTaCondition(
+      facilityConditions,
+      facilityParams,
+      "a3.name",
+      ta,
+    );
+    const facilityWhereClause = facilityConditions.length
+      ? `WHERE ${facilityConditions.join(" AND ")}`
+      : "";
+
+    const facilityQuery = `
+      WITH facility_scope AS (
+        SELECT
+          ef.school_id AS facility_id,
+          COALESCE(ef.school_name, '') AS facility_name,
+          ef.operator AS operator,
+          ef.status AS status,
+          ef.student_enrollment_total,
+          ef.teacher_count,
+          ef.teacher_distribution,
+          ef.blocks_count,
+          ef.ta_id,
+          a3.name AS ta_name,
+          ef.district_id,
+          d.name AS district_name,
+          ef.geom,
+          ST_Buffer(ef.geom::geography, $1)::geometry AS buffer_geom
+        FROM education_facilities ef
+        LEFT JOIN admin3_units a3
+          ON a3.id = ef.ta_id
+        LEFT JOIN districts d
+          ON d.id = ef.district_id
+        ${facilityWhereClause}
+      ),
+      admin_scope AS (
+        SELECT
+          a3.id,
+          a3.population_total,
+          a3.geom
+        FROM admin3_units a3
+        WHERE a3.geom IS NOT NULL
+      ),
+      served_population AS (
+        SELECT
+          fs.facility_id,
+          SUM(
+            CASE
+              WHEN ST_Area(ST_Transform(a3.geom, 3857)) > 0
+                THEN COALESCE(a3.population_total, 0)
+                  * ST_Area(
+                      ST_Transform(
+                        ST_Intersection(fs.buffer_geom, a3.geom),
+                        3857
+                      )
+                    )
+                  / ST_Area(ST_Transform(a3.geom, 3857))
+              ELSE 0
+            END
+          ) AS served_population_est
+        FROM facility_scope fs
+        JOIN admin_scope a3
+          ON ST_Intersects(fs.buffer_geom, a3.geom)
+        GROUP BY fs.facility_id
+      ),
+      welfare_access AS (
+        SELECT
+          fs.facility_id,
+          COUNT(wb.id) AS welfare_beneficiaries_within_buffer
+        FROM facility_scope fs
+        LEFT JOIN welfare_beneficiary wb
+          ON wb.geom IS NOT NULL
+         AND ST_Intersects(wb.geom, fs.buffer_geom)
+        GROUP BY fs.facility_id
+      ),
+      flood_latest AS (
+        SELECT MAX(analysis_date) AS analysis_date
+        FROM flood_facility_exposure
+        WHERE LOWER(facility_type) = LOWER('education')
+      ),
+      flood_exposure AS (
+        SELECT
+          ffe.facility_id,
+          ffe.risk_class,
+          ffe.is_exposed,
+          ffe.analysis_date
+        FROM flood_facility_exposure ffe
+        JOIN flood_latest fl
+          ON ffe.analysis_date = fl.analysis_date
+        WHERE LOWER(ffe.facility_type) = LOWER('education')
+      ),
+      nearest_facility AS (
+        SELECT
+          fs.facility_id,
+          MIN(
+            ST_Distance(fs.geom::geography, ef2.geom::geography)
+          ) AS nearest_distance_m
+        FROM facility_scope fs
+        JOIN education_facilities ef2
+          ON ef2.geom IS NOT NULL
+         AND ef2.school_id <> fs.facility_id
+        GROUP BY fs.facility_id
+      )
+      SELECT
+        fs.facility_id,
+        fs.facility_name,
+        fs.operator,
+        fs.status,
+        fs.student_enrollment_total,
+        fs.teacher_count,
+        fs.teacher_distribution,
+        fs.blocks_count,
+        fs.ta_id,
+        fs.ta_name,
+        fs.district_id,
+        fs.district_name,
+        ST_AsGeoJSON(fs.geom)::jsonb AS geom,
+        COALESCE(sp.served_population_est, 0) AS served_population_est,
+        COALESCE(wa.welfare_beneficiaries_within_buffer, 0) AS welfare_beneficiaries_within_buffer,
+        fe.risk_class AS flood_risk_class,
+        COALESCE(fe.is_exposed, FALSE) AS flood_is_exposed,
+        fe.analysis_date AS flood_analysis_date,
+        COALESCE(nf.nearest_distance_m, 0) / 1000.0 AS nearest_facility_distance_km,
+        CASE
+          WHEN COALESCE(fs.teacher_count, fs.teacher_distribution, 0) > 0
+            THEN COALESCE(fs.student_enrollment_total, 0)::numeric
+              / COALESCE(fs.teacher_count, fs.teacher_distribution, 0)
+          ELSE NULL
+        END AS students_per_teacher,
+        CASE
+          WHEN COALESCE(fs.blocks_count, 0) > 0
+            THEN COALESCE(fs.student_enrollment_total, 0)::numeric
+              / COALESCE(fs.blocks_count, 0)
+          ELSE NULL
+        END AS students_per_block,
+        CASE
+          WHEN COALESCE(fs.teacher_count, fs.teacher_distribution, 0) > 0
+            THEN COALESCE(fs.student_enrollment_total, 0)::numeric
+              / COALESCE(fs.teacher_count, fs.teacher_distribution, 0)
+              > 60
+          ELSE NULL
+        END AS gap_teacher_student_ratio,
+        CASE
+          WHEN COALESCE(fs.blocks_count, 0) > 0
+            THEN COALESCE(fs.student_enrollment_total, 0)::numeric
+              / COALESCE(fs.blocks_count, 0)
+              > 40
+          ELSE NULL
+        END AS gap_block_capacity,
+        $1 / 1000.0 AS coverage_distance_km
+      FROM facility_scope fs
+      LEFT JOIN served_population sp
+        ON sp.facility_id = fs.facility_id
+      LEFT JOIN welfare_access wa
+        ON wa.facility_id = fs.facility_id
+      LEFT JOIN flood_exposure fe
+        ON fe.facility_id = fs.facility_id
+      LEFT JOIN nearest_facility nf
+        ON nf.facility_id = fs.facility_id
+      ORDER BY fs.district_name, fs.ta_name, fs.facility_name;
+    `;
+
+    const facilitiesResult = await db.query(facilityQuery, facilityParams);
+
+    const summaryConditions = [
+      "a3.geom IS NOT NULL",
+      "LOWER(a3.type) IN ('ta', 'ward', 'admin3')",
+    ];
+    const summaryParams = [];
+    appendDistrictNameCondition(
+      summaryConditions,
+      summaryParams,
+      "d.name",
+      district,
+    );
+    const summaryWhereClause = summaryConditions.length
+      ? `WHERE ${summaryConditions.join(" AND ")}`
+      : "";
+
+    const taQuery = `
+      WITH ta_base AS (
+        SELECT
+          a3.id AS ta_id,
+          a3.name AS ta_name,
+          d.name AS district_name,
+          COALESCE(a3.population_total, 0) AS population_total,
+          COUNT(ef.school_id) AS facility_count,
+          COALESCE(SUM(COALESCE(ef.student_enrollment_total, 0)), 0) AS student_enrollment_total,
+          COALESCE(SUM(COALESCE(ef.teacher_count, ef.teacher_distribution, 0)), 0) AS teacher_count_total,
+          COALESCE(SUM(COALESCE(ef.blocks_count, 0)), 0) AS blocks_count_total
+        FROM admin3_units a3
+        LEFT JOIN districts d
+          ON d.id = a3.district_id
+        LEFT JOIN education_facilities ef
+          ON ef.ta_id = a3.id
+        ${summaryWhereClause}
+        GROUP BY a3.id, a3.name, d.name, a3.population_total
+      ),
+      coverage AS (
+        SELECT
+          admin_unit_id,
+          MAX(CASE WHEN metric_name = 'school_service_coverage_pct' THEN metric_value END) AS school_service_coverage_pct
+        FROM analysis_results
+        WHERE analysis_type = 'school_service_coverage'
+          AND LOWER(admin_unit_type) = LOWER('TA')
+        GROUP BY admin_unit_id
+      ),
+      ta_metrics AS (
+        SELECT
+          tb.ta_id,
+          tb.ta_name,
+          tb.district_name,
+          tb.population_total,
+          tb.facility_count,
+          tb.student_enrollment_total,
+          tb.teacher_count_total,
+          tb.blocks_count_total,
+          COALESCE(c.school_service_coverage_pct, 0) AS school_service_coverage_pct,
+          CASE
+            WHEN tb.facility_count > 0
+              THEN tb.population_total / tb.facility_count
+            ELSE NULL
+          END AS population_per_school,
+          CASE
+            WHEN tb.teacher_count_total > 0
+              THEN tb.student_enrollment_total / tb.teacher_count_total
+            ELSE NULL
+          END AS students_per_teacher,
+          CASE
+            WHEN tb.blocks_count_total > 0
+              THEN tb.student_enrollment_total / tb.blocks_count_total
+            ELSE NULL
+          END AS students_per_block
+        FROM ta_base tb
+        LEFT JOIN coverage c
+          ON c.admin_unit_id = tb.ta_id
+      )
+      SELECT
+        ta_metrics.*,
+        percent_rank() OVER (ORDER BY population_per_school) AS population_per_school_percentile,
+        percent_rank() OVER (ORDER BY school_service_coverage_pct) AS coverage_percentile,
+        CASE
+          WHEN population_per_school IS NOT NULL AND population_per_school > 1000
+            THEN TRUE
+          ELSE FALSE
+        END AS gap_population_per_school,
+        CASE
+          WHEN students_per_teacher IS NOT NULL AND students_per_teacher > 60
+            THEN TRUE
+          ELSE FALSE
+        END AS gap_teacher_student_ratio,
+        CASE
+          WHEN students_per_block IS NOT NULL AND students_per_block > 40
+            THEN TRUE
+          ELSE FALSE
+        END AS gap_block_capacity
+      FROM ta_metrics
+      ORDER BY district_name, ta_name;
+    `;
+
+    const taResult = await db.query(taQuery, summaryParams);
+
+    const summary = taResult.rows.reduce(
+      (accumulator, row) => {
+        accumulator.population_total += Number(row.population_total || 0);
+        accumulator.facility_count += Number(row.facility_count || 0);
+        accumulator.student_enrollment_total += Number(
+          row.student_enrollment_total || 0,
+        );
+        accumulator.teacher_count_total += Number(row.teacher_count_total || 0);
+        accumulator.blocks_count_total += Number(row.blocks_count_total || 0);
+        return accumulator;
+      },
+      {
+        population_total: 0,
+        facility_count: 0,
+        student_enrollment_total: 0,
+        teacher_count_total: 0,
+        blocks_count_total: 0,
+      },
+    );
+
+    summary.population_per_school = summary.facility_count
+      ? summary.population_total / summary.facility_count
+      : null;
+    summary.students_per_teacher = summary.teacher_count_total
+      ? summary.student_enrollment_total / summary.teacher_count_total
+      : null;
+    summary.students_per_block = summary.blocks_count_total
+      ? summary.student_enrollment_total / summary.blocks_count_total
+      : null;
+    summary.gap_population_per_school =
+      summary.population_per_school !== null &&
+      summary.population_per_school > 1000;
+    summary.gap_teacher_student_ratio =
+      summary.students_per_teacher !== null &&
+      summary.students_per_teacher > 60;
+    summary.gap_block_capacity =
+      summary.students_per_block !== null && summary.students_per_block > 40;
+
+    res.json({
+      status: "success",
+      data: {
+        admin_type: normalizedAdminType,
+        district: district || null,
+        ta: ta || null,
+        coverage_distance_km: bufferKm,
+        summary,
+        ta_breakdown: normalizedAdminType === "District" ? taResult.rows : [],
+        facilities: facilitiesResult.rows,
+      },
+    });
+  } catch (err) {
+    console.error("Education drilldown error", {
+      message: err.message,
+      district,
+      ta,
     });
     res.status(500).send("Server error");
   }

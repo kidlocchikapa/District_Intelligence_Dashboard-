@@ -7,10 +7,11 @@ from collections import defaultdict
 
 import numpy as np
 import rasterio
-from rasterio.features import geometry_mask
+from rasterio.features import geometry_mask, shapes
 from rasterio.mask import mask
 from rasterio.warp import Resampling, reproject, transform, transform_geom
 from shapely import wkb
+from shapely.geometry import MultiPolygon, Polygon, shape
 from shapely.ops import unary_union
 from sqlalchemy import text
 
@@ -25,6 +26,15 @@ from worldpop import (
 
 
 LOGGER = logging.getLogger('flood_exposure_pipeline')
+
+# Flood value classification (0=None, 1-2=Low, 3-4=Medium, 5=High).
+RISK_CLASS_MAP = {
+    1: 'Low',
+    2: 'Low',
+    3: 'Medium',
+    4: 'Medium',
+    5: 'High',
+}
 
 
 class FloodPipelineError(Exception):
@@ -72,6 +82,7 @@ def ensure_flood_zones_table(session):
         text(
             """
             CREATE TABLE IF NOT EXISTS flood_zones (
+                id SERIAL PRIMARY KEY,
                 district_id INTEGER NOT NULL REFERENCES districts(id) ON DELETE CASCADE,
                 district_name VARCHAR(255) NOT NULL,
                 ta_id INTEGER NOT NULL DEFAULT 0,
@@ -81,10 +92,11 @@ def ensure_flood_zones_table(session):
                 low_risk_population DOUBLE PRECISION NOT NULL DEFAULT 0,
                 medium_risk_population DOUBLE PRECISION NOT NULL DEFAULT 0,
                 high_risk_population DOUBLE PRECISION NOT NULL DEFAULT 0,
+                exposed_area_sq_km DOUBLE PRECISION NOT NULL DEFAULT 0,
                 analysis_date DATE NOT NULL,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                PRIMARY KEY (district_id, ta_id, analysis_date)
+                UNIQUE (district_id, ta_id, analysis_date)
             )
             """
         )
@@ -100,11 +112,154 @@ def ensure_flood_zones_table(session):
     session.commit()
 
 
+def ensure_flood_risk_polygons_table(session):
+    session.execute(
+        text(
+            """
+            CREATE TABLE IF NOT EXISTS flood_risk_polygons (
+                id SERIAL PRIMARY KEY,
+                analysis_date DATE NOT NULL,
+                risk_level VARCHAR(20) NOT NULL,
+                source_raster VARCHAR(255),
+                geom GEOMETRY(MultiPolygon, 4326) NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+            """
+        )
+    )
+    session.execute(
+        text(
+            """
+            CREATE INDEX IF NOT EXISTS idx_flood_risk_polygons_date
+            ON flood_risk_polygons (analysis_date)
+            """
+        )
+    )
+    session.execute(
+        text(
+            """
+            CREATE INDEX IF NOT EXISTS idx_flood_risk_polygons_risk
+            ON flood_risk_polygons (risk_level)
+            """
+        )
+    )
+    session.execute(
+        text(
+            """
+            CREATE INDEX IF NOT EXISTS idx_flood_risk_polygons_geom
+            ON flood_risk_polygons USING GIST (geom)
+            """
+        )
+    )
+    session.commit()
+
+
+def _risk_level_from_value(value):
+    try:
+        return RISK_CLASS_MAP.get(int(value))
+    except (TypeError, ValueError):
+        return None
+
+
+def _normalize_union_geom(geom):
+    if geom.is_empty:
+        return None
+    if geom.geom_type == 'Polygon':
+        return MultiPolygon([geom])
+    if geom.geom_type == 'MultiPolygon':
+        return geom
+    # Filter to polygonal parts only
+    polygon_parts = [
+        part
+        for part in getattr(geom, 'geoms', [])
+        if part.geom_type in ('Polygon', 'MultiPolygon')
+    ]
+    if not polygon_parts:
+        return None
+    merged = unary_union(polygon_parts)
+    if merged.is_empty:
+        return None
+    if merged.geom_type == 'Polygon':
+        return MultiPolygon([merged])
+    if merged.geom_type == 'MultiPolygon':
+        return merged
+    return None
+
+
+def build_flood_risk_polygons(session, flood_raster_path, analysis_date, source_raster=None):
+    with rasterio.open(flood_raster_path) as src:
+        band = src.read(1)
+        nodata = src.nodata
+        mask = np.isfinite(band)
+        if nodata is not None:
+            mask &= band != nodata
+        mask &= band > 0
+
+        geoms_by_level = defaultdict(list)
+        for geom, value in shapes(band, mask=mask, transform=src.transform):
+            risk_level = _risk_level_from_value(value)
+            if not risk_level:
+                continue
+            if src.crs and src.crs.to_string() != 'EPSG:4326':
+                geom = transform_geom(src.crs, 'EPSG:4326', geom, precision=6)
+            geoms_by_level[risk_level].append(shape(geom))
+
+    session.execute(
+        text(
+            """
+            DELETE FROM flood_risk_polygons
+            WHERE analysis_date = :analysis_date
+            """
+        ),
+        {'analysis_date': analysis_date},
+    )
+
+    rows = []
+    for risk_level, geoms in geoms_by_level.items():
+        if not geoms:
+            continue
+        merged = unary_union(geoms)
+        normalized = _normalize_union_geom(merged)
+        if not normalized:
+            continue
+        rows.append(
+            {
+                'analysis_date': analysis_date,
+                'risk_level': risk_level,
+                'source_raster': source_raster,
+                'geom_wkt': normalized.wkt,
+            }
+        )
+
+    if rows:
+        session.execute(
+            text(
+                """
+                INSERT INTO flood_risk_polygons (
+                    analysis_date,
+                    risk_level,
+                    source_raster,
+                    geom
+                )
+                VALUES (
+                    :analysis_date,
+                    :risk_level,
+                    :source_raster,
+                    ST_SetSRID(ST_Multi(ST_GeomFromText(:geom_wkt)), 4326)
+                )
+                """
+            ),
+            rows,
+        )
+    session.commit()
+
+
 def ensure_flood_facility_tables(session):
     session.execute(
         text(
             """
             CREATE TABLE IF NOT EXISTS flood_facility_exposure (
+                id SERIAL PRIMARY KEY,
                 analysis_date DATE NOT NULL,
                 district_id INTEGER NOT NULL,
                 district_name VARCHAR(255) NOT NULL,
@@ -118,7 +273,7 @@ def ensure_flood_facility_tables(session):
                 is_exposed BOOLEAN NOT NULL DEFAULT FALSE,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                PRIMARY KEY (analysis_date, facility_type, facility_id)
+                UNIQUE (analysis_date, facility_type, facility_id)
             )
             """
         )
@@ -127,6 +282,7 @@ def ensure_flood_facility_tables(session):
         text(
             """
             CREATE TABLE IF NOT EXISTS flood_facility_exposure_summary (
+                id SERIAL PRIMARY KEY,
                 analysis_date DATE NOT NULL,
                 district_id INTEGER NOT NULL,
                 district_name VARCHAR(255) NOT NULL,
@@ -140,7 +296,7 @@ def ensure_flood_facility_tables(session):
                 high_risk_count INTEGER NOT NULL DEFAULT 0,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                PRIMARY KEY (analysis_date, district_id, ta_id, facility_type)
+                UNIQUE (analysis_date, district_id, ta_id, facility_type)
             )
             """
         )
@@ -242,13 +398,16 @@ def _to_raster_crs(geometry, src_crs, dst_crs):
 def _classify_flood_risk(flood_value):
     if flood_value is None or (isinstance(flood_value, float) and np.isnan(flood_value)):
         return 'none', False
-    if flood_value <= 0:
-        return 'none', False
-    if flood_value <= 0.5:
+    
+    # Categorical intensity: 0=None, 1-2=Low, 3-4=Medium, 5=High
+    if flood_value in (1, 2):
         return 'low', True
-    if flood_value <= 1.5:
+    if flood_value in (3, 4):
         return 'medium', True
-    return 'high', True
+    if flood_value == 5:
+        return 'high', True
+        
+    return 'none', False
 
 # find the matching TA ID for a given point geometry by checking 
 # if it falls within or intersects any TA geometries
@@ -288,6 +447,7 @@ def fetch_facilities_for_flood(session, boundaries):
 
     facilities = []
     for facility_type, spec in facility_specs.items():
+        print(f"Fetching {facility_type} facilities for flood analysis...")
         rows = session.execute(
             text(
                 f"""
@@ -304,6 +464,7 @@ def fetch_facilities_for_flood(session, boundaries):
             ),
             {'district_geom_wkt': district_geom_wkt},
         ).mappings().all()
+        print(f"Found {len(rows)} {facility_type} facilities.")
 
         for row in rows:
             geom = wkb.loads(bytes(row['geom_wkb'])) if row['geom_wkb'] else None
@@ -438,12 +599,16 @@ def compute_facility_flood_exposure(session, flood_src, boundaries, analysis_dat
     lat_values = [facility['geom'].y for facility in facilities]
     xs, ys = transform('EPSG:4326', flood_src.crs, lon_values, lat_values)
 
+    print(f"Sampling flood risk for {len(facilities)} facilities...")
     sampled_values = []
-    for sample in flood_src.sample(zip(xs, ys)):
+    for i, sample in enumerate(flood_src.sample(zip(xs, ys))):
+        if i % 100 == 0:
+            print(f"Sampled {i}/{len(facilities)} facilities...")
         value = sample[0] if sample is not None and len(sample) > 0 else np.nan
         if flood_src.nodata is not None and value == flood_src.nodata:
             value = np.nan
         sampled_values.append(value)
+    print("Sampling complete.")
 
     detail_rows = []
     summary_counter = defaultdict(lambda: {'total': 0, 'exposed': 0, 'low': 0, 'medium': 0, 'high': 0})
@@ -573,9 +738,26 @@ def _compute_population_stats_for_geom(flood_src, pop_src, geom_geojson):
     total_population = float(np.nansum(pop_on_flood_grid[total_mask]))
 
     exposed_mask = total_mask & valid_flood & (flood_data > 0)
-    low_mask = total_mask & valid_flood & (flood_data > 0) & (flood_data <= 0.5)
-    med_mask = total_mask & valid_flood & (flood_data > 0.5) & (flood_data <= 1.5)
-    high_mask = total_mask & valid_flood & (flood_data > 1.5)
+    low_mask = total_mask & valid_flood & np.isin(flood_data, [1, 2])
+    med_mask = total_mask & valid_flood & np.isin(flood_data, [3, 4])
+    high_mask = total_mask & valid_flood & (flood_data == 5)
+
+    # Calculate exposed area in sq km
+    # Get pixel size in degrees
+    res_x, res_y = flood_src.res
+    # Get center latitude for the geometry (or the district)
+    # We'll use the bounding box of the clipped area for a local estimate
+    left, bottom, right, top = flood_src.bounds
+    center_lat = (bottom + top) / 2
+    
+    # 1 deg lat ~= 111.32 km
+    # 1 deg lon ~= 111.32 * cos(rad(lat)) km
+    km_per_deg_lat = 111.32
+    km_per_deg_lon = 111.32 * np.cos(np.radians(center_lat))
+    pixel_area_km2 = abs(res_x * res_y * km_per_deg_lat * km_per_deg_lon)
+    
+    exposed_pixels = float(np.sum(exposed_mask))
+    exposed_area_km2 = exposed_pixels * pixel_area_km2
 
     return {
         "total_population": total_population,
@@ -583,6 +765,7 @@ def _compute_population_stats_for_geom(flood_src, pop_src, geom_geojson):
         "low_risk_population": float(np.nansum(pop_on_flood_grid[low_mask])),
         "medium_risk_population": float(np.nansum(pop_on_flood_grid[med_mask])),
         "high_risk_population": float(np.nansum(pop_on_flood_grid[high_mask])),
+        "exposed_area_sq_km": float(exposed_area_km2),
     }
 
 # Store the computed flood exposure stats into the database 
@@ -603,6 +786,7 @@ def upsert_flood_zone_rows(session, rows):
                 low_risk_population,
                 medium_risk_population,
                 high_risk_population,
+                exposed_area_sq_km,
                 analysis_date
             )
             VALUES (
@@ -615,6 +799,7 @@ def upsert_flood_zone_rows(session, rows):
                 :low_risk_population,
                 :medium_risk_population,
                 :high_risk_population,
+                :exposed_area_sq_km,
                 :analysis_date
             )
             ON CONFLICT (district_id, ta_id, analysis_date)
@@ -626,6 +811,7 @@ def upsert_flood_zone_rows(session, rows):
                 low_risk_population = EXCLUDED.low_risk_population,
                 medium_risk_population = EXCLUDED.medium_risk_population,
                 high_risk_population = EXCLUDED.high_risk_population,
+                exposed_area_sq_km = EXCLUDED.exposed_area_sq_km,
                 updated_at = CURRENT_TIMESTAMP
             """
         ),
@@ -669,6 +855,21 @@ def run_flood_exposure_analysis(
         user_message_on_error='Failed to prepare flood facility output tables in the database.',
         fn=ensure_flood_facility_tables,
         session=session,
+    )
+    run_step(
+        step_name='schema_setup_flood_risk_polygons',
+        user_message_on_error='Failed to prepare flood risk polygon table in the database.',
+        fn=ensure_flood_risk_polygons_table,
+        session=session,
+    )
+    run_step(
+        step_name='build_flood_risk_polygons',
+        user_message_on_error='Failed to build flood risk polygons from raster.',
+        fn=build_flood_risk_polygons,
+        session=session,
+        flood_raster_path=flood_raster_path,
+        analysis_date=analysis_date,
+        source_raster=os.path.basename(flood_raster_path),
     )
     boundaries = run_step(
         step_name='load_boundaries',

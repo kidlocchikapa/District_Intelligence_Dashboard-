@@ -16,6 +16,7 @@ const {
   validateWelfareUpdate,
   validateDisasterCreate,
   validateDisasterUpdate,
+  validateWelfareProgramCreate,
 } = require("../validators/adminDataValidation");
 const {
   getAuthUser,
@@ -239,7 +240,7 @@ function resolveAdminDataAccessRule(req) {
     };
   }
 
-  if (!["education", "health", "welfare", "disaster"].includes(segments[0])) {
+  if (!["education", "health", "social_welfare", "disaster"].includes(segments[0])) {
     return null;
   }
 
@@ -898,7 +899,7 @@ router.get("/health", async (req, res) => {
   }
 });
 
-router.get("/welfare", async (req, res) => {
+router.get("/social_welfare", async (req, res) => {
   try {
     const page = parsePositiveInteger(req.query.page, 1);
     const pageSize = Math.min(
@@ -966,6 +967,35 @@ router.get("/welfare", async (req, res) => {
     return res.status(500).json({
       status: "error",
       message: "Unable to load welfare records",
+    });
+  }
+});
+
+router.get("/social_welfare/programs", async (req, res) => {
+  try {
+    const result = await db.query(
+      `
+        SELECT
+          program_id,
+          program_name,
+          department,
+          description
+        FROM welfare_programs
+        ORDER BY program_name
+      `,
+    );
+
+    return res.json({
+      status: "success",
+      data: {
+        items: result.rows,
+      },
+    });
+  } catch (error) {
+    console.error("Admin welfare program list error:", error.message);
+    return res.status(500).json({
+      status: "error",
+      message: "Unable to load welfare programs",
     });
   }
 });
@@ -1095,7 +1125,7 @@ router.get("/health/:id", async (req, res) => {
   }
 });
 
-router.get("/welfare/:id", async (req, res) => {
+router.get("/social_welfare/:id", async (req, res) => {
   try {
     const id = parsePositiveInteger(req.params.id, null);
     if (!id) {
@@ -1198,7 +1228,7 @@ router.get("/health/:id/history", async (req, res) => {
   }
 });
 
-router.get("/welfare/:id/history", async (req, res) => {
+router.get("/social_welfare/:id/history", async (req, res) => {
   try {
     const id = parsePositiveInteger(req.params.id, null);
     if (!id) {
@@ -1456,7 +1486,35 @@ router.post("/health", async (req, res) => {
   }
 });
 
-router.post("/welfare", async (req, res) => {
+router.post("/social_welfare/programs", async (req, res) => {
+  const { error, value } = validateWelfareProgramCreate(req.body);
+  if (error) {
+    return res.status(400).json({ status: "error", message: error });
+  }
+
+  try {
+    const result = await db.query(
+      `INSERT INTO welfare_programs (program_name, department, description)
+       VALUES ($1, $2, $3)
+       RETURNING program_id`,
+      [value.program_name, value.department, value.description],
+    );
+
+    res.status(201).json({
+      status: "success",
+      message: "Welfare program created successfully",
+      data: { program_id: result.rows[0].program_id },
+    });
+  } catch (err) {
+    console.error("Admin welfare program create error:", err.message);
+    res.status(500).json({
+      status: "error",
+      message: err.message || "Unable to create welfare program",
+    });
+  }
+});
+
+router.post("/social_welfare", async (req, res) => {
   const { error, value } = validateWelfareCreate(req.body);
   if (error) {
     return res.status(400).json({ status: "error", message: error });
@@ -1894,7 +1952,7 @@ router.patch("/health/:id", async (req, res) => {
   }
 });
 
-router.patch("/welfare/:id", async (req, res) => {
+router.patch("/social_welfare/:id", async (req, res) => {
   const id = parsePositiveInteger(req.params.id, null);
   if (!id) {
     return res
@@ -2289,7 +2347,7 @@ router.post("/health/:id/archive", async (req, res) => {
   }
 });
 
-router.post("/welfare/:id/archive", async (req, res) => {
+router.post("/social_welfare/:id/archive", async (req, res) => {
   const id = parsePositiveInteger(req.params.id, null);
   if (!id) {
     return res

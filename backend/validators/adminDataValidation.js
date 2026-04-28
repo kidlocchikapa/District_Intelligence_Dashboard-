@@ -216,6 +216,20 @@ function validateDisasterUpdate(payload) {
   return validateWithSchema(disasterUpdateSchema, payload);
 }
 
+const welfareProgramCreateSchema = Joi.object({
+  program_name: Joi.string().trim().max(255).required().messages({
+    "any.required": "program_name is required",
+  }),
+  department: Joi.string().trim().max(100).required().messages({
+    "any.required": "department is required",
+  }),
+  description: Joi.string().trim().allow("", null),
+});
+
+function validateWelfareProgramCreate(payload) {
+  return validateWithSchema(welfareProgramCreateSchema, payload);
+}
+
 module.exports = {
   validateEducationCreate,
   validateEducationUpdate,
@@ -225,4 +239,5 @@ module.exports = {
   validateWelfareUpdate,
   validateDisasterCreate,
   validateDisasterUpdate,
+  validateWelfareProgramCreate,
 };

@@ -3,6 +3,7 @@ import json
 import logging
 
 import pandas as pd
+import numpy as np
 from geoalchemy2 import Geometry, WKTElement
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy import text
@@ -85,9 +86,29 @@ def fetch_admin_unit_lookup(session):
     return {'by_name': lookup, 'by_id': by_id}
 
 
-def fetch_spatial_admin_lookup(session):
-    query = text(
+def fetch_welfare_programs(session):
+    query = text("SELECT program_id, program_name FROM welfare_programs")
+    rows = session.execute(query).mappings().all()
+    return {row['program_name'].strip().lower(): row['program_id'] for row in rows}
+
+
+def fetch_spatial_admin_lookup(session, bounds=None):
+    params = {}
+    envelope_clause = ""
+
+    if bounds:
+        envelope_clause = """
+        AND d.geom && ST_MakeEnvelope(:min_lon, :min_lat, :max_lon, :max_lat, 4326)
         """
+        params = {
+            'min_lon': float(bounds['min_lon']),
+            'min_lat': float(bounds['min_lat']),
+            'max_lon': float(bounds['max_lon']),
+            'max_lat': float(bounds['max_lat']),
+        }
+
+    query = text(
+        f"""
         SELECT
             d.id AS district_id,
             d.name AS district_name,
@@ -99,10 +120,13 @@ def fetch_spatial_admin_lookup(session):
         LEFT JOIN admin3_units a
             ON a.district_id = d.id
             AND LOWER(a.type) = 'ta'
+            AND a.geom IS NOT NULL
+            {'AND a.geom && ST_MakeEnvelope(:min_lon, :min_lat, :max_lon, :max_lat, 4326)' if bounds else ''}
         WHERE d.geom IS NOT NULL
+        {envelope_clause}
         """
     )
-    rows = session.execute(query).mappings().all()
+    rows = session.execute(query, params).mappings().all()
 
     districts = {}
     ta_units = []
@@ -235,7 +259,56 @@ def assign_ward_ids(df, admin_lookup, spatial_lookup=None):
     working['ward_id'] = ward_ids
     working['district_id'] = district_ids
     working['geo_code'] = geo_codes
+    working['geo_code'] = geo_codes
     return working
+
+
+def load_welfare_beneficiary_indicators(session, indicators_df):
+    if indicators_df.empty:
+        return 0
+
+    def _normalize_int(value):
+        if value is None or value is pd.NA:
+            return None
+        if isinstance(value, float) and np.isnan(value):
+            return None
+        try:
+            return int(value)
+        except (TypeError, ValueError):
+            return None
+
+    records = indicators_df.to_dict('records')
+    try:
+        for record in records:
+            # Check if beneficiary_id is present
+            if pd.isna(record.get('beneficiary_id')):
+                continue
+
+            record['beneficiary_id'] = _normalize_int(record.get('beneficiary_id'))
+            record['program_id'] = _normalize_int(record.get('program_id'))
+            record['ta_id'] = _normalize_int(record.get('ta_id'))
+            record['district_id'] = _normalize_int(record.get('district_id'))
+
+            query = text(
+                """
+                INSERT INTO welfare_beneficiary_indicators (
+                    beneficiary_id, program_id, ta_id, district_id,
+                    affected_by_flood, has_school_access, has_health_facility_access
+                ) VALUES (
+                    :beneficiary_id, :program_id, :ta_id, :district_id,
+                    :affected_by_flood, :has_school_access, :has_health_facility_access
+                )
+            """
+            )
+            # Handle potential duplicates or existing records by deleting first if we want to refresh
+            # Or just use a simple insert if it's a new load
+            session.execute(query, record)
+
+        session.commit()
+    except Exception:
+        session.rollback()
+        raise
+    return len(records)
 
 # This function fetches administrative unit data from the database and returns it as a DataFrame, which can be used
 #  for indicator processing and assignment
