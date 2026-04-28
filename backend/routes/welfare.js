@@ -417,10 +417,7 @@ router.get("/integration", async (req, res) => {
         COUNT(*) FILTER (WHERE COALESCE(bs.age, 0) < 18)::int AS beneficiary_records_under_18,
         COUNT(*) FILTER (WHERE bs.has_school_access)::int AS school_access_count,
         COUNT(*) FILTER (WHERE bs.has_health_facility_access)::int AS health_access_count,
-        COUNT(*) FILTER (
-          WHERE bs.affected_by_flood
-             OR COALESCE(fc.area_exposed_population, 0) > 0
-        )::int AS flood_affected_count,
+        COUNT(*) FILTER (WHERE bs.affected_by_flood)::int AS direct_flood_affected_count,
         COUNT(*) FILTER (
           WHERE nh.distance_km <= 8
             AND nh.ownership_category = 'public'
@@ -538,7 +535,12 @@ router.get("/integration", async (req, res) => {
         ),
         school_access_count: toNumber(row.school_access_count),
         health_access_count: toNumber(row.health_access_count),
-        flood_affected_count: toNumber(row.flood_affected_count),
+        flood_affected_count:
+          toNumber(row.direct_flood_affected_count) > 0
+            ? toNumber(row.direct_flood_affected_count)
+            : areaExposedPopulation > 0
+              ? toNumber(row.beneficiary_count)
+              : 0,
         public_facility_access_count: toNumber(row.public_facility_access_count),
         private_facility_access_count: toNumber(
           row.private_facility_access_count,

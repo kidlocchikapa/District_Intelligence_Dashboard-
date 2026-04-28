@@ -104,7 +104,7 @@ function WelfarePage() {
   const { selectedDistrict, setSelectedDistrict } = useDistrict();
   const { contentRef, exportPdf } = usePdfExport("Welfare_Integration_Report.pdf");
   const districts = useDistrictOptions();
-  const [adminType, setAdminType] = useState("TA");
+  const adminType = "TA";
   const [selectedTa, setSelectedTa] = useState("");
   const [selectedProgram, setSelectedProgram] = useState("");
   const [areaSearch, setAreaSearch] = useState("");
@@ -193,7 +193,6 @@ function WelfarePage() {
         districtName.includes(searchValue);
       const matchesTa =
         !selectedTa ||
-        adminType !== "TA" ||
         String(row.admin_unit_name || "").toLowerCase() ===
           selectedTa.toLowerCase();
       const matchesRisk =
@@ -414,22 +413,6 @@ function WelfarePage() {
             </select>
           </div>
 
-          <div className="inline-flex rounded border border-gray-200 bg-white p-1 shadow-sm">
-            {["TA", "District"].map((value) => (
-              <button
-                key={value}
-                onClick={() => setAdminType(value)}
-                className={`px-4 py-2 text-[12px] font-bold rounded transition-all ${
-                  adminType === value
-                    ? "bg-black text-white"
-                    : "text-gray-500 hover:text-black"
-                }`}
-              >
-                {value} Basis
-              </button>
-            ))}
-          </div>
-
           <div className="relative">
             <select
               className="bg-white text-gray-700 rounded border border-gray-200 px-4 py-2 text-[13px] font-bold min-w-[220px] cursor-pointer shadow-sm"
@@ -638,16 +621,15 @@ function WelfarePage() {
                 type="text"
                 value={areaSearch}
                 onChange={(event) => setAreaSearch(event.target.value)}
-                placeholder={`Search ${adminType === "TA" ? "TAs or districts" : "district records"}`}
+                placeholder="Search TAs or districts"
                 className="min-w-[220px] flex-1 rounded border border-gray-200 px-3 py-2 text-[13px] font-semibold text-gray-700 outline-none focus:border-black"
               />
               <select
                 value={selectedTa}
                 onChange={(event) => setSelectedTa(event.target.value)}
                 className="min-w-[180px] rounded border border-gray-200 px-3 py-2 text-[13px] font-bold text-gray-700"
-                disabled={adminType !== "TA" && !taOptions.length}
               >
-                <option value="">{adminType === "TA" ? "All TAs" : "All TAs in Preview"}</option>
+                <option value="">All TAs</option>
                 {taOptions.map((option) => (
                   <option key={option} value={option}>
                     {option}
@@ -674,14 +656,14 @@ function WelfarePage() {
               </select>
             </div>
             <p className="mt-3 text-[12px] font-semibold text-gray-500">
-              Showing {formatWholeNumber(filteredByArea.length)} {adminType === "TA" ? "TA" : "district"} records after filtering.
+              Showing {formatWholeNumber(filteredByArea.length)} TA records after filtering.
             </p>
           </div>
           <DataTable
             rows={filteredByArea}
             columns={areaColumns}
-            title={`${adminType} Decision View`}
-            subtitle={`Previewing linked social welfare, education, health, and disaster indicators at ${adminType === "TA" ? "TA" : "district"} level.`}
+            title="TA Decision View"
+            subtitle="Previewing linked social welfare, education, health, and disaster indicators at TA level."
           />
         </div>
 
