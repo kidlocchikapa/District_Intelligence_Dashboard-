@@ -270,7 +270,7 @@ function OverviewPage() {
 
           <div className="border border-gray-100 rounded p-8 shadow-sm bg-white flex flex-col min-h-[460px]">
             <h3 className="text-[16px] font-extrabold mb-6">
-              Population by TA (Admin3)
+              Population by TA
             </h3>
             <p className="text-xs text-gray-500 font-semibold mb-3">
               Showing TA-level population totals
