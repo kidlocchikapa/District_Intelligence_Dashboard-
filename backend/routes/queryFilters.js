@@ -4,6 +4,26 @@ const DISTRICT_GROUPS = {
   "zomba (all)": ["Zomba", "Zomba City", "Zomba (All)"],
 };
 
+function buildCanonicalDistrictExpression(columnExpression) {
+  return `CASE
+    WHEN LOWER(${columnExpression}) LIKE 'zomba%' THEN 'zomba'
+    ELSE LOWER(${columnExpression})
+  END`;
+}
+
+function resolveDistrictCanonicalValue(district) {
+  const normalized = String(district || "").trim().toLowerCase();
+  if (!normalized) {
+    return "";
+  }
+
+  if (DISTRICT_GROUPS[normalized]) {
+    return "zomba";
+  }
+
+  return normalized;
+}
+
 function resolveDistrictFilterValues(district) {
   const normalized = String(district || "").trim();
   if (!normalized) {
@@ -31,21 +51,12 @@ function appendDistrictNameCondition(
   columnExpression,
   district,
 ) {
-  const districtValues = resolveDistrictFilterValues(district);
-  if (!districtValues.length) return;
+  const canonicalValue = resolveDistrictCanonicalValue(district);
+  if (!canonicalValue) return;
 
-  const placeholders = districtValues.map((value) => {
-    params.push(value);
-    return `$${params.length}`;
-  });
-
-  if (placeholders.length === 1) {
-    conditions.push(`LOWER(${columnExpression}) = LOWER(${placeholders[0]})`);
-    return;
-  }
-
+  params.push(canonicalValue);
   conditions.push(
-    `LOWER(${columnExpression}) IN (${placeholders.map((placeholder) => `LOWER(${placeholder})`).join(", ")})`,
+    `${buildCanonicalDistrictExpression(columnExpression)} = $${params.length}`,
   );
 }
 
@@ -63,19 +74,13 @@ function appendDistrictGeometryCondition(
   geometryExpression,
   district,
 ) {
-  const districtValues = resolveDistrictFilterValues(district);
-  if (!districtValues.length) return;
+  const canonicalValue = resolveDistrictCanonicalValue(district);
+  if (!canonicalValue) return;
 
-  const placeholders = districtValues.map((value) => {
-    params.push(value);
-    return `$${params.length}`;
-  });
-  const districtNamePredicate =
-    placeholders.length === 1
-      ? `LOWER(district_filter.name) = LOWER(${placeholders[0]})`
-      : `LOWER(district_filter.name) IN (${placeholders
-          .map((placeholder) => `LOWER(${placeholder})`)
-          .join(", ")})`;
+  params.push(canonicalValue);
+  const districtNamePredicate = `${buildCanonicalDistrictExpression(
+    "district_filter.name",
+  )} = $${params.length}`;
 
   conditions.push(`
       EXISTS (
@@ -91,5 +96,6 @@ function appendDistrictGeometryCondition(
 module.exports = {
   appendDistrictGeometryCondition,
   appendDistrictNameCondition,
+  buildCanonicalDistrictExpression,
   resolveDistrictFilterValues,
 };
