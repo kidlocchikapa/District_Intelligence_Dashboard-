@@ -380,6 +380,9 @@ router.get("/flood/population", async (req, res) => {
     const whereClause = conditions.length
       ? `WHERE ${conditions.join(" AND ")}`
       : "";
+    const andWhereClause = conditions.length
+      ? `AND ${conditions.join(" AND ")}`
+      : "";
 
     const aggregationSql =
       normalizedAdminType === "TA"
