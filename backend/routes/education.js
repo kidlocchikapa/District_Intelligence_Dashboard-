@@ -167,6 +167,17 @@ function summarizeEducationInsights(rows) {
 
 // @route   GET api/v1/dashboard/education
 // @desc    Get education facility locations (GeoJSON)
+/**
+ * @openapi
+ * /api/v1/dashboard/education:
+ *   get:
+ *     summary: Get education facility locations as GeoJSON
+ *     tags:
+ *       - Education
+ *     responses:
+ *       200:
+ *         description: Education facilities GeoJSON
+ */
 router.get("/", async (req, res) => {
   const { district } = req.query;
 
@@ -224,6 +235,17 @@ router.get("/", async (req, res) => {
 
 // @route   GET api/v1/dashboard/education/service-coverage/geojson
 // @desc    Get education school service coverage results as GeoJSON
+/**
+ * @openapi
+ * /api/v1/dashboard/education/service-coverage/geojson:
+ *   get:
+ *     summary: Get education service coverage as GeoJSON
+ *     tags:
+ *       - Education
+ *     responses:
+ *       200:
+ *         description: Service coverage GeoJSON
+ */
 router.get("/service-coverage/geojson", async (req, res) => {
   const { district, admin_type: adminType = "District" } = req.query;
   const normalizedAdminType = normalizeAdminType(adminType);
@@ -301,6 +323,17 @@ router.get("/service-coverage/geojson", async (req, res) => {
 
 // @route   GET api/v1/dashboard/education/access-zones/geojson
 // @desc    Get served/unserved education access zones plus school points
+/**
+ * @openapi
+ * /api/v1/dashboard/education/access-zones/geojson:
+ *   get:
+ *     summary: Get education access zones as GeoJSON
+ *     tags:
+ *       - Education
+ *     responses:
+ *       200:
+ *         description: Access zones GeoJSON
+ */
 router.get("/access-zones/geojson", async (req, res) => {
   const { district, buffer_km: bufferKmParam } = req.query;
   const parsedBufferKm = Number(bufferKmParam);
@@ -490,6 +523,17 @@ router.get("/access-zones/geojson", async (req, res) => {
 
 // @route   GET api/v1/dashboard/education/summary
 // @desc    Get ward/district education aggregates
+/**
+ * @openapi
+ * /api/v1/dashboard/education/summary:
+ *   get:
+ *     summary: Get education summary metrics
+ *     tags:
+ *       - Education
+ *     responses:
+ *       200:
+ *         description: Education summary
+ */
 router.get("/summary", async (req, res) => {
   const { district } = req.query;
 
@@ -601,6 +645,17 @@ router.get("/summary", async (req, res) => {
 
 // @route   GET api/v1/dashboard/education/insights
 // @desc    Get district education access and utilization insights
+/**
+ * @openapi
+ * /api/v1/dashboard/education/insights:
+ *   get:
+ *     summary: Get education insights
+ *     tags:
+ *       - Education
+ *     responses:
+ *       200:
+ *         description: Education insights
+ */
 router.get("/insights", async (req, res) => {
   const { district } = req.query;
 
@@ -821,6 +876,17 @@ router.get("/insights", async (req, res) => {
 
 // @route   GET api/v1/dashboard/education/drilldown
 // @desc    Get education drilldown summary, TA breakdown, and facility-level details
+/**
+ * @openapi
+ * /api/v1/dashboard/education/drilldown:
+ *   get:
+ *     summary: Get education drilldown statistics
+ *     tags:
+ *       - Education
+ *     responses:
+ *       200:
+ *         description: Education drilldown
+ */
 router.get("/drilldown", async (req, res) => {
   const {
     district,

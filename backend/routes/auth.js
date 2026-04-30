@@ -101,8 +101,27 @@ async function buildUserResponse(user) {
 
 // @route   POST api/v1/auth/register
 // @desc    Register a new user
+/**
+ * @openapi
+ * /api/v1/auth/register:
+ *   post:
+ *     summary: Register a new user
+ *     tags:
+ *       - Auth
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *     responses:
+ *       201:
+ *         description: User created
+ *       409:
+ *         description: Email already registered
+ */
 router.post("/register", async (req, res) => {
-  //validating request 
+  //validating request
   const { error, value } = validateRegisterUser(req.body);
   if (error) {
     return res.status(400).json({ status: "error", message: error });
@@ -115,9 +134,14 @@ router.post("/register", async (req, res) => {
     await ensureRbacSchema();
 
     //perform a check if the user email already exists in the database
-    const existingUser = await db.query("SELECT id FROM users WHERE email = $1 LIMIT 1", [email]);
+    const existingUser = await db.query(
+      "SELECT id FROM users WHERE email = $1 LIMIT 1",
+      [email],
+    );
     if (existingUser.rowCount > 0) {
-      return res.status(409).json({ status: "error", message: "Email already registered" });
+      return res
+        .status(409)
+        .json({ status: "error", message: "Email already registered" });
     }
 
     const passwordHash = await hashPassword(password);
@@ -129,7 +153,13 @@ router.post("/register", async (req, res) => {
             VALUES ($1, $2, $3, $4, $5)
             RETURNING id, full_name, email, role, created_at
           `,
-          [await generateAvailableUsername(email), fullName, email, passwordHash, role],
+          [
+            await generateAvailableUsername(email),
+            fullName,
+            email,
+            passwordHash,
+            role,
+          ],
         )
       : await db.query(
           `
@@ -168,8 +198,27 @@ router.post("/register", async (req, res) => {
 
 // @route   POST api/v1/auth/login
 // @desc    Authenticate user and return JWT
+/**
+ * @openapi
+ * /api/v1/auth/login:
+ *   post:
+ *     summary: Authenticate a user and return a JWT
+ *     tags:
+ *       - Auth
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *     responses:
+ *       200:
+ *         description: Authenticated
+ *       401:
+ *         description: Invalid credentials
+ */
 router.post("/login", async (req, res) => {
-  const { error, value } = validateLoginUser(req.body);//validating request
+  const { error, value } = validateLoginUser(req.body); //validating request
   if (error) {
     return res.status(400).json({ status: "error", message: error });
   }
@@ -191,26 +240,35 @@ router.post("/login", async (req, res) => {
     );
 
     if (userResult.rowCount === 0) {
-      return res.status(401).json({ status: "error", message: "Invalid credentials" });
+      return res
+        .status(401)
+        .json({ status: "error", message: "Invalid credentials" });
     }
 
     //check if the user account is active
     const user = userResult.rows[0];
     if (!user.is_active) {
-      return res.status(403).json({ status: "error", message: "User account is inactive" });
+      return res
+        .status(403)
+        .json({ status: "error", message: "User account is inactive" });
     }
 
     //compare the provided password with the stored password hash
     const isPasswordValid = await comparePassword(password, user.password_hash);
     if (!isPasswordValid) {
-      return res.status(401).json({ status: "error", message: "Invalid credentials" });
+      return res
+        .status(401)
+        .json({ status: "error", message: "Invalid credentials" });
     }
 
     //generate JWT token for the authenticated user
     const token = signAuthToken(user);
 
     //update last login timestamp for the user
-    await db.query("UPDATE users SET last_login_at = CURRENT_TIMESTAMP WHERE id = $1", [user.id]);
+    await db.query(
+      "UPDATE users SET last_login_at = CURRENT_TIMESTAMP WHERE id = $1",
+      [user.id],
+    );
     const serializedUser = await buildUserResponse(user);
 
     return res.json({
@@ -228,11 +286,28 @@ router.post("/login", async (req, res) => {
 
 // @route   GET api/v1/auth/me
 // @desc    Get the currently authenticated user with RBAC access profile
+/**
+ * @openapi
+ * /api/v1/auth/me:
+ *   get:
+ *     summary: Get the current user profile
+ *     tags:
+ *       - Auth
+ *     security:
+ *       - BearerAuth: []
+ *     responses:
+ *       200:
+ *         description: User profile
+ *       401:
+ *         description: Unauthorized
+ */
 router.get("/me", auth, async (req, res) => {
   const userId = req.user?.user?.id || req.user?.id;
 
   if (!userId) {
-    return res.status(401).json({ status: "error", message: "Invalid token payload" });
+    return res
+      .status(401)
+      .json({ status: "error", message: "Invalid token payload" });
   }
 
   try {
@@ -250,7 +325,9 @@ router.get("/me", auth, async (req, res) => {
     );
 
     if (!userResult.rowCount) {
-      return res.status(404).json({ status: "error", message: "User not found" });
+      return res
+        .status(404)
+        .json({ status: "error", message: "User not found" });
     }
 
     const user = userResult.rows[0];
@@ -273,14 +350,36 @@ router.get("/me", auth, async (req, res) => {
   }
 });
 
-
 // @route   POST api/v1/auth/change-password
 // @desc    Change password for currently authenticated user
+/**
+ * @openapi
+ * /api/v1/auth/change-password:
+ *   post:
+ *     summary: Change the current user's password
+ *     tags:
+ *       - Auth
+ *     security:
+ *       - BearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *     responses:
+ *       200:
+ *         description: Password updated
+ *       401:
+ *         description: Unauthorized
+ */
 router.post("/change-password", auth, async (req, res) => {
   const userId = req.user?.user?.id || req.user?.id;
 
   if (!userId) {
-    return res.status(401).json({ status: "error", message: "Invalid token payload" });
+    return res
+      .status(401)
+      .json({ status: "error", message: "Invalid token payload" });
   }
 
   const { error, value } = validateChangePassword(req.body);
@@ -294,20 +393,30 @@ router.post("/change-password", auth, async (req, res) => {
     await ensureUsersTable();
 
     //fetch the user's current password hash from the database
-    const result = await db.query("SELECT password_hash FROM users WHERE id = $1 LIMIT 1", [userId]);
+    const result = await db.query(
+      "SELECT password_hash FROM users WHERE id = $1 LIMIT 1",
+      [userId],
+    );
     if (result.rowCount === 0) {
-      return res.status(404).json({ status: "error", message: "User not found" });
+      return res
+        .status(404)
+        .json({ status: "error", message: "User not found" });
     }
 
     //compare the provided current password with the stored password hash
-    const passwordMatches = await comparePassword(currentPassword, result.rows[0].password_hash);
+    const passwordMatches = await comparePassword(
+      currentPassword,
+      result.rows[0].password_hash,
+    );
     if (!passwordMatches) {
-      return res.status(401).json({ status: "error", message: "Current password is incorrect" });
+      return res
+        .status(401)
+        .json({ status: "error", message: "Current password is incorrect" });
     }
 
     //hash the new password and update it in the database
     const hashedPassword = await hashPassword(newPassword);
-     await db.query(
+    await db.query(
       `
         UPDATE users
         SET password_hash = $1, updated_at = CURRENT_TIMESTAMP
@@ -316,7 +425,10 @@ router.post("/change-password", auth, async (req, res) => {
       [hashedPassword, userId],
     );
 
-    return res.json({ status: "success", message: "Password updated successfully" });
+    return res.json({
+      status: "success",
+      message: "Password updated successfully",
+    });
   } catch (err) {
     console.error("Change password error:", err.message);
     return res.status(500).json({ status: "error", message: "Server error" });
