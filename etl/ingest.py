@@ -19,10 +19,10 @@ GEOSPATIAL_FILE_EXTENSIONS = ['.shp', '.geojson', '.gpkg']
 TABULAR_FILE_EXTENSIONS = ['.csv', '.xls', '.xlsx', '.json']
 SUPPORTED_FILE_EXTENSIONS = GEOSPATIAL_FILE_EXTENSIONS + TABULAR_FILE_EXTENSIONS
 
-
+# Set up logging for the ingest module
 LOGGER = logging.getLogger('etl.ingest')
 
-
+# Error handler
 class IngestError(Exception):
     def __init__(self, user_message, step_name, original_error=None):
         self.user_message = user_message
@@ -30,13 +30,12 @@ class IngestError(Exception):
         self.original_error = original_error
         super().__init__(f"{user_message} (step: {step_name})")
 
-
+# Helper function to log the start and completion of each step in the ingest process, and to handle errors gracefully
 def log_step(step_name, message, level='info'):
     log_method = getattr(LOGGER, level, LOGGER.info)
     log_method(f"[{step_name}] {message}")
 
-
-def run_step(step_name, user_message_on_error, fn, *args, **kwargs):
+# Run a specific step in the ingest process, logging its start and completion
     log_step(step_name, 'started')
     try:
         result = fn(*args, **kwargs)

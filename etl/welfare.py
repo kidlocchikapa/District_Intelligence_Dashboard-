@@ -27,7 +27,7 @@ from pipeline_config import DATASET_CONFIG
 
 LOGGER = logging.getLogger('etl.welfare')
 
-
+# Utility functions
 def build_spatial_lookup_bounds(df, padding_degrees=0.05):
     if 'longitude' not in df.columns or 'latitude' not in df.columns:
         return None
@@ -50,6 +50,7 @@ def build_spatial_lookup_bounds(df, padding_degrees=0.05):
         'max_lat': max_lat,
     }
 
+# Normalization
 def normalize_welfare_beneficiary(df):
     """Standardizes demographic and status fields for welfare beneficiaries."""
     working = df.copy()
@@ -88,6 +89,7 @@ def normalize_welfare_beneficiary(df):
 
     return working
 
+# Indicator computation
 def compute_welfare_indicators(
     beneficiaries_gdf,
     flood_gdf,
@@ -135,6 +137,7 @@ def compute_welfare_indicators(
 
     return beneficiaries_gdf
 
+# Main ETL orchestration
 def process_welfare_beneficiary_dataset(
     session,
     file_path=None,
