@@ -75,21 +75,21 @@ const presetTaskDefinitions = {
       schoolAgeMax,
       childClassMax,
     }) => [
-      {
-        label: "WorldPop age-sex",
-        args: buildEtlArgs({
-          type: "worldpop",
-          sourceType: "worldpop",
-          apiUrl,
-          worldpopYear,
-          worldpopDataset: "wpgpas",
-          worldpopApiKey,
-          schoolAgeMin,
-          schoolAgeMax,
-          childClassMax,
-        }),
-      },
-    ],
+        {
+          label: "WorldPop age-sex",
+          args: buildEtlArgs({
+            type: "worldpop",
+            sourceType: "worldpop",
+            apiUrl,
+            worldpopYear,
+            worldpopDataset: "wpgpas",
+            worldpopApiKey,
+            schoolAgeMin,
+            schoolAgeMax,
+            childClassMax,
+          }),
+        },
+      ],
   },
   education_insights: {
     label: "Recalculate education insights",
@@ -160,68 +160,68 @@ const presetTaskDefinitions = {
       adminLevel,
       coverageDistanceKm,
     }) => [
-      {
-        label: "WorldPop totals",
-        args: buildEtlArgs({
-          type: "worldpop",
-          sourceType: "worldpop",
-          apiUrl,
-          worldpopYear,
-          worldpopDataset: "wpgppop",
-          worldpopApiKey,
-        }),
-      },
-      {
-        label: "WorldPop age-sex",
-        args: buildEtlArgs({
-          type: "worldpop",
-          sourceType: "worldpop",
-          apiUrl,
-          worldpopYear,
-          worldpopDataset: "wpgpas",
-          worldpopApiKey,
-          schoolAgeMin,
-          schoolAgeMax,
-          childClassMax,
-        }),
-      },
-      {
-        label: "Education analysis",
-        args: buildEtlArgs({
-          type: "analysis",
-          analysisTypes: [
-            "education_summary",
-            "nearest_school_distance",
-            "school_service_coverage",
-          ],
-          adminLevel,
-          coverageDistanceKm,
-        }),
-      },
-      {
-        label: "Health analysis",
-        args: buildEtlArgs({
-          type: "analysis",
-          worldpopYear,
-          analysisTypes: [
-            "health_summary",
-            "health_population_served",
-            "nearest_health_distance",
-            "health_service_coverage",
-          ],
-          adminLevel,
-          coverageDistanceKm,
-        }),
-      },
-      {
-        label: "Disaster analysis",
-        args: buildEtlArgs({
-          type: "analysis",
-          analysisTypes: ["disaster_vulnerability"],
-          adminLevel,
-        }),
-      },
-    ],
+        {
+          label: "WorldPop totals",
+          args: buildEtlArgs({
+            type: "worldpop",
+            sourceType: "worldpop",
+            apiUrl,
+            worldpopYear,
+            worldpopDataset: "wpgppop",
+            worldpopApiKey,
+          }),
+        },
+        {
+          label: "WorldPop age-sex",
+          args: buildEtlArgs({
+            type: "worldpop",
+            sourceType: "worldpop",
+            apiUrl,
+            worldpopYear,
+            worldpopDataset: "wpgpas",
+            worldpopApiKey,
+            schoolAgeMin,
+            schoolAgeMax,
+            childClassMax,
+          }),
+        },
+        {
+          label: "Education analysis",
+          args: buildEtlArgs({
+            type: "analysis",
+            analysisTypes: [
+              "education_summary",
+              "nearest_school_distance",
+              "school_service_coverage",
+            ],
+            adminLevel,
+            coverageDistanceKm,
+          }),
+        },
+        {
+          label: "Health analysis",
+          args: buildEtlArgs({
+            type: "analysis",
+            worldpopYear,
+            analysisTypes: [
+              "health_summary",
+              "health_population_served",
+              "nearest_health_distance",
+              "health_service_coverage",
+            ],
+            adminLevel,
+            coverageDistanceKm,
+          }),
+        },
+        {
+          label: "Disaster analysis",
+          args: buildEtlArgs({
+            type: "analysis",
+            analysisTypes: ["disaster_vulnerability"],
+            adminLevel,
+          }),
+        },
+      ],
   },
 };
 
@@ -318,6 +318,7 @@ function requireGlobalAccess(req, res) {
 function serializeManagedUser(user, permissions = []) {
   return {
     id: user.id,
+    username: user.username,
     fullName: user.full_name,
     email: user.email,
     role: user.role,
@@ -334,6 +335,7 @@ async function loadManagedUser(userId) {
     `
       SELECT
         id,
+        username,
         full_name,
         email,
         role,
@@ -380,6 +382,7 @@ router.get("/users", auth, requireRole("super_admin"), async (req, res) => {
         `
           SELECT
             id,
+            username,
             full_name,
             email,
             role,
@@ -1183,10 +1186,10 @@ router.get("/jobs", auth, async (req, res) => {
     const allowedDepartments = isGlobal
       ? []
       : await getAccessibleDepartmentsForUser(
-          authUser.id,
-          authUser.role,
-          "read",
-        );
+        authUser.id,
+        authUser.role,
+        "read",
+      );
 
     if (jobId) {
       const job = jobs.get(jobId);

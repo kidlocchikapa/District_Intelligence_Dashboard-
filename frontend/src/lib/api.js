@@ -20,6 +20,16 @@ const api = axios.create({
   baseURL: normalizeApiBaseUrl(import.meta.env.VITE_API_BASE_URL),
 });
 
+api.interceptors.request.use((config) => {
+  const token = localStorage.getItem("district_token");
+  if (token) {
+    config.headers.Authorization = `Bearer ${token}`;
+  }
+  return config;
+}, (error) => {
+  return Promise.reject(error);
+});
+
 const AUTH_EVENT_NAME = "district-auth-changed";
 
 function emitAuthChange(token) {
@@ -67,6 +77,11 @@ export async function postJson(path, payload, config) {
 
 export async function patchJson(path, payload, config) {
   const response = await api.patch(path, payload, config);
+  return response.data;
+}
+
+export async function deleteJson(path, config) {
+  const response = await api.delete(path, config);
   return response.data;
 }
 
