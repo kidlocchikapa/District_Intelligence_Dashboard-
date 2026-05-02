@@ -1,17 +1,19 @@
 import { BarChart3, HeartPulse, Home, School, ShieldAlert, UploadCloud, Users2, Menu, ChevronLeft, ChevronRight, LogIn, LogOut, GraduationCap, Activity, UserCheck, LayoutDashboard, Database } from 'lucide-react';
 import { useState, useEffect } from 'react';
-import { NavLink, Route, Routes, useNavigate } from 'react-router-dom';
+import { NavLink, Route, Routes, useNavigate, useLocation } from 'react-router-dom';
 import { Toaster, toast } from 'react-hot-toast';
 import { setAuthToken, hydrateAuthToken, AUTH_EVENT_NAME } from './lib/api';
 import Login from './Login';
 import { useDistrict } from './context/DistrictContext';
 import AdminPage from './Pages/AdminPage';
+import SuperAdminPage from './Pages/SuperAdminPage';
 import DisasterPage from './Pages/DisasterPage';
 import EducationPage from './Pages/EducationPage';
 import HealthPage from './Pages/HealthPage';
 import OverviewPage from './Pages/OverviewPage';
 import PopulationPage from './Pages/PopulationPage';
 import WelfarePage from './Pages/WelfarePage';
+import SuperAdminLayout from './layouts/SuperAdminLayout';
 
 const navigation = [
   { to: '/', label: 'Overview', icon: LayoutDashboard },
@@ -22,16 +24,31 @@ const navigation = [
   { to: '/disaster', label: 'Disaster Risk', icon: ShieldAlert },
 ];
 
+function decodeJwtRole(token) {
+  if (!token) return null;
+  try {
+    const payload = JSON.parse(atob(token.split('.')[1]));
+    return payload.user?.role || payload.role;
+  } catch {
+    return null;
+  }
+}
+
 function App() {
   const [isCollapsed, setIsCollapsed] = useState(false);
   const [isAuthenticated, setIsAuthenticated] = useState(() => Boolean(hydrateAuthToken()));
+  const [userRole, setUserRole] = useState(() => decodeJwtRole(hydrateAuthToken()));
   const { selectedDistrict } = useDistrict();
   const navigate = useNavigate();
+  const location = useLocation();
+
+  const isSuperAdminRoute = location.pathname.startsWith('/superadmin');
 
   useEffect(() => {
     function syncAuthState(event) {
       const nextToken = event?.detail?.token;
       setIsAuthenticated(Boolean(nextToken));
+      setUserRole(nextToken ? decodeJwtRole(nextToken) : null);
     }
 
     window.addEventListener(AUTH_EVENT_NAME, syncAuthState);
@@ -40,7 +57,11 @@ function App() {
 
   const navItems = [
     ...navigation,
-    ...(isAuthenticated ? [{ to: '/admin', label: 'Data Management', icon: Database }] : [])
+    ...(isAuthenticated ? [{ 
+      to: '/admin', 
+      label: 'Data Management', 
+      icon: Database 
+    }] : [])
   ];
 
   function handleSessionAction() {
@@ -50,10 +71,23 @@ function App() {
       navigate('/');
       return;
     }
-
     navigate('/login');
   }
 
+  // If we're on a Super Admin route, use the dedicated layout
+  if (isAuthenticated && userRole === 'super_admin' && isSuperAdminRoute) {
+    return (
+      <>
+        <Toaster position="top-right" />
+        <SuperAdminLayout>
+          <Routes>
+            <Route path="/superadmin" element={<SuperAdminPage />} />
+            <Route path="/superadmin/permissions" element={<div className="p-8"><h1 className="text-2xl font-bold">User Permissions</h1><p className="text-slate-500 mt-2">Permission management module coming soon.</p></div>} />
+          </Routes>
+        </SuperAdminLayout>
+      </>
+    );
+  }
 
   return (
     <div className="h-screen overflow-hidden bg-[#F9FAFB] font-sans">
@@ -139,12 +173,17 @@ function App() {
             <Route path="/welfare" element={<WelfarePage />} />
             <Route path="/population" element={<PopulationPage />} />
             <Route path="/admin" element={<AdminPage />} />
+            <Route path="/superadmin" element={<SuperAdminPage />} />
             <Route path="/login" element={
               <div className="flex items-center justify-center min-h-[calc(100vh-2rem)] bg-white p-6">
-                <Login onLogin={(token) => {
+                <Login onLogin={(token, role) => {
                   setAuthToken(token);
                   setIsAuthenticated(Boolean(token));
-                  navigate('/admin');
+                  if (role === 'super_admin' || decodeJwtRole(token) === 'super_admin') {
+                    navigate('/superadmin');
+                  } else {
+                    navigate('/admin');
+                  }
                 }} />
               </div>
             } />

@@ -23,35 +23,41 @@ const datasetTypes = [
 const taskDescriptions = {
   worldpop_totals: {
     badge: "Population",
+    department: "global",
     title: "Refresh district population",
     description:
       "Updates district population totals in the background using WorldPop.",
   },
   worldpop_age_sex: {
     badge: "Education input",
+    department: "education",
     title: "Refresh children and school-age population",
     description:
       "Updates the age-sex counts used to estimate school demand by district.",
   },
   education_insights: {
     badge: "Education",
+    department: "education",
     title: "Recalculate education insights",
     description:
       "Refreshes school summary, service coverage, and nearest-school analyses.",
   },
   health_insights: {
     badge: "Health",
+    department: "health",
     title: "Recalculate health insights",
     description:
       "Refreshes facility counts, coverage, served population, and access metrics.",
   },
   disaster_insights: {
     badge: "Disaster",
+    department: "disaster",
     title: "Recalculate disaster insights",
     description: "Refreshes district-level disaster vulnerability outputs.",
   },
   planning_refresh: {
     badge: "Full refresh",
+    department: "global",
     title: "Run full planning refresh",
     description:
       "Refreshes population inputs first, then recalculates education, health, and disaster views.",
@@ -404,9 +410,6 @@ function AdminPage() {
   const [recomputeStatus, setRecomputeStatus] = useState({});
   const [recomputeBusy, setRecomputeBusy] = useState(false);
   
-  const [users, setUsers] = useState([]);
-  const [selectedUserId, setSelectedUserId] = useState("");
-  const [userFormBusy, setUserFormBusy] = useState(false);
   const [authProfile, setAuthProfile] = useState(null);
 
   const isAuthenticated = useMemo(() => Boolean(token), [token]);
@@ -453,53 +456,16 @@ function AdminPage() {
   async function loadAuthProfile() {
     try {
       const response = await fetchJson("/auth/me");
-      const profile = response.data?.user?.access || null;
-      setAuthProfile(profile);
+      const profile = response.data?.user?.access || {};
+      setAuthProfile({ ...profile, role: response.data?.user?.role });
       
-      if (response.data?.user?.role === "super_admin") {
-        loadUsers();
+      if (profile.departments && profile.departments.length > 0) {
+        setSelectedDepartment((current) => {
+          return profile.departments.includes(current) ? current : profile.departments[0];
+        });
       }
     } catch (error) {
       console.error("Load auth profile error:", error);
-    }
-  }
-
-  async function loadUsers() {
-    try {
-      const response = await fetchJson("/admin/users");
-      setUsers(response.data || []);
-    } catch (error) {
-      console.error("Load users error:", error);
-    }
-  }
-
-  async function handleCreateUser(event) {
-    event.preventDefault();
-    const formData = new FormData(event.target);
-    const data = Object.fromEntries(formData.entries());
-    
-    try {
-      setUserFormBusy(true);
-      await postJson("/admin/users", data);
-      setStatus("User created successfully");
-      loadUsers();
-      event.target.reset();
-    } catch (error) {
-      setStatus(error.response?.data?.message || "Failed to create user");
-    } finally {
-      setUserFormBusy(false);
-    }
-  }
-
-  async function handleDeleteUser(userId) {
-    if (!window.confirm("Are you sure you want to delete this user?")) return;
-    
-    try {
-      await fetchJson(`/admin/users/${userId}`, { method: 'DELETE' });
-      setStatus("User deleted successfully");
-      loadUsers();
-    } catch (error) {
-      setStatus(error.response?.data?.message || "Failed to delete user");
     }
   }
 
@@ -878,7 +844,9 @@ function AdminPage() {
 
   return (
     <div className="relative isolate z-10 space-y-6 bg-white text-slate-900 opacity-100 [filter:none]">
-      <PageHeader
+      {authProfile?.role !== "super_admin" && (
+        <>
+          <PageHeader
         eyebrow="Admin portal"
         title="Simple background data operations"
         description="Upload new datasets, run refresh actions, and follow ETL progress from one simple control room."
@@ -1291,93 +1259,13 @@ function AdminPage() {
           </div>
         )}
       </Panel>
-
-      {authProfile?.role === "super_admin" && (
-        <Panel
-          title="User Management"
-          subtitle="Manage portal access, assign roles, and delete accounts."
-          surface="solid"
-          className="border-slate-200 bg-white text-slate-900 shadow-sm"
-        >
-          <div className="grid gap-6 lg:grid-cols-[0.4fr_0.6fr]">
-            {/* Create User Form */}
-            <div>
-              <h3 className="text-sm font-semibold text-slate-900 mb-4">Create New User</h3>
-              <form onSubmit={handleCreateUser} className="space-y-4">
-                <label className="block text-sm text-slate-700">
-                  Full Name
-                  <input name="fullName" required className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900" />
-                </label>
-                <label className="block text-sm text-slate-700">
-                  Email
-                  <input name="email" type="email" required className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900" />
-                </label>
-                <label className="block text-sm text-slate-700">
-                  Password
-                  <input name="password" type="password" required className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900" />
-                </label>
-                <label className="block text-sm text-slate-700">
-                  Role
-                  <select name="role" required className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900">
-                    <option value="user">User</option>
-                    <option value="education_admin">Education Admin</option>
-                    <option value="health_admin">Health Admin</option>
-                    <option value="disaster_admin">Disaster Admin</option>
-                    <option value="welfare_admin">Welfare Admin</option>
-                    <option value="super_admin">Super Admin</option>
-                  </select>
-                </label>
-                <button disabled={userFormBusy} className="w-full rounded-lg bg-slate-900 px-3 py-2 text-xs font-bold text-white transition hover:bg-slate-800 active:scale-95 disabled:cursor-not-allowed disabled:bg-slate-300">
-                  {userFormBusy ? "Creating..." : "Create User"}
-                </button>
-              </form>
-            </div>
-
-            {/* User List */}
-            <div>
-              <h3 className="text-sm font-semibold text-slate-900 mb-4">Existing Users ({users.length})</h3>
-              <div className="max-h-[300px] overflow-auto border border-slate-200 rounded-lg">
-                <table className="w-full text-sm">
-                  <thead className="bg-slate-50 sticky top-0">
-                    <tr>
-                      <th className="px-3 py-2 text-left border-b border-slate-200">Name</th>
-                      <th className="px-3 py-2 text-left border-b border-slate-200">Role</th>
-                      <th className="px-3 py-2 text-right border-b border-slate-200">Action</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-100">
-                    {users.map(user => (
-                      <tr key={user.id} className="hover:bg-slate-50">
-                        <td className="px-3 py-2">
-                          <div className="font-medium text-slate-900">{user.fullName}</div>
-                          <div className="text-xs text-slate-500">{user.email}</div>
-                        </td>
-                        <td className="px-3 py-2">
-                          <span className="text-[10px] font-bold uppercase tracking-wider text-slate-600 bg-slate-100 px-2 py-0.5 rounded-full border border-slate-200">
-                            {user.role.replace('_', ' ')}
-                          </span>
-                        </td>
-                        <td className="px-3 py-2 text-right">
-                          <button 
-                            type="button"
-                            onClick={() => handleDeleteUser(user.id)} 
-                            className="text-rose-600 hover:text-rose-800 text-xs font-bold"
-                          >
-                            Delete
-                          </button>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          </div>
-        </Panel>
+        </>
       )}
 
-      <div className="grid gap-6">
-        <Panel
+      {authProfile?.role !== "super_admin" && (
+        <>
+          <div className="grid gap-6">
+            <Panel
           title="Background activity"
           subtitle={
             isAuthenticated
@@ -1638,7 +1526,14 @@ function AdminPage() {
           className="border-slate-200 bg-white text-slate-900 shadow-sm"
         >
           <div className="grid gap-4 md:grid-cols-2">
-            {Object.entries(taskDescriptions).map(([taskKey, task]) => (
+            {Object.entries(taskDescriptions)
+              .filter(([_, task]) => {
+                if (!authProfile) return true;
+                if (authProfile.is_global_admin) return true;
+                if (task.department === "global") return false;
+                return authProfile.departments.includes(task.department);
+              })
+              .map(([taskKey, task]) => (
               <div
                 key={taskKey}
                 className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm"
@@ -1665,6 +1560,8 @@ function AdminPage() {
           </div>
         </Panel>
       </div>
+        </>
+      )}
     </div>
   );
 }
