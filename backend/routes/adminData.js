@@ -449,6 +449,16 @@ function buildEducationListFilters(query) {
     conditions.push(`ef.ward_id = $${params.length}`);
   }
 
+  if (query.filter === "flood_exposed") {
+    conditions.push(`
+      EXISTS (
+        SELECT 1 FROM disaster_zones dz
+        WHERE dz.event_type = 'flood'
+        AND ST_Intersects(ef.geom, dz.geom)
+      )
+    `);
+  }
+
   return {
     whereClause: conditions.length ? `WHERE ${conditions.join(" AND ")}` : "",
     params,
@@ -493,6 +503,16 @@ function buildHealthListFilters(query) {
   if (wardId) {
     params.push(wardId);
     conditions.push(`hf.ward_id = $${params.length}`);
+  }
+
+  if (query.filter === "flood_exposed") {
+    conditions.push(`
+      EXISTS (
+        SELECT 1 FROM disaster_zones dz
+        WHERE dz.event_type = 'flood'
+        AND ST_Intersects(hf.geom, dz.geom)
+      )
+    `);
   }
 
   return {
@@ -840,6 +860,67 @@ router.get("/education", async (req, res) => {
     return res.status(500).json({
       status: "error",
       message: "Unable to load education records",
+    });
+  }
+});
+
+/**
+ * @openapi
+ * /api/v1/admin-data/education/flood_summary:
+ *   get:
+ *     summary: List education flood exposure summary records
+ *     tags:
+ *       - Admin Data
+ *     security:
+ *       - BearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Flood exposure summary records
+ */
+router.get("/education/flood_summary", async (req, res) => {
+  try {
+    const page = parsePositiveInteger(req.query.page, 1);
+    const pageSize = Math.min(parsePositiveInteger(req.query.page_size, 25), 100);
+    const offset = (page - 1) * pageSize;
+
+    const countResult = await db.query(
+      `SELECT COUNT(*)::int AS total FROM analysis_results WHERE analysis_type = 'education_flood_exposure'`
+    );
+
+    const rowsResult = await db.query(
+      `
+        SELECT 
+          id, 
+          admin_unit_name, 
+          metric_name, 
+          metric_value, 
+          metric_unit,
+          calculated_at
+        FROM analysis_results 
+        WHERE analysis_type = 'education_flood_exposure'
+        ORDER BY admin_unit_name ASC, metric_name ASC
+        LIMIT $1 OFFSET $2
+      `,
+      [pageSize, offset]
+    );
+
+    const total = countResult.rows[0]?.total || 0;
+
+    return res.json({
+      status: "success",
+      data: {
+        items: rowsResult.rows,
+        page,
+        page_size: pageSize,
+        total,
+        total_pages: total ? Math.ceil(total / pageSize) : 0
+      }
+    });
+  } catch (error) {
+    console.error("Admin education flood summary error:", error.message);
+    return res.status(500).json({
+      status: "error",
+      message: "Unable to load flood exposure summary records"
     });
   }
 });

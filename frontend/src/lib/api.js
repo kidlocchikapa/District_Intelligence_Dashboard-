@@ -75,6 +75,11 @@ export async function postJson(path, payload, config) {
   return response.data;
 }
 
+export async function putJson(path, payload, config) {
+  const response = await api.put(path, payload, config);
+  return response.data;
+}
+
 export async function patchJson(path, payload, config) {
   const response = await api.patch(path, payload, config);
   return response.data;

@@ -642,7 +642,7 @@ router.put(
     await ensureUsersTable();
     await ensureRbacSchema();
 
-    const client = await db.connect();
+    const client = await db.pool.connect();
     let hasOpenTransaction = false;
 
     try {
