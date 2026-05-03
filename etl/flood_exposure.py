@@ -24,7 +24,7 @@ from worldpop import (
     select_worldpop_dataset,
 )
 
-
+# Set up logging for the flood exposure pipeline
 LOGGER = logging.getLogger('flood_exposure_pipeline')
 
 # Flood value classification (0=None, 1-2=Low, 3-4=Medium, 5=High).
@@ -36,7 +36,7 @@ RISK_CLASS_MAP = {
     5: 'High',
 }
 
-
+# Error handler
 class FloodPipelineError(Exception):
     def __init__(self, user_message, step_name, original_error=None):
         self.user_message = user_message
@@ -44,7 +44,7 @@ class FloodPipelineError(Exception):
         self.original_error = original_error
         super().__init__(f"{user_message} (step: {step_name})")
 
-
+# Set up logging configuration for the pipeline
 def setup_logging():
     if LOGGER.handlers:
         return
@@ -54,7 +54,7 @@ def setup_logging():
         datefmt='%Y-%m-%d %H:%M:%S',
     )
 
-
+#
 def log_step(step_name, message, level='info'):
     log_method = getattr(LOGGER, level, LOGGER.info)
     log_method(f"[{step_name}] {message}")
@@ -153,14 +153,14 @@ def ensure_flood_risk_polygons_table(session):
     )
     session.commit()
 
-
+# Map flood raster values to risk levels, handling potential issues with data types and missing values
 def _risk_level_from_value(value):
     try:
         return RISK_CLASS_MAP.get(int(value))
     except (TypeError, ValueError):
         return None
 
-
+# Normalize the geometry resulting from a union operation to ensure it is a valid MultiPolygon,
 def _normalize_union_geom(geom):
     if geom.is_empty:
         return None
@@ -185,7 +185,7 @@ def _normalize_union_geom(geom):
         return merged
     return None
 
-
+# Build flood risk polygons from the raster data by extracting geometries for each risk level and storing them in the database
 def build_flood_risk_polygons(session, flood_raster_path, analysis_date, source_raster=None):
     with rasterio.open(flood_raster_path) as src:
         band = src.read(1)
@@ -253,7 +253,8 @@ def build_flood_risk_polygons(session, flood_raster_path, analysis_date, source_
         )
     session.commit()
 
-
+# Ensure that the tables for storing flood exposure results
+# for facilities are created with appropriate schema and indexes.
 def ensure_flood_facility_tables(session):
     session.execute(
         text(
@@ -737,6 +738,7 @@ def _compute_population_stats_for_geom(flood_src, pop_src, geom_geojson):
     total_mask = in_geom_mask & valid_pop
     total_population = float(np.nansum(pop_on_flood_grid[total_mask]))
 
+    # Categorical intensity: 0=None, 1-2=Low, 3-4=Medium, 5=High
     exposed_mask = total_mask & valid_flood & (flood_data > 0)
     low_mask = total_mask & valid_flood & np.isin(flood_data, [1, 2])
     med_mask = total_mask & valid_flood & np.isin(flood_data, [3, 4])
@@ -745,6 +747,7 @@ def _compute_population_stats_for_geom(flood_src, pop_src, geom_geojson):
     # Calculate exposed area in sq km
     # Get pixel size in degrees
     res_x, res_y = flood_src.res
+
     # Get center latitude for the geometry (or the district)
     # We'll use the bounding box of the clipped area for a local estimate
     left, bottom, right, top = flood_src.bounds

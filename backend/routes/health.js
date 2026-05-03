@@ -32,6 +32,17 @@ function appendOptionalTaCondition(
 
 // @route   GET api/v1/dashboard/health
 // @desc    Get health facility locations (GeoJSON)
+/**
+ * @openapi
+ * /api/v1/dashboard/health:
+ *   get:
+ *     summary: Get health facility locations as GeoJSON
+ *     tags:
+ *       - Health
+ *     responses:
+ *       200:
+ *         description: Health facilities GeoJSON
+ */
 router.get("/", async (req, res) => {
   const { district } = req.query;
 
@@ -94,6 +105,17 @@ router.get("/", async (req, res) => {
 
 // @route   GET api/v1/dashboard/health/summary
 // @desc    Get ward/district health aggregates
+/**
+ * @openapi
+ * /api/v1/dashboard/health/summary:
+ *   get:
+ *     summary: Get health summary metrics
+ *     tags:
+ *       - Health
+ *     responses:
+ *       200:
+ *         description: Health summary
+ */
 router.get("/summary", async (req, res) => {
   const {
     admin_type: adminType = "District",
@@ -153,6 +175,17 @@ router.get("/summary", async (req, res) => {
 
 // @route   GET api/v1/dashboard/health/served-population
 // @desc    Get ward/district health served population aggregates
+/**
+ * @openapi
+ * /api/v1/dashboard/health/served-population:
+ *   get:
+ *     summary: Get health served population metrics
+ *     tags:
+ *       - Health
+ *     responses:
+ *       200:
+ *         description: Served population metrics
+ */
 router.get("/served-population", async (req, res) => {
   const { admin_type: adminType = "District", district } = req.query;
   const normalizedAdminType = normalizeAdminType(adminType);
@@ -200,6 +233,17 @@ router.get("/served-population", async (req, res) => {
 
 // @route   GET api/v1/dashboard/health/served-population/geojson
 // @desc    Get ward/district health served population results as GeoJSON
+/**
+ * @openapi
+ * /api/v1/dashboard/health/served-population/geojson:
+ *   get:
+ *     summary: Get health served population as GeoJSON
+ *     tags:
+ *       - Health
+ *     responses:
+ *       200:
+ *         description: Served population GeoJSON
+ */
 router.get("/served-population/geojson", async (req, res) => {
   const { admin_type: adminType = "District", district } = req.query;
   const normalizedAdminType = normalizeAdminType(adminType);
@@ -291,6 +335,17 @@ router.get("/served-population/geojson", async (req, res) => {
 
 // @route   GET api/v1/dashboard/health/access-zones/geojson
 // @desc    Get served/unserved health access zones plus facility points
+/**
+ * @openapi
+ * /api/v1/dashboard/health/access-zones/geojson:
+ *   get:
+ *     summary: Get health access zones as GeoJSON
+ *     tags:
+ *       - Health
+ *     responses:
+ *       200:
+ *         description: Access zones GeoJSON
+ */
 router.get("/access-zones/geojson", async (req, res) => {
   const { district, buffer_km: bufferKmParam } = req.query;
   const parsedBufferKm = Number(bufferKmParam);
@@ -480,6 +535,17 @@ router.get("/access-zones/geojson", async (req, res) => {
 
 // @route   GET api/v1/dashboard/health/drilldown
 // @desc    Get health drilldown summary, TA breakdown, and facility-level details
+/**
+ * @openapi
+ * /api/v1/dashboard/health/drilldown:
+ *   get:
+ *     summary: Get health drilldown statistics
+ *     tags:
+ *       - Health
+ *     responses:
+ *       200:
+ *         description: Health drilldown
+ */
 router.get("/drilldown", async (req, res) => {
   const {
     district,

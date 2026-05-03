@@ -1,3 +1,4 @@
+# import standard libraries
 import math
 import re
 import json
@@ -11,9 +12,10 @@ from shapely import wkt
 from shapely.validation import make_valid
 from shapely.ops import unary_union
 
+#import local modules
 from pipeline_config import GEOGRAPHIC_COLUMNS
 
-
+# Set up logging
 LOGGER = logging.getLogger('etl.transform')
 
 
@@ -46,7 +48,7 @@ def run_step(step_name, user_message_on_error, fn, *args, **kwargs):
     log_step(step_name, 'completed')
     return result
 
-
+#Normalize text
 def normalize_text(value):
     if value is None or pd.isna(value):
         return pd.NA
@@ -60,6 +62,7 @@ def normalize_text(value):
     compact = re.sub(r'\s+', ' ', compact).strip()
     return compact or pd.NA
 
+# Standardize column names to canonical schema 
 def standardize_schema(df, dataset_config):
     try:
         working = df.copy()
@@ -97,6 +100,7 @@ def standardize_schema(df, dataset_config):
             original_error=exc,
         ) from exc
 
+#Infer key boundary fields based on available columns and values
 def infer_boundary_schema(df, matched_columns, original_columns=None):
     working = df.copy()
     source_columns = set(working.columns)
@@ -113,16 +117,10 @@ def infer_boundary_schema(df, matched_columns, original_columns=None):
                 matched_columns.add(column_name)
                 return
 
-        # After schema renaming, some signals are only available through their
-        # canonical columns, so fall back to those when the original aliases
-        # are no longer present in the current frame.
         canonical_fallbacks = {
             'code': ['code'],
             'name': ['name'],
             'district_name': ['district_name', 'name'],
-            # Do not infer ward_name from a generic name column. District-only
-            # boundary files often have a single district label field, and using
-            # it here incorrectly reclassifies districts as wards.
             'ward_name': ['ward_name'],
             'parent_code': ['parent_code'],
         }
@@ -172,6 +170,7 @@ def infer_boundary_schema(df, matched_columns, original_columns=None):
 
     return working, matched_columns
 
+# Validate that all required columns are present and contain data
 def validate_schema(df, dataset_config):
     try:
         matched_columns = df.attrs.get('matched_columns', set())
@@ -197,7 +196,7 @@ def validate_schema(df, dataset_config):
             original_error=exc,
         ) from exc
 
-
+# Coerce numeric columns, handling common formatting issues and non-numeric values
 def coerce_numeric_columns(df, numeric_columns):
     working = df.copy()
 
@@ -226,6 +225,7 @@ def coerce_numeric_columns(df, numeric_columns):
 
     return working
 
+# Parse coordinate values from various formats, including decimal degrees and DMS (Degrees, Minutes, Seconds)
 def dms_to_decimal(value):
     pattern = re.compile(
         r'^\s*(?P<deg>-?\d+(?:\.\d+)?)'
@@ -248,7 +248,8 @@ def dms_to_decimal(value):
         decimal *= -1
     return decimal
 
-
+# Parse coordinate values from various formats, including decimal 
+# degrees and DMS (Degrees, Minutes, Seconds)
 def parse_coordinate_value(value):
     if value is None or pd.isna(value):
         return None
@@ -265,7 +266,8 @@ def parse_coordinate_value(value):
     except ValueError:
         return dms_to_decimal(text)
 
-
+# Extract Point geometry from various possible representations in a DataFrame
+#  column, including WKT, GeoJSON, and Shapely objects
 def _extract_point_from_geom_value(value):
     if value is None or value is pd.NA:
         return None
@@ -299,7 +301,7 @@ def _extract_point_from_geom_value(value):
 
     return None
 
-
+# Parse coordinate values from various formats, including decimal degrees and DMS (Degrees, Minutes, Seconds)
 def parse_coordinates(df, lon_col='longitude', lat_col='latitude', compound_col='coordinates'):
     try:
         working = df.copy()
@@ -419,6 +421,7 @@ def parse_coordinates(df, lon_col='longitude', lat_col='latitude', compound_col=
             original_error=exc,
         ) from exc
 
+# Build an index from the gazetteer DataFrame for efficient geographic name matching
 def build_gazetteer_index(gazetteer_df):
     if gazetteer_df.empty:
         return {}
@@ -438,7 +441,7 @@ def build_gazetteer_index(gazetteer_df):
 
     return index
 
-
+# Match a geographic name against the gazetteer index, returning the best match and match status
 def match_geography(value, index):
     normalized = normalize_text(value)
     if pd.isna(normalized):
@@ -453,7 +456,7 @@ def match_geography(value, index):
 
     return None, 'unmatched'
 
-
+# Standardize geographic names against gazetteer data
 def standardize_geography(df, gazetteer_df):
     try:
         working = df.copy()
@@ -520,6 +523,7 @@ def standardize_geography(df, gazetteer_df):
             original_error=exc,
         ) from exc
 
+# Handle missing data according to specified strategy
 def handle_missing_data(df, required_columns, strategy='flag'):
     working = df.copy()
     row_issues = []
@@ -558,7 +562,7 @@ def handle_missing_data(df, required_columns, strategy='flag'):
 
     return working
 
-
+# Add harmonized name columns with title case formatting
 def add_harmonized_names(df):
     working = df.copy()
     for column in ['district_name', 'ward_name', 'village_name', 'name', 'program_name', 'event_type', 'risk_level', 'type']:
@@ -568,6 +572,7 @@ def add_harmonized_names(df):
             )
     return working
 
+# Clean text values by stripping whitespace and collapsing multiple spaces, returning NA for empty results
 def _clean_text_or_na(value):
     if value is None or pd.isna(value):
         return pd.NA
@@ -575,7 +580,7 @@ def _clean_text_or_na(value):
     text = ' '.join(str(value).strip().split())
     return text if text else pd.NA
 
-
+# Return the first non-empty, non-NA value from a list of candidates
 def _first_present(*values):
     for value in values:
         cleaned = _clean_text_or_na(value)
@@ -583,7 +588,7 @@ def _first_present(*values):
             return cleaned
     return pd.NA
 
-
+# Coerce boundary date values from various formats into a standardized date, returning NA for invalid inputs
 def _coerce_boundary_date(value):
     cleaned = _clean_text_or_na(value)
     if pd.isna(cleaned):
@@ -595,7 +600,7 @@ def _coerce_boundary_date(value):
 
     return parsed.date()
 
-
+# Serialize boundary date values into ISO format strings, returning None for missing or invalid dates
 def _serialize_boundary_date(value):
     if value is None or value is pd.NA:
         return None
@@ -615,7 +620,8 @@ def _serialize_boundary_date(value):
 
     return parsed.date().isoformat()
 
-
+# Build a comprehensive metadata dictionary for a boundary unit by synthesizing information from 
+# multiple columns and applying inference rules
 def _build_boundary_metadata(row):
     unit_type = row.get('type')
     traditional_authority = _first_present(row.get('reference_name'), row.get('adm3_ref_n'))
@@ -675,7 +681,7 @@ def _build_boundary_metadata(row):
         if value is not None and pd.notna(value)
     }
 
-
+#
 def _derive_health_name(row):
     for candidate in [row.get('name'), row.get('name:en'), row.get('name:ny')]:
         cleaned = _clean_text_or_na(candidate)
@@ -698,7 +704,7 @@ def _derive_health_name(row):
         return f'Health Facility (OSM {int(osm_id)})'
     return pd.NA
 
-
+# Normalize health facility dataset by standardizing column names, deriving missing values
 def normalize_health_dataset(df):
     working = df.copy()
 
@@ -737,7 +743,7 @@ def normalize_health_dataset(df):
     working['services_offered'] = working['services_offered'].fillna(working.get('healthcare:speciality'))
     return working
 
-
+# Convert a DataFrame with longitude and latitude columns into a GeoDataFrame with Point geometries
 def to_gdf(df, lon_col='longitude', lat_col='latitude', crs='EPSG:4326'):
     working = df.copy()
     valid_points = working[lon_col].notna() & working[lat_col].notna()
@@ -749,11 +755,12 @@ def to_gdf(df, lon_col='longitude', lat_col='latitude', crs='EPSG:4326'):
             geometries.append(None)
     return gpd.GeoDataFrame(working, crs=crs, geometry=geometries)
 
-
+# Convert a DataFrame with a geometry column into a GeoDataFrame, ensuring the geometry is valid and in the correct CRS
 def to_polygon_gdf(df, geometry_column='geometry', crs='EPSG:4326'):
     working = df.copy()
     return gpd.GeoDataFrame(working, crs=crs, geometry=geometry_column)
 
+# Normalize administrative unit types to a standard set of values
 def normalize_admin_unit_type(value):
     normalized = normalize_text(value)
     mapping = {
@@ -775,6 +782,7 @@ def normalize_admin_unit_type(value):
     }
     return mapping.get(normalized, value.title() if isinstance(value, str) else value)
 
+# Infer the administrative unit type for a boundary row based on available columns and values
 def infer_boundary_type(row):
     direct_type = normalize_admin_unit_type(row.get('type'))
     if isinstance(direct_type, str) and direct_type in {'District', 'TA', 'Ward', 'Village'}:
@@ -811,6 +819,7 @@ def infer_boundary_type(row):
 
     return 'District'
 
+# Ensure that a geometry is a valid MultiPolygon
 def ensure_valid_multipolygon(geometry):
     if geometry is None:
         return None
@@ -825,6 +834,7 @@ def ensure_valid_multipolygon(geometry):
             return MultiPolygon(polygons)
     return None
 
+# Transform a boundary dataset by standardizing columns, validating geometries, and enriching with metadata
 def transform_boundary_dataset(df):
     try:
         if 'geometry' not in df.columns:
@@ -912,6 +922,8 @@ def transform_boundary_dataset(df):
             original_error=exc,
         ) from exc
 
+# Derive key indicators for each geographic unit based on the dataset type and available 
+# data, enriching with population data from boundaries
 def derive_indicators(df, dataset_type, admin_units_df):
     try:
         working = df.copy()
@@ -998,6 +1010,7 @@ def derive_indicators(df, dataset_type, admin_units_df):
             original_error=exc,
         ) from exc
 
+# Infer the geographic level (ward or district)
 def infer_geographic_level(df):
     if 'ward_name' in df.columns and df['ward_name'].notna().any():
         return 'ward_name', 'ward'
@@ -1005,6 +1018,7 @@ def infer_geographic_level(df):
         return 'district_name', 'district'
     return None, None
 
+# Create a standardized indicator record with consistent fields for downstream analysis
 def indicator_record(dataset_type, indicator_name, geographic_level, geographic_name, geographic_code, indicator_value):
     return {
         'dataset_type': dataset_type,
@@ -1016,9 +1030,11 @@ def indicator_record(dataset_type, indicator_name, geographic_level, geographic_
         'metadata': {},
     }
 
+# Perform a spatial join between point and polygon GeoDataFrames, using specified join type and spatial predicate
 def spatial_join(points_gdf, polygons_gdf, join_type='left', op='within'):
     return gpd.sjoin(points_gdf, polygons_gdf, how=join_type, predicate=op)
 
+# Ensure that a geometry is a MultiPolygon, converting from Polygon if necessary
 def ensure_multipolygon(geometry):
     if geometry is None:
         return None

@@ -9,10 +9,10 @@ import {
 } from "lucide-react";
 import { useDashboardData } from "../hooks/useDashboardData";
 import { useDistrict } from "../context/DistrictContext";
-import { useDistrictOptions } from "../hooks/useDistrictOptions";
 import { usePdfExport } from "../hooks/usePdfExport";
 import { buildDashboardPath } from "../lib/query";
 import DataTable from "../components/DataTable";
+import SharedDistrictSelector from "../components/SharedDistrictSelector";
 import {
   PieChart,
   Pie,
@@ -101,34 +101,9 @@ function StatCard({ label, value, icon: Icon, helper }) {
 }
 
 function WelfarePage() {
-  const { selectedDistrict, setSelectedDistrict } = useDistrict();
+  const { selectedDistrict } = useDistrict();
   const { contentRef, exportPdf } = usePdfExport("Welfare_Integration_Report.pdf");
-  const districts = useDistrictOptions();
-  const adminType = "TA";
-  const [selectedTa, setSelectedTa] = useState("");
-  const [selectedProgram, setSelectedProgram] = useState("");
-  const [areaSearch, setAreaSearch] = useState("");
-  const [beneficiarySearch, setBeneficiarySearch] = useState("");
-  const [riskFilter, setRiskFilter] = useState("all");
-  const [serviceFilter, setServiceFilter] = useState("all");
-  const programCatalog = useDashboardData(
-    buildDashboardPath("/dashboard/welfare/integration", {
-      district: selectedDistrict,
-      admin_type: adminType,
-      preview_limit: 1,
-    }),
-  );
-
-  const programOptions = useMemo(
-    () => programCatalog.data?.program_breakdown || [],
-    [programCatalog.data],
-  );
-  const selectedProgramId = useMemo(
-    () =>
-      programOptions.find((item) => item.program_name === selectedProgram)
-        ?.program_id || "",
-    [programOptions, selectedProgram],
-  );
+  const [adminType, setAdminType] = useState("TA");
 
   const integration = useDashboardData(
     buildDashboardPath("/dashboard/welfare/integration", {
@@ -397,72 +372,22 @@ function WelfarePage() {
             <Download className="h-4 w-4" />
             Download PDF
           </button>
+          <SharedDistrictSelector />
 
-          <div className="relative">
-            <select
-              className="bg-black text-white rounded px-6 py-2 text-[14px] font-bold appearance-none min-w-[180px] cursor-pointer"
-              value={selectedDistrict}
-              onChange={(e) => setSelectedDistrict(e.target.value)}
-            >
-              <option value="">All Districts</option>
-              {districts.options?.map((opt) => (
-                <option key={opt.value} value={opt.value}>
-                  {opt.label}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          <div className="relative">
-            <select
-              className="bg-white text-gray-700 rounded border border-gray-200 px-4 py-2 text-[13px] font-bold min-w-[220px] cursor-pointer shadow-sm"
-              value={selectedProgram}
-              onChange={(e) => setSelectedProgram(e.target.value)}
-            >
-              <option value="">All Programs</option>
-              {programOptions.map((option) => (
-                <option
-                  key={option.program_id || option.program_name}
-                  value={option.program_name}
-                >
-                  {option.program_name}
-                </option>
-              ))}
-            </select>
-          </div>
-        </div>
-
-        <div className="mb-8 rounded border border-gray-100 bg-white p-5 shadow-sm">
-          <div className="flex flex-wrap items-center gap-3">
-            <span className="text-[11px] font-bold uppercase tracking-[0.18em] text-gray-400">
-              Programs
-            </span>
-            {programOptions.length ? (
-              programOptions.map((program) => {
-                const isActive = selectedProgram === program.program_name;
-                return (
-                  <button
-                    key={program.program_id || program.program_name}
-                    onClick={() =>
-                      setSelectedProgram((current) =>
-                        current === program.program_name ? "" : program.program_name,
-                      )
-                    }
-                    className={`rounded border px-3 py-1.5 text-[12px] font-bold transition-colors ${
-                      isActive
-                        ? "border-black bg-black text-white"
-                        : "border-gray-200 bg-gray-50 text-gray-700 hover:border-gray-400"
-                    }`}
-                  >
-                    {program.program_name} ({formatWholeNumber(program.beneficiary_count)})
-                  </button>
-                );
-              })
-            ) : (
-              <span className="text-[13px] font-semibold text-gray-500">
-                No program records available.
-              </span>
-            )}
+          <div className="inline-flex rounded border border-gray-200 bg-white p-1 shadow-sm">
+            {["TA", "District"].map((value) => (
+              <button
+                key={value}
+                onClick={() => setAdminType(value)}
+                className={`px-4 py-2 text-[12px] font-bold rounded transition-all ${
+                  adminType === value
+                    ? "bg-black text-white"
+                    : "text-gray-500 hover:text-black"
+                }`}
+              >
+                {value} Basis
+              </button>
+            ))}
           </div>
         </div>
 

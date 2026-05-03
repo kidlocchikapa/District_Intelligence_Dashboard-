@@ -124,13 +124,19 @@ function buildDepartmentSummary(summary, programBreakdown) {
   const healthAccessCount = toNumber(summary.health_access_count);
   const floodAffectedCount = toNumber(summary.flood_affected_count);
   const schoolAgePopulation = toNumber(summary.school_age_population_total);
-  const schoolAgeUnenrolled = toNumber(summary.school_age_population_unenrolled);
+  const schoolAgeUnenrolled = toNumber(
+    summary.school_age_population_unenrolled,
+  );
   const studentEnrollmentTotal = toNumber(summary.student_enrollment_total);
-  const publicFacilityAccessCount = toNumber(summary.public_facility_access_count);
+  const publicFacilityAccessCount = toNumber(
+    summary.public_facility_access_count,
+  );
   const privateFacilityAccessCount = toNumber(
     summary.private_facility_access_count,
   );
-  const publicHospitalAccessCount = toNumber(summary.public_hospital_access_count);
+  const publicHospitalAccessCount = toNumber(
+    summary.public_hospital_access_count,
+  );
   const privateHospitalAccessCount = toNumber(
     summary.private_hospital_access_count,
   );
@@ -186,12 +192,18 @@ function buildDecisionSignals(summary) {
   const healthAccessCount = toNumber(summary.health_access_count);
   const schoolAccessCount = toNumber(summary.school_access_count);
   const schoolAgePopulation = toNumber(summary.school_age_population_total);
-  const schoolAgeUnenrolled = toNumber(summary.school_age_population_unenrolled);
-  const publicHospitalAccessCount = toNumber(summary.public_hospital_access_count);
+  const schoolAgeUnenrolled = toNumber(
+    summary.school_age_population_unenrolled,
+  );
+  const publicHospitalAccessCount = toNumber(
+    summary.public_hospital_access_count,
+  );
 
   const signals = [];
   const floodPct =
-    totalBeneficiaries > 0 ? (floodAffectedCount * 100) / totalBeneficiaries : 0;
+    totalBeneficiaries > 0
+      ? (floodAffectedCount * 100) / totalBeneficiaries
+      : 0;
   const healthAccessPct =
     totalBeneficiaries > 0 ? (healthAccessCount * 100) / totalBeneficiaries : 0;
   const schoolAccessPct =
@@ -252,6 +264,17 @@ function buildDecisionSignals(summary) {
 /**
  * @route   GET api/v1/dashboard/welfare/integration
  * @desc    Get integrated welfare decision-support metrics by TA or District
+ */
+/**
+ * @openapi
+ * /api/v1/dashboard/welfare/integration:
+ *   get:
+ *     summary: Get integrated welfare decision-support metrics
+ *     tags:
+ *       - Welfare
+ *     responses:
+ *       200:
+ *         description: Welfare integration metrics
  */
 router.get("/integration", async (req, res) => {
   const {
@@ -535,13 +558,10 @@ router.get("/integration", async (req, res) => {
         ),
         school_access_count: toNumber(row.school_access_count),
         health_access_count: toNumber(row.health_access_count),
-        flood_affected_count:
-          toNumber(row.direct_flood_affected_count) > 0
-            ? toNumber(row.direct_flood_affected_count)
-            : areaExposedPopulation > 0
-              ? toNumber(row.beneficiary_count)
-              : 0,
-        public_facility_access_count: toNumber(row.public_facility_access_count),
+        flood_affected_count: toNumber(row.flood_affected_count),
+        public_facility_access_count: toNumber(
+          row.public_facility_access_count,
+        ),
         private_facility_access_count: toNumber(
           row.private_facility_access_count,
         ),
@@ -704,6 +724,17 @@ router.get("/integration", async (req, res) => {
  * @route   GET api/v1/dashboard/welfare
  * @desc    Get welfare beneficiary locations (GeoJSON)
  */
+/**
+ * @openapi
+ * /api/v1/dashboard/welfare:
+ *   get:
+ *     summary: Get welfare beneficiary locations as GeoJSON
+ *     tags:
+ *       - Welfare
+ *     responses:
+ *       200:
+ *         description: Welfare beneficiaries GeoJSON
+ */
 router.get("/", async (req, res) => {
   const { district, ta, program_id: programId } = req.query;
 
@@ -786,6 +817,17 @@ router.get("/", async (req, res) => {
 /**
  * @route   GET api/v1/dashboard/welfare/summary
  * @desc    Get aggregate welfare statistics
+ */
+/**
+ * @openapi
+ * /api/v1/dashboard/welfare/summary:
+ *   get:
+ *     summary: Get welfare summary statistics
+ *     tags:
+ *       - Welfare
+ *     responses:
+ *       200:
+ *         description: Welfare summary
  */
 router.get("/summary", async (req, res) => {
   const { district, ta } = req.query;

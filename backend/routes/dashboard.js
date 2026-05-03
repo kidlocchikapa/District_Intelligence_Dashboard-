@@ -45,6 +45,17 @@ router.use(
  * @route   GET /api/v1/dashboard/summary
  * @desc    Get summary statistics for the dashboard with optional district filter
  */
+/**
+ * @openapi
+ * /api/v1/dashboard/summary:
+ *   get:
+ *     summary: Get dashboard summary statistics
+ *     tags:
+ *       - Dashboard
+ *     responses:
+ *       200:
+ *         description: Summary metrics
+ */
 router.get("/summary", async (req, res) => {
   const { district } = req.query;
 
@@ -148,6 +159,17 @@ router.get("/summary", async (req, res) => {
  * @route   GET /api/v1/dashboard/districts
  * @desc    Get list of districts for dropdown filter
  */
+/**
+ * @openapi
+ * /api/v1/dashboard/districts:
+ *   get:
+ *     summary: List districts
+ *     tags:
+ *       - Dashboard
+ *     responses:
+ *       200:
+ *         description: District list
+ */
 router.get("/districts", async (req, res) => {
   try {
     const result = await db.query(
@@ -174,6 +196,17 @@ router.get("/districts", async (req, res) => {
 /**
  * @route   GET /api/v1/dashboard/population-by-district
  * @desc    Get district population totals for the overview bar chart
+ */
+/**
+ * @openapi
+ * /api/v1/dashboard/population-by-district:
+ *   get:
+ *     summary: Get district population totals
+ *     tags:
+ *       - Dashboard
+ *     responses:
+ *       200:
+ *         description: Population totals by district
  */
 router.get("/population-by-district", async (req, res) => {
   const { district } = req.query;
@@ -216,6 +249,17 @@ router.get("/population-by-district", async (req, res) => {
 /**
  * @route   GET /api/v1/dashboard/population-by-admin3
  * @desc    Get TA/admin3 population totals for the overview bar chart
+ */
+/**
+ * @openapi
+ * /api/v1/dashboard/population-by-admin3:
+ *   get:
+ *     summary: Get admin3 population totals
+ *     tags:
+ *       - Dashboard
+ *     responses:
+ *       200:
+ *         description: Population totals by admin3 unit
  */
 router.get("/population-by-admin3", async (req, res) => {
   const { district, type = "TA" } = req.query;
@@ -281,6 +325,17 @@ router.get("/population-by-admin3", async (req, res) => {
 /**
  * @route   GET /api/v1/dashboard/admin-units
  * @desc    Get administrative units as GeoJSON with optional type and district filters
+ */
+/**
+ * @openapi
+ * /api/v1/dashboard/admin-units:
+ *   get:
+ *     summary: Get administrative units as GeoJSON
+ *     tags:
+ *       - Dashboard
+ *     responses:
+ *       200:
+ *         description: Admin unit GeoJSON
  */
 router.get("/admin-units", async (req, res) => {
   const { type: adminType, district } = req.query;

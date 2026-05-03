@@ -37,6 +37,8 @@ from transform import (
     to_gdf,
     validate_schema,
 )
+
+#import worldpop-specific processing functions and constants
 from worldpop import (
     DEFAULT_SCHOOL_AGE_MAX,
     DEFAULT_SCHOOL_AGE_MIN,
@@ -53,10 +55,10 @@ from worldpop import (
     update_population_metrics,
 )
 
-
+# Set up logging
 LOGGER = logging.getLogger('etl_pipeline')
 
-
+# Custom exception class for ETL pipeline errors
 class ETLPipelineError(Exception):
     def __init__(self, user_message, step_name, original_error=None):
         self.user_message = user_message
@@ -64,7 +66,7 @@ class ETLPipelineError(Exception):
         self.original_error = original_error
         super().__init__(f"{user_message} (step: {step_name})")
 
-
+# 
 def setup_logging():
     if LOGGER.handlers:
         return
@@ -96,13 +98,12 @@ def run_step(step_name, user_message_on_error, fn, *args, **kwargs):
     log_step(step_name, 'completed')
     return result
 
-
+# Group Zomba and Zomba city as one
 DISTRICT_GROUPS = {
     'zomba_all': ['Zomba', 'Zomba City'],
 }
 
-
-##main ETL processing functions
+# main ETL processing functions
 def process_tabular_dataset(
     session,
     dataset_type,
@@ -167,7 +168,7 @@ def process_tabular_dataset(
             'accepted_types': ['District', 'TA', 'Village'],
         }
 
-##logging the ETL run for boundary datasets without indicator derivation
+# logging the ETL run for boundary datasets without indicator derivation
         run_step(
             step_name='log_etl_success_boundaries',
             user_message_on_error='Boundary data loaded but ETL audit logging failed.',
@@ -197,7 +198,7 @@ def process_tabular_dataset(
             'indicators_loaded': 0,
         }
 
-##For other dataset types, continue with standard transformations and indicator derivation
+# For other dataset types, continue with standard transformations and indicator derivation
     transformed_df = run_step(
         step_name='coerce_numeric_columns',
         user_message_on_error='Could not convert numeric columns. Check numeric values in the input data.',
@@ -451,8 +452,7 @@ def process_tabular_dataset(
         'indicators_loaded': indicators_loaded,
     }
 
-
-## Separate processing function for WorldPop datasets to handle both raster and 
+# Separate processing function for WorldPop datasets to handle both raster and 
 # API-based inputs, with appropriate transformations and indicator derivation
 def process_worldpop_dataset(
     session,
@@ -479,7 +479,7 @@ def process_worldpop_dataset(
         selected_districts.extend(district_names)
     selected_districts = sorted({name for name in selected_districts if name})
 
-## For raster-based WorldPop processing, fetch admin units, process the raster, and derive indicators
+# For raster-based WorldPop processing, fetch admin units, process the raster, and derive indicators
     if raster_path:
         source_name = os.path.basename(raster_path)
         admin_units_gdf = run_step(
@@ -682,8 +682,8 @@ def process_worldpop_dataset(
         'indicators_loaded': indicators_loaded,
     }
 
-## Separate processing function for spatial analyses that can be run on demand
-#  with flexible parameters, including optional WorldPop raster input for population-served calculations
+# Separate processing function for spatial analyses that can be run on demand
+# with flexible parameters
 def process_analysis_dataset(
     session,
     analysis_types=None,
@@ -764,7 +764,8 @@ def process_analysis_dataset(
         'indicators_loaded': 0,
     }
 
-
+# Separate processing function for flood exposure analysis that can take a flood 
+# raster and optional WorldPop population data
 def process_flood_dataset(
     session,
     flood_raster_path,
@@ -852,7 +853,7 @@ def process_flood_dataset(
         'indicators_loaded': 0,
     }
 
-## Helper function to parse API headers from command-line arguments in KEY=VALUE format
+# Helper function to parse API headers from command-line arguments in KEY=VALUE format
 def parse_headers(header_values):
     headers = {}
     for item in header_values or []:
@@ -862,7 +863,7 @@ def parse_headers(header_values):
         headers[key.strip()] = value.strip()
     return headers
 
-
+# Helper function to determine the appropriate table name for logging based on dataset type, especially for flood and analysis datasets
 def resolve_table_name_for_failure(dataset_type):
     if dataset_type == 'flood':
         return 'flood_zones'
@@ -872,7 +873,7 @@ def resolve_table_name_for_failure(dataset_type):
         return 'districts'
     return DATASET_CONFIG.get(dataset_type, {}).get('table_name', 'unknown')
 
-## Main entry point for the ETL pipeline, with command-line arguments to specify dataset type, source, and processing options
+# Main entry point for the ETL pipeline, with command-line arguments to specify dataset type, source, and processing options
 def main():
     setup_logging()
     parser = argparse.ArgumentParser(description='District Intelligence ETL Pipeline')

@@ -16,6 +16,19 @@ function normalizeAdminType(adminType) {
  * @route   GET /api/v1/dashboard/analysis
  * @desc    Get analysis results with optional filters
  */
+/**
+ * @openapi
+ * /api/v1/dashboard/analysis:
+ *   get:
+ *     summary: Get analysis results
+ *     tags:
+ *       - Analysis
+ *     security:
+ *       - BearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Analysis results
+ */
 router.get("/", async (req, res) => {
   const {
     analysis_type: analysisType,
@@ -85,6 +98,19 @@ router.get("/", async (req, res) => {
 /**
  * @route   GET /api/v1/dashboard/analysis/geojson
  * @desc    Get analysis results as GeoJSON with optional filters
+ */
+/**
+ * @openapi
+ * /api/v1/dashboard/analysis/geojson:
+ *   get:
+ *     summary: Get analysis results as GeoJSON
+ *     tags:
+ *       - Analysis
+ *     security:
+ *       - BearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Analysis GeoJSON
  */
 router.get("/geojson", async (req, res) => {
   const {

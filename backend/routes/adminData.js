@@ -240,7 +240,9 @@ function resolveAdminDataAccessRule(req) {
     };
   }
 
-  if (!["education", "health", "social_welfare", "disaster"].includes(segments[0])) {
+  if (
+    !["education", "health", "social_welfare", "disaster"].includes(segments[0])
+  ) {
     return null;
   }
 
@@ -257,10 +259,11 @@ router.use(async (req, res, next) => {
     return next();
   }
 
-  return requireDepartmentAccess(
-    accessRule.department,
-    accessRule.action,
-  )(req, res, next);
+  return requireDepartmentAccess(accessRule.department, accessRule.action)(
+    req,
+    res,
+    next,
+  );
 });
 
 function parseBooleanFilter(value) {
@@ -446,6 +449,16 @@ function buildEducationListFilters(query) {
     conditions.push(`ef.ward_id = $${params.length}`);
   }
 
+  if (query.filter === "flood_exposed") {
+    conditions.push(`
+      EXISTS (
+        SELECT 1 FROM disaster_zones dz
+        WHERE dz.event_type = 'flood'
+        AND ST_Intersects(ef.geom, dz.geom)
+      )
+    `);
+  }
+
   return {
     whereClause: conditions.length ? `WHERE ${conditions.join(" AND ")}` : "",
     params,
@@ -490,6 +503,16 @@ function buildHealthListFilters(query) {
   if (wardId) {
     params.push(wardId);
     conditions.push(`hf.ward_id = $${params.length}`);
+  }
+
+  if (query.filter === "flood_exposed") {
+    conditions.push(`
+      EXISTS (
+        SELECT 1 FROM disaster_zones dz
+        WHERE dz.event_type = 'flood'
+        AND ST_Intersects(hf.geom, dz.geom)
+      )
+    `);
   }
 
   return {
@@ -757,6 +780,19 @@ async function fetchHistoryRows(tableName, recordId) {
   return result.rows;
 }
 
+/**
+ * @openapi
+ * /api/v1/admin-data/education:
+ *   get:
+ *     summary: List education records
+ *     tags:
+ *       - Admin Data
+ *     security:
+ *       - BearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Education records
+ */
 router.get("/education", async (req, res) => {
   try {
     const page = parsePositiveInteger(req.query.page, 1);
@@ -828,6 +864,80 @@ router.get("/education", async (req, res) => {
   }
 });
 
+/**
+ * @openapi
+ * /api/v1/admin-data/education/flood_summary:
+ *   get:
+ *     summary: List education flood exposure summary records
+ *     tags:
+ *       - Admin Data
+ *     security:
+ *       - BearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Flood exposure summary records
+ */
+router.get("/education/flood_summary", async (req, res) => {
+  try {
+    const page = parsePositiveInteger(req.query.page, 1);
+    const pageSize = Math.min(parsePositiveInteger(req.query.page_size, 25), 100);
+    const offset = (page - 1) * pageSize;
+
+    const countResult = await db.query(
+      `SELECT COUNT(*)::int AS total FROM analysis_results WHERE analysis_type = 'education_flood_exposure'`
+    );
+
+    const rowsResult = await db.query(
+      `
+        SELECT 
+          id, 
+          admin_unit_name, 
+          metric_name, 
+          metric_value, 
+          metric_unit,
+          calculated_at
+        FROM analysis_results 
+        WHERE analysis_type = 'education_flood_exposure'
+        ORDER BY admin_unit_name ASC, metric_name ASC
+        LIMIT $1 OFFSET $2
+      `,
+      [pageSize, offset]
+    );
+
+    const total = countResult.rows[0]?.total || 0;
+
+    return res.json({
+      status: "success",
+      data: {
+        items: rowsResult.rows,
+        page,
+        page_size: pageSize,
+        total,
+        total_pages: total ? Math.ceil(total / pageSize) : 0
+      }
+    });
+  } catch (error) {
+    console.error("Admin education flood summary error:", error.message);
+    return res.status(500).json({
+      status: "error",
+      message: "Unable to load flood exposure summary records"
+    });
+  }
+});
+
+/**
+ * @openapi
+ * /api/v1/admin-data/health:
+ *   get:
+ *     summary: List health records
+ *     tags:
+ *       - Admin Data
+ *     security:
+ *       - BearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Health records
+ */
 router.get("/health", async (req, res) => {
   try {
     const page = parsePositiveInteger(req.query.page, 1);
@@ -899,6 +1009,19 @@ router.get("/health", async (req, res) => {
   }
 });
 
+/**
+ * @openapi
+ * /api/v1/admin-data/social_welfare:
+ *   get:
+ *     summary: List welfare records
+ *     tags:
+ *       - Admin Data
+ *     security:
+ *       - BearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Welfare records
+ */
 router.get("/social_welfare", async (req, res) => {
   try {
     const page = parsePositiveInteger(req.query.page, 1);
@@ -971,6 +1094,19 @@ router.get("/social_welfare", async (req, res) => {
   }
 });
 
+/**
+ * @openapi
+ * /api/v1/admin-data/social_welfare/programs:
+ *   get:
+ *     summary: List welfare programs
+ *     tags:
+ *       - Admin Data
+ *     security:
+ *       - BearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Welfare programs
+ */
 router.get("/social_welfare/programs", async (req, res) => {
   try {
     const result = await db.query(
@@ -1000,6 +1136,19 @@ router.get("/social_welfare/programs", async (req, res) => {
   }
 });
 
+/**
+ * @openapi
+ * /api/v1/admin-data/disaster:
+ *   get:
+ *     summary: List disaster records
+ *     tags:
+ *       - Admin Data
+ *     security:
+ *       - BearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Disaster records
+ */
 router.get("/disaster", async (req, res) => {
   try {
     const page = parsePositiveInteger(req.query.page, 1);
@@ -1069,6 +1218,27 @@ router.get("/disaster", async (req, res) => {
   }
 });
 
+/**
+ * @openapi
+ * /api/v1/admin-data/education/{id}:
+ *   get:
+ *     summary: Get an education record
+ *     tags:
+ *       - Admin Data
+ *     security:
+ *       - BearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: integer
+ *     responses:
+ *       200:
+ *         description: Education record
+ *       404:
+ *         description: Record not found
+ */
 router.get("/education/:id", async (req, res) => {
   try {
     const schoolId = parsePositiveInteger(req.params.id, null);
@@ -1088,25 +1258,42 @@ router.get("/education/:id", async (req, res) => {
     return res.json({ status: "success", data: { record } });
   } catch (error) {
     console.error("Admin education detail error:", error.message);
-    return res
-      .status(500)
-      .json({
-        status: "error",
-        message: "Unable to load the education record",
-      });
+    return res.status(500).json({
+      status: "error",
+      message: "Unable to load the education record",
+    });
   }
 });
 
+/**
+ * @openapi
+ * /api/v1/admin-data/health/{id}:
+ *   get:
+ *     summary: Get a health record
+ *     tags:
+ *       - Admin Data
+ *     security:
+ *       - BearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: integer
+ *     responses:
+ *       200:
+ *         description: Health record
+ *       404:
+ *         description: Record not found
+ */
 router.get("/health/:id", async (req, res) => {
   try {
     const id = parsePositiveInteger(req.params.id, null);
     if (!id) {
-      return res
-        .status(400)
-        .json({
-          status: "error",
-          message: "A valid health record id is required",
-        });
+      return res.status(400).json({
+        status: "error",
+        message: "A valid health record id is required",
+      });
     }
 
     const record = await fetchHealthRecord(db, id);
@@ -1125,16 +1312,35 @@ router.get("/health/:id", async (req, res) => {
   }
 });
 
+/**
+ * @openapi
+ * /api/v1/admin-data/social_welfare/{id}:
+ *   get:
+ *     summary: Get a welfare record
+ *     tags:
+ *       - Admin Data
+ *     security:
+ *       - BearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: integer
+ *     responses:
+ *       200:
+ *         description: Welfare record
+ *       404:
+ *         description: Record not found
+ */
 router.get("/social_welfare/:id", async (req, res) => {
   try {
     const id = parsePositiveInteger(req.params.id, null);
     if (!id) {
-      return res
-        .status(400)
-        .json({
-          status: "error",
-          message: "A valid welfare record id is required",
-        });
+      return res.status(400).json({
+        status: "error",
+        message: "A valid welfare record id is required",
+      });
     }
 
     const record = await fetchWelfareRecord(db, id);
@@ -1153,16 +1359,35 @@ router.get("/social_welfare/:id", async (req, res) => {
   }
 });
 
+/**
+ * @openapi
+ * /api/v1/admin-data/disaster/{id}:
+ *   get:
+ *     summary: Get a disaster record
+ *     tags:
+ *       - Admin Data
+ *     security:
+ *       - BearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: integer
+ *     responses:
+ *       200:
+ *         description: Disaster record
+ *       404:
+ *         description: Record not found
+ */
 router.get("/disaster/:id", async (req, res) => {
   try {
     const id = parsePositiveInteger(req.params.id, null);
     if (!id) {
-      return res
-        .status(400)
-        .json({
-          status: "error",
-          message: "A valid disaster record id is required",
-        });
+      return res.status(400).json({
+        status: "error",
+        message: "A valid disaster record id is required",
+      });
     }
 
     const record = await fetchDisasterRecord(db, id);
@@ -1181,6 +1406,25 @@ router.get("/disaster/:id", async (req, res) => {
   }
 });
 
+/**
+ * @openapi
+ * /api/v1/admin-data/education/{id}/history:
+ *   get:
+ *     summary: Get education record history
+ *     tags:
+ *       - Admin Data
+ *     security:
+ *       - BearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: integer
+ *     responses:
+ *       200:
+ *         description: Education history
+ */
 router.get("/education/:id/history", async (req, res) => {
   try {
     const schoolId = parsePositiveInteger(req.params.id, null);
@@ -1194,90 +1438,152 @@ router.get("/education/:id/history", async (req, res) => {
     return res.json({ status: "success", data: { items } });
   } catch (error) {
     console.error("Admin education history error:", error.message);
-    return res
-      .status(500)
-      .json({
-        status: "error",
-        message: "Unable to load education record history",
-      });
+    return res.status(500).json({
+      status: "error",
+      message: "Unable to load education record history",
+    });
   }
 });
 
+/**
+ * @openapi
+ * /api/v1/admin-data/health/{id}/history:
+ *   get:
+ *     summary: Get health record history
+ *     tags:
+ *       - Admin Data
+ *     security:
+ *       - BearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: integer
+ *     responses:
+ *       200:
+ *         description: Health history
+ */
 router.get("/health/:id/history", async (req, res) => {
   try {
     const id = parsePositiveInteger(req.params.id, null);
     if (!id) {
-      return res
-        .status(400)
-        .json({
-          status: "error",
-          message: "A valid health record id is required",
-        });
+      return res.status(400).json({
+        status: "error",
+        message: "A valid health record id is required",
+      });
     }
 
     const items = await fetchHistoryRows("health_facilities", id);
     return res.json({ status: "success", data: { items } });
   } catch (error) {
     console.error("Admin health history error:", error.message);
-    return res
-      .status(500)
-      .json({
-        status: "error",
-        message: "Unable to load health record history",
-      });
+    return res.status(500).json({
+      status: "error",
+      message: "Unable to load health record history",
+    });
   }
 });
 
+/**
+ * @openapi
+ * /api/v1/admin-data/social_welfare/{id}/history:
+ *   get:
+ *     summary: Get welfare record history
+ *     tags:
+ *       - Admin Data
+ *     security:
+ *       - BearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: integer
+ *     responses:
+ *       200:
+ *         description: Welfare history
+ */
 router.get("/social_welfare/:id/history", async (req, res) => {
   try {
     const id = parsePositiveInteger(req.params.id, null);
     if (!id) {
-      return res
-        .status(400)
-        .json({
-          status: "error",
-          message: "A valid welfare record id is required",
-        });
+      return res.status(400).json({
+        status: "error",
+        message: "A valid welfare record id is required",
+      });
     }
 
     const items = await fetchHistoryRows("welfare_beneficiaries", id);
     return res.json({ status: "success", data: { items } });
   } catch (error) {
     console.error("Admin welfare history error:", error.message);
-    return res
-      .status(500)
-      .json({
-        status: "error",
-        message: "Unable to load welfare record history",
-      });
+    return res.status(500).json({
+      status: "error",
+      message: "Unable to load welfare record history",
+    });
   }
 });
 
+/**
+ * @openapi
+ * /api/v1/admin-data/disaster/{id}/history:
+ *   get:
+ *     summary: Get disaster record history
+ *     tags:
+ *       - Admin Data
+ *     security:
+ *       - BearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: integer
+ *     responses:
+ *       200:
+ *         description: Disaster history
+ */
 router.get("/disaster/:id/history", async (req, res) => {
   try {
     const id = parsePositiveInteger(req.params.id, null);
     if (!id) {
-      return res
-        .status(400)
-        .json({
-          status: "error",
-          message: "A valid disaster record id is required",
-        });
+      return res.status(400).json({
+        status: "error",
+        message: "A valid disaster record id is required",
+      });
     }
 
     const items = await fetchHistoryRows("disaster_zones", id);
     return res.json({ status: "success", data: { items } });
   } catch (error) {
     console.error("Admin disaster history error:", error.message);
-    return res
-      .status(500)
-      .json({
-        status: "error",
-        message: "Unable to load disaster record history",
-      });
+    return res.status(500).json({
+      status: "error",
+      message: "Unable to load disaster record history",
+    });
   }
 });
 
+/**
+ * @openapi
+ * /api/v1/admin-data/education:
+ *   post:
+ *     summary: Create an education record
+ *     tags:
+ *       - Admin Data
+ *     security:
+ *       - BearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *     responses:
+ *       201:
+ *         description: Education record created
+ */
 router.post("/education", async (req, res) => {
   const { error, value } = validateEducationCreate(req.body);
   if (error) {
@@ -1381,15 +1687,32 @@ router.post("/education", async (req, res) => {
     });
   } catch (err) {
     console.error("Admin education create error:", err.message);
-    return res
-      .status(400)
-      .json({
-        status: "error",
-        message: err.message || "Unable to create education record",
-      });
+    return res.status(400).json({
+      status: "error",
+      message: err.message || "Unable to create education record",
+    });
   }
 });
 
+/**
+ * @openapi
+ * /api/v1/admin-data/health:
+ *   post:
+ *     summary: Create a health record
+ *     tags:
+ *       - Admin Data
+ *     security:
+ *       - BearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *     responses:
+ *       201:
+ *         description: Health record created
+ */
 router.post("/health", async (req, res) => {
   const { error, value } = validateHealthCreate(req.body);
   if (error) {
@@ -1477,15 +1800,32 @@ router.post("/health", async (req, res) => {
     });
   } catch (err) {
     console.error("Admin health create error:", err.message);
-    return res
-      .status(400)
-      .json({
-        status: "error",
-        message: err.message || "Unable to create health record",
-      });
+    return res.status(400).json({
+      status: "error",
+      message: err.message || "Unable to create health record",
+    });
   }
 });
 
+/**
+ * @openapi
+ * /api/v1/admin-data/social_welfare/programs:
+ *   post:
+ *     summary: Create a welfare program
+ *     tags:
+ *       - Admin Data
+ *     security:
+ *       - BearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *     responses:
+ *       201:
+ *         description: Welfare program created
+ */
 router.post("/social_welfare/programs", async (req, res) => {
   const { error, value } = validateWelfareProgramCreate(req.body);
   if (error) {
@@ -1514,6 +1854,25 @@ router.post("/social_welfare/programs", async (req, res) => {
   }
 });
 
+/**
+ * @openapi
+ * /api/v1/admin-data/social_welfare:
+ *   post:
+ *     summary: Create a welfare record
+ *     tags:
+ *       - Admin Data
+ *     security:
+ *       - BearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *     responses:
+ *       201:
+ *         description: Welfare record created
+ */
 router.post("/social_welfare", async (req, res) => {
   const { error, value } = validateWelfareCreate(req.body);
   if (error) {
@@ -1588,15 +1947,32 @@ router.post("/social_welfare", async (req, res) => {
     });
   } catch (err) {
     console.error("Admin welfare create error:", err.message);
-    return res
-      .status(400)
-      .json({
-        status: "error",
-        message: err.message || "Unable to create welfare record",
-      });
+    return res.status(400).json({
+      status: "error",
+      message: err.message || "Unable to create welfare record",
+    });
   }
 });
 
+/**
+ * @openapi
+ * /api/v1/admin-data/disaster:
+ *   post:
+ *     summary: Create a disaster record
+ *     tags:
+ *       - Admin Data
+ *     security:
+ *       - BearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *     responses:
+ *       201:
+ *         description: Disaster record created
+ */
 router.post("/disaster", async (req, res) => {
   const { error, value } = validateDisasterCreate(req.body);
   if (error) {
@@ -1676,15 +2052,38 @@ router.post("/disaster", async (req, res) => {
     });
   } catch (err) {
     console.error("Admin disaster create error:", err.message);
-    return res
-      .status(400)
-      .json({
-        status: "error",
-        message: err.message || "Unable to create disaster record",
-      });
+    return res.status(400).json({
+      status: "error",
+      message: err.message || "Unable to create disaster record",
+    });
   }
 });
 
+/**
+ * @openapi
+ * /api/v1/admin-data/education/{id}:
+ *   patch:
+ *     summary: Update an education record
+ *     tags:
+ *       - Admin Data
+ *     security:
+ *       - BearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: integer
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *     responses:
+ *       200:
+ *         description: Education record updated
+ */
 router.patch("/education/:id", async (req, res) => {
   const schoolId = parsePositiveInteger(req.params.id, null);
   if (!schoolId) {
@@ -1808,24 +2207,45 @@ router.patch("/education/:id", async (req, res) => {
     });
   } catch (err) {
     console.error("Admin education update error:", err.message);
-    return res
-      .status(400)
-      .json({
-        status: "error",
-        message: err.message || "Unable to update education record",
-      });
+    return res.status(400).json({
+      status: "error",
+      message: err.message || "Unable to update education record",
+    });
   }
 });
 
+/**
+ * @openapi
+ * /api/v1/admin-data/health/{id}:
+ *   patch:
+ *     summary: Update a health record
+ *     tags:
+ *       - Admin Data
+ *     security:
+ *       - BearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: integer
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *     responses:
+ *       200:
+ *         description: Health record updated
+ */
 router.patch("/health/:id", async (req, res) => {
   const id = parsePositiveInteger(req.params.id, null);
   if (!id) {
-    return res
-      .status(400)
-      .json({
-        status: "error",
-        message: "A valid health record id is required",
-      });
+    return res.status(400).json({
+      status: "error",
+      message: "A valid health record id is required",
+    });
   }
 
   const { error, value } = validateHealthUpdate(req.body);
@@ -1943,24 +2363,45 @@ router.patch("/health/:id", async (req, res) => {
     });
   } catch (err) {
     console.error("Admin health update error:", err.message);
-    return res
-      .status(400)
-      .json({
-        status: "error",
-        message: err.message || "Unable to update health record",
-      });
+    return res.status(400).json({
+      status: "error",
+      message: err.message || "Unable to update health record",
+    });
   }
 });
 
+/**
+ * @openapi
+ * /api/v1/admin-data/social_welfare/{id}:
+ *   patch:
+ *     summary: Update a welfare record
+ *     tags:
+ *       - Admin Data
+ *     security:
+ *       - BearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: integer
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *     responses:
+ *       200:
+ *         description: Welfare record updated
+ */
 router.patch("/social_welfare/:id", async (req, res) => {
   const id = parsePositiveInteger(req.params.id, null);
   if (!id) {
-    return res
-      .status(400)
-      .json({
-        status: "error",
-        message: "A valid welfare record id is required",
-      });
+    return res.status(400).json({
+      status: "error",
+      message: "A valid welfare record id is required",
+    });
   }
 
   const { error, value } = validateWelfareUpdate(req.body);
@@ -2068,24 +2509,45 @@ router.patch("/social_welfare/:id", async (req, res) => {
     });
   } catch (err) {
     console.error("Admin welfare update error:", err.message);
-    return res
-      .status(400)
-      .json({
-        status: "error",
-        message: err.message || "Unable to update welfare record",
-      });
+    return res.status(400).json({
+      status: "error",
+      message: err.message || "Unable to update welfare record",
+    });
   }
 });
 
+/**
+ * @openapi
+ * /api/v1/admin-data/disaster/{id}:
+ *   patch:
+ *     summary: Update a disaster record
+ *     tags:
+ *       - Admin Data
+ *     security:
+ *       - BearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: integer
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *     responses:
+ *       200:
+ *         description: Disaster record updated
+ */
 router.patch("/disaster/:id", async (req, res) => {
   const id = parsePositiveInteger(req.params.id, null);
   if (!id) {
-    return res
-      .status(400)
-      .json({
-        status: "error",
-        message: "A valid disaster record id is required",
-      });
+    return res.status(400).json({
+      status: "error",
+      message: "A valid disaster record id is required",
+    });
   }
 
   const { error, value } = validateDisasterUpdate(req.body);
@@ -2185,15 +2647,32 @@ router.patch("/disaster/:id", async (req, res) => {
     });
   } catch (err) {
     console.error("Admin disaster update error:", err.message);
-    return res
-      .status(400)
-      .json({
-        status: "error",
-        message: err.message || "Unable to update disaster record",
-      });
+    return res.status(400).json({
+      status: "error",
+      message: err.message || "Unable to update disaster record",
+    });
   }
 });
 
+/**
+ * @openapi
+ * /api/v1/admin-data/education/{id}/archive:
+ *   post:
+ *     summary: Archive an education record
+ *     tags:
+ *       - Admin Data
+ *     security:
+ *       - BearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: integer
+ *     responses:
+ *       200:
+ *         description: Education record archived
+ */
 router.post("/education/:id/archive", async (req, res) => {
   const schoolId = parsePositiveInteger(req.params.id, null);
   if (!schoolId) {
@@ -2260,24 +2739,39 @@ router.post("/education/:id/archive", async (req, res) => {
     });
   } catch (err) {
     console.error("Admin education archive error:", err.message);
-    return res
-      .status(400)
-      .json({
-        status: "error",
-        message: err.message || "Unable to archive education record",
-      });
+    return res.status(400).json({
+      status: "error",
+      message: err.message || "Unable to archive education record",
+    });
   }
 });
 
+/**
+ * @openapi
+ * /api/v1/admin-data/health/{id}/archive:
+ *   post:
+ *     summary: Archive a health record
+ *     tags:
+ *       - Admin Data
+ *     security:
+ *       - BearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: integer
+ *     responses:
+ *       200:
+ *         description: Health record archived
+ */
 router.post("/health/:id/archive", async (req, res) => {
   const id = parsePositiveInteger(req.params.id, null);
   if (!id) {
-    return res
-      .status(400)
-      .json({
-        status: "error",
-        message: "A valid health record id is required",
-      });
+    return res.status(400).json({
+      status: "error",
+      message: "A valid health record id is required",
+    });
   }
 
   try {
@@ -2338,24 +2832,39 @@ router.post("/health/:id/archive", async (req, res) => {
     });
   } catch (err) {
     console.error("Admin health archive error:", err.message);
-    return res
-      .status(400)
-      .json({
-        status: "error",
-        message: err.message || "Unable to archive health record",
-      });
+    return res.status(400).json({
+      status: "error",
+      message: err.message || "Unable to archive health record",
+    });
   }
 });
 
+/**
+ * @openapi
+ * /api/v1/admin-data/social_welfare/{id}/archive:
+ *   post:
+ *     summary: Archive a welfare record
+ *     tags:
+ *       - Admin Data
+ *     security:
+ *       - BearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: integer
+ *     responses:
+ *       200:
+ *         description: Welfare record archived
+ */
 router.post("/social_welfare/:id/archive", async (req, res) => {
   const id = parsePositiveInteger(req.params.id, null);
   if (!id) {
-    return res
-      .status(400)
-      .json({
-        status: "error",
-        message: "A valid welfare record id is required",
-      });
+    return res.status(400).json({
+      status: "error",
+      message: "A valid welfare record id is required",
+    });
   }
 
   try {
@@ -2416,24 +2925,39 @@ router.post("/social_welfare/:id/archive", async (req, res) => {
     });
   } catch (err) {
     console.error("Admin welfare archive error:", err.message);
-    return res
-      .status(400)
-      .json({
-        status: "error",
-        message: err.message || "Unable to archive welfare record",
-      });
+    return res.status(400).json({
+      status: "error",
+      message: err.message || "Unable to archive welfare record",
+    });
   }
 });
 
+/**
+ * @openapi
+ * /api/v1/admin-data/disaster/{id}/archive:
+ *   post:
+ *     summary: Archive a disaster record
+ *     tags:
+ *       - Admin Data
+ *     security:
+ *       - BearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: integer
+ *     responses:
+ *       200:
+ *         description: Disaster record archived
+ */
 router.post("/disaster/:id/archive", async (req, res) => {
   const id = parsePositiveInteger(req.params.id, null);
   if (!id) {
-    return res
-      .status(400)
-      .json({
-        status: "error",
-        message: "A valid disaster record id is required",
-      });
+    return res.status(400).json({
+      status: "error",
+      message: "A valid disaster record id is required",
+    });
   }
 
   try {
@@ -2494,15 +3018,26 @@ router.post("/disaster/:id/archive", async (req, res) => {
     });
   } catch (err) {
     console.error("Admin disaster archive error:", err.message);
-    return res
-      .status(400)
-      .json({
-        status: "error",
-        message: err.message || "Unable to archive disaster record",
-      });
+    return res.status(400).json({
+      status: "error",
+      message: err.message || "Unable to archive disaster record",
+    });
   }
 });
 
+/**
+ * @openapi
+ * /api/v1/admin-data/recompute/status:
+ *   get:
+ *     summary: Get recompute status
+ *     tags:
+ *       - Admin Data
+ *     security:
+ *       - BearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Recompute status
+ */
 router.get("/recompute/status", async (req, res) => {
   const mergedState = mergeRecomputeStaleState();
   const authUser = getAuthUser(req);
@@ -2521,12 +3056,15 @@ router.get("/recompute/status", async (req, res) => {
       });
     }
 
-    const filteredDepartments = departments.reduce((accumulator, department) => {
-      if (Object.prototype.hasOwnProperty.call(mergedState, department)) {
-        accumulator[department] = mergedState[department];
-      }
-      return accumulator;
-    }, {});
+    const filteredDepartments = departments.reduce(
+      (accumulator, department) => {
+        if (Object.prototype.hasOwnProperty.call(mergedState, department)) {
+          accumulator[department] = mergedState[department];
+        }
+        return accumulator;
+      },
+      {},
+    );
 
     return res.json({
       status: "success",
@@ -2544,6 +3082,31 @@ router.get("/recompute/status", async (req, res) => {
   });
 });
 
+/**
+ * @openapi
+ * /api/v1/admin-data/recompute/{department}:
+ *   post:
+ *     summary: Trigger a department recompute task
+ *     tags:
+ *       - Admin Data
+ *     security:
+ *       - BearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: department
+ *         required: true
+ *         schema:
+ *           type: string
+ *     requestBody:
+ *       required: false
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *     responses:
+ *       202:
+ *         description: Recompute started
+ */
 router.post("/recompute/:department", async (req, res) => {
   try {
     const department = String(req.params.department || "").toLowerCase();

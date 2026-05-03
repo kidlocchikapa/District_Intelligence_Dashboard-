@@ -42,6 +42,10 @@ if (!connectionString) {
 // Create a new pool instance with the connection string
 const pool = new Pool({ connectionString });
 
+pool.on('error', (err, client) => {
+  console.error('Unexpected error on idle client', err);
+});
+
 module.exports = {
   query: (text, params) => pool.query(text, params),
   pool,

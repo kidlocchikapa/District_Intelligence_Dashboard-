@@ -348,21 +348,76 @@ async function getFloodSummary(req, res) {
 }
 
 // Compatibility route
+/**
+ * @openapi
+ * /api/v1/dashboard/disaster:
+ *   get:
+ *     summary: Get flood exposure zones as GeoJSON
+ *     tags:
+ *       - Disaster
+ *     responses:
+ *       200:
+ *         description: Flood exposure GeoJSON
+ */
 router.get("/", getFloodGeoJson);
 
 // @route   GET api/v1/dashboard/disaster/flood
 // @desc    Get flood exposure zones (GeoJSON) for District or TA
+/**
+ * @openapi
+ * /api/v1/dashboard/disaster/flood:
+ *   get:
+ *     summary: Get flood exposure zones as GeoJSON
+ *     tags:
+ *       - Disaster
+ *     responses:
+ *       200:
+ *         description: Flood exposure GeoJSON
+ */
 router.get("/flood", getFloodGeoJson);
 
 // Compatibility route
+/**
+ * @openapi
+ * /api/v1/dashboard/disaster/summary:
+ *   get:
+ *     summary: Get flood risk summary totals
+ *     tags:
+ *       - Disaster
+ *     responses:
+ *       200:
+ *         description: Flood summary totals
+ */
 router.get("/summary", getFloodSummary);
 
 // @route   GET api/v1/dashboard/disaster/flood/summary
 // @desc    Get flood risk summary totals (exposed vs not exposed and risk bands)
+/**
+ * @openapi
+ * /api/v1/dashboard/disaster/flood/summary:
+ *   get:
+ *     summary: Get flood risk summary totals
+ *     tags:
+ *       - Disaster
+ *     responses:
+ *       200:
+ *         description: Flood summary totals
+ */
 router.get("/flood/summary", getFloodSummary);
 
 // @route   GET api/v1/dashboard/disaster/flood/population
 // @desc    Get tabular population exposure by District/TA
+/**
+ * @openapi
+ * /api/v1/dashboard/disaster/flood/population:
+ *   get:
+ *     summary: Get flood exposure by population
+ *     tags:
+ *       - Disaster
+ *     responses:
+ *       200:
+ *         description: Flood population exposure
+ */
 router.get("/flood/population", async (req, res) => {
   const { district, ta, admin_type: adminType = "District" } = req.query;
   const normalizedAdminType = normalizeAdminType(adminType);
@@ -470,6 +525,17 @@ router.get("/flood/population", async (req, res) => {
 
 // @route   GET api/v1/dashboard/disaster/flood/facilities
 // @desc    Get flood facility exposure detail (education/health)
+/**
+ * @openapi
+ * /api/v1/dashboard/disaster/flood/facilities:
+ *   get:
+ *     summary: Get flood facility exposure details
+ *     tags:
+ *       - Disaster
+ *     responses:
+ *       200:
+ *         description: Flood facility exposure
+ */
 router.get("/flood/facilities", async (req, res) => {
   const {
     district,
@@ -538,6 +604,17 @@ router.get("/flood/facilities", async (req, res) => {
 
 // @route   GET api/v1/dashboard/disaster/flood/facilities/summary
 // @desc    Get flood facility exposure summary by District/TA and facility type
+/**
+ * @openapi
+ * /api/v1/dashboard/disaster/flood/facilities/summary:
+ *   get:
+ *     summary: Get flood facility exposure summary
+ *     tags:
+ *       - Disaster
+ *     responses:
+ *       200:
+ *         description: Flood facility exposure summary
+ */
 router.get("/flood/facilities/summary", async (req, res) => {
   const {
     district,
@@ -651,6 +728,17 @@ router.get("/flood/facilities/summary", async (req, res) => {
 
 // @route   GET api/v1/dashboard/disaster/flood/facilities/geojson
 // @desc    Get exposed health/education facilities as GeoJSON for map overlays
+/**
+ * @openapi
+ * /api/v1/dashboard/disaster/flood/facilities/geojson:
+ *   get:
+ *     summary: Get exposed facilities as GeoJSON
+ *     tags:
+ *       - Disaster
+ *     responses:
+ *       200:
+ *         description: Exposed facilities GeoJSON
+ */
 router.get("/flood/facilities/geojson", async (req, res) => {
   const {
     district,

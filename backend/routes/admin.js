@@ -75,21 +75,21 @@ const presetTaskDefinitions = {
       schoolAgeMax,
       childClassMax,
     }) => [
-      {
-        label: "WorldPop age-sex",
-        args: buildEtlArgs({
-          type: "worldpop",
-          sourceType: "worldpop",
-          apiUrl,
-          worldpopYear,
-          worldpopDataset: "wpgpas",
-          worldpopApiKey,
-          schoolAgeMin,
-          schoolAgeMax,
-          childClassMax,
-        }),
-      },
-    ],
+        {
+          label: "WorldPop age-sex",
+          args: buildEtlArgs({
+            type: "worldpop",
+            sourceType: "worldpop",
+            apiUrl,
+            worldpopYear,
+            worldpopDataset: "wpgpas",
+            worldpopApiKey,
+            schoolAgeMin,
+            schoolAgeMax,
+            childClassMax,
+          }),
+        },
+      ],
   },
   education_insights: {
     label: "Recalculate education insights",
@@ -160,68 +160,68 @@ const presetTaskDefinitions = {
       adminLevel,
       coverageDistanceKm,
     }) => [
-      {
-        label: "WorldPop totals",
-        args: buildEtlArgs({
-          type: "worldpop",
-          sourceType: "worldpop",
-          apiUrl,
-          worldpopYear,
-          worldpopDataset: "wpgppop",
-          worldpopApiKey,
-        }),
-      },
-      {
-        label: "WorldPop age-sex",
-        args: buildEtlArgs({
-          type: "worldpop",
-          sourceType: "worldpop",
-          apiUrl,
-          worldpopYear,
-          worldpopDataset: "wpgpas",
-          worldpopApiKey,
-          schoolAgeMin,
-          schoolAgeMax,
-          childClassMax,
-        }),
-      },
-      {
-        label: "Education analysis",
-        args: buildEtlArgs({
-          type: "analysis",
-          analysisTypes: [
-            "education_summary",
-            "nearest_school_distance",
-            "school_service_coverage",
-          ],
-          adminLevel,
-          coverageDistanceKm,
-        }),
-      },
-      {
-        label: "Health analysis",
-        args: buildEtlArgs({
-          type: "analysis",
-          worldpopYear,
-          analysisTypes: [
-            "health_summary",
-            "health_population_served",
-            "nearest_health_distance",
-            "health_service_coverage",
-          ],
-          adminLevel,
-          coverageDistanceKm,
-        }),
-      },
-      {
-        label: "Disaster analysis",
-        args: buildEtlArgs({
-          type: "analysis",
-          analysisTypes: ["disaster_vulnerability"],
-          adminLevel,
-        }),
-      },
-    ],
+        {
+          label: "WorldPop totals",
+          args: buildEtlArgs({
+            type: "worldpop",
+            sourceType: "worldpop",
+            apiUrl,
+            worldpopYear,
+            worldpopDataset: "wpgppop",
+            worldpopApiKey,
+          }),
+        },
+        {
+          label: "WorldPop age-sex",
+          args: buildEtlArgs({
+            type: "worldpop",
+            sourceType: "worldpop",
+            apiUrl,
+            worldpopYear,
+            worldpopDataset: "wpgpas",
+            worldpopApiKey,
+            schoolAgeMin,
+            schoolAgeMax,
+            childClassMax,
+          }),
+        },
+        {
+          label: "Education analysis",
+          args: buildEtlArgs({
+            type: "analysis",
+            analysisTypes: [
+              "education_summary",
+              "nearest_school_distance",
+              "school_service_coverage",
+            ],
+            adminLevel,
+            coverageDistanceKm,
+          }),
+        },
+        {
+          label: "Health analysis",
+          args: buildEtlArgs({
+            type: "analysis",
+            worldpopYear,
+            analysisTypes: [
+              "health_summary",
+              "health_population_served",
+              "nearest_health_distance",
+              "health_service_coverage",
+            ],
+            adminLevel,
+            coverageDistanceKm,
+          }),
+        },
+        {
+          label: "Disaster analysis",
+          args: buildEtlArgs({
+            type: "analysis",
+            analysisTypes: ["disaster_vulnerability"],
+            adminLevel,
+          }),
+        },
+      ],
   },
 };
 
@@ -318,6 +318,7 @@ function requireGlobalAccess(req, res) {
 function serializeManagedUser(user, permissions = []) {
   return {
     id: user.id,
+    username: user.username,
     fullName: user.full_name,
     email: user.email,
     role: user.role,
@@ -334,6 +335,7 @@ async function loadManagedUser(userId) {
     `
       SELECT
         id,
+        username,
         full_name,
         email,
         role,
@@ -357,6 +359,19 @@ async function loadManagedUser(userId) {
   return serializeManagedUser(user, permissions);
 }
 
+/**
+ * @openapi
+ * /api/v1/admin/users:
+ *   get:
+ *     summary: List admin users
+ *     tags:
+ *       - Admin
+ *     security:
+ *       - BearerAuth: []
+ *     responses:
+ *       200:
+ *         description: User list
+ */
 router.get("/users", auth, requireRole("super_admin"), async (req, res) => {
   try {
     await ensureUsersTable();
@@ -367,6 +382,7 @@ router.get("/users", auth, requireRole("super_admin"), async (req, res) => {
         `
           SELECT
             id,
+            username,
             full_name,
             email,
             role,
@@ -396,7 +412,8 @@ router.get("/users", auth, requireRole("super_admin"), async (req, res) => {
 
     const permissionsByUserId = new Map();
     permissionResult.rows.forEach((permission) => {
-      const existingPermissions = permissionsByUserId.get(permission.user_id) || [];
+      const existingPermissions =
+        permissionsByUserId.get(permission.user_id) || [];
       existingPermissions.push(permission);
       permissionsByUserId.set(permission.user_id, existingPermissions);
     });
@@ -416,175 +433,282 @@ router.get("/users", auth, requireRole("super_admin"), async (req, res) => {
   }
 });
 
-router.get("/users/:id/permissions", auth, requireRole("super_admin"), async (req, res) => {
-  const userId = Number(req.params.id);
+/**
+ * @openapi
+ * /api/v1/admin/users/{id}/permissions:
+ *   get:
+ *     summary: Get user permissions
+ *     tags:
+ *       - Admin
+ *     security:
+ *       - BearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: integer
+ *     responses:
+ *       200:
+ *         description: User permissions
+ *       404:
+ *         description: User not found
+ */
+router.get(
+  "/users/:id/permissions",
+  auth,
+  requireRole("super_admin"),
+  async (req, res) => {
+    const userId = Number(req.params.id);
 
-  if (!Number.isInteger(userId) || userId <= 0) {
-    return res.status(400).json({
-      status: "error",
-      message: "A valid user id is required",
-    });
-  }
-
-  try {
-    await ensureUsersTable();
-    await ensureRbacSchema();
-
-    const user = await loadManagedUser(userId);
-    if (!user) {
-      return res.status(404).json({
+    if (!Number.isInteger(userId) || userId <= 0) {
+      return res.status(400).json({
         status: "error",
-        message: "User not found",
+        message: "A valid user id is required",
       });
     }
 
-    return res.json({
-      status: "success",
-      data: user,
-    });
-  } catch (error) {
-    console.error("Get user permissions error:", error.message);
-    return res.status(500).json({
-      status: "error",
-      message: "Unable to load user permissions",
-    });
-  }
-});
+    try {
+      await ensureUsersTable();
+      await ensureRbacSchema();
 
-router.patch("/users/:id", auth, requireRole("super_admin"), async (req, res) => {
-  const userId = Number(req.params.id);
+      const user = await loadManagedUser(userId);
+      if (!user) {
+        return res.status(404).json({
+          status: "error",
+          message: "User not found",
+        });
+      }
 
-  if (!Number.isInteger(userId) || userId <= 0) {
-    return res.status(400).json({
-      status: "error",
-      message: "A valid user id is required",
-    });
-  }
+      return res.json({
+        status: "success",
+        data: user,
+      });
+    } catch (error) {
+      console.error("Get user permissions error:", error.message);
+      return res.status(500).json({
+        status: "error",
+        message: "Unable to load user permissions",
+      });
+    }
+  },
+);
 
-  const { error, value } = validateAdminUserUpdate(req.body);
-  if (error) {
-    return res.status(400).json({
-      status: "error",
-      message: error,
-    });
-  }
+/**
+ * @openapi
+ * /api/v1/admin/users/{id}:
+ *   patch:
+ *     summary: Update a user
+ *     tags:
+ *       - Admin
+ *     security:
+ *       - BearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: integer
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *     responses:
+ *       200:
+ *         description: User updated
+ */
+router.patch(
+  "/users/:id",
+  auth,
+  requireRole("super_admin"),
+  async (req, res) => {
+    const userId = Number(req.params.id);
 
-  try {
-    await ensureUsersTable();
-    await ensureRbacSchema();
-
-    const updateFields = [];
-    const params = [];
-
-    if (Object.prototype.hasOwnProperty.call(value, "role")) {
-      params.push(value.role);
-      updateFields.push(`role = $${params.length}`);
+    if (!Number.isInteger(userId) || userId <= 0) {
+      return res.status(400).json({
+        status: "error",
+        message: "A valid user id is required",
+      });
     }
 
-    if (Object.prototype.hasOwnProperty.call(value, "isActive")) {
-      params.push(value.isActive);
-      updateFields.push(`is_active = $${params.length}`);
+    const { error, value } = validateAdminUserUpdate(req.body);
+    if (error) {
+      return res.status(400).json({
+        status: "error",
+        message: error,
+      });
     }
 
-    params.push(userId);
-    const result = await db.query(
-      `
+    try {
+      await ensureUsersTable();
+      await ensureRbacSchema();
+
+      const updateFields = [];
+      const params = [];
+
+      if (Object.prototype.hasOwnProperty.call(value, "role")) {
+        params.push(value.role);
+        updateFields.push(`role = $${params.length}`);
+      }
+
+      if (Object.prototype.hasOwnProperty.call(value, "isActive")) {
+        params.push(value.isActive);
+        updateFields.push(`is_active = $${params.length}`);
+      }
+
+      params.push(userId);
+      const result = await db.query(
+        `
         UPDATE users
         SET ${updateFields.join(", ")}, updated_at = CURRENT_TIMESTAMP
         WHERE id = $${params.length}
         RETURNING id
       `,
-      params,
-    );
+        params,
+      );
 
-    if (!result.rowCount) {
-      return res.status(404).json({
+      if (!result.rowCount) {
+        return res.status(404).json({
+          status: "error",
+          message: "User not found",
+        });
+      }
+
+      const user = await loadManagedUser(userId);
+      return res.json({
+        status: "success",
+        message: "User updated successfully",
+        data: user,
+      });
+    } catch (error) {
+      console.error("Update admin user error:", error.message);
+      return res.status(500).json({
         status: "error",
-        message: "User not found",
+        message: "Unable to update user",
+      });
+    }
+  },
+);
+
+/**
+ * @openapi
+ * /api/v1/admin/users/{id}/permissions:
+ *   put:
+ *     summary: Replace user permissions
+ *     tags:
+ *       - Admin
+ *     security:
+ *       - BearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: integer
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *     responses:
+ *       200:
+ *         description: Permissions updated
+ */
+router.put(
+  "/users/:id/permissions",
+  auth,
+  requireRole("super_admin"),
+  async (req, res) => {
+    const userId = Number(req.params.id);
+
+    if (!Number.isInteger(userId) || userId <= 0) {
+      return res.status(400).json({
+        status: "error",
+        message: "A valid user id is required",
       });
     }
 
-    const user = await loadManagedUser(userId);
-    return res.json({
-      status: "success",
-      message: "User updated successfully",
-      data: user,
-    });
-  } catch (error) {
-    console.error("Update admin user error:", error.message);
-    return res.status(500).json({
-      status: "error",
-      message: "Unable to update user",
-    });
-  }
-});
+    const { error, value } = validateReplaceDepartmentPermissions(req.body);
+    if (error) {
+      return res.status(400).json({
+        status: "error",
+        message: error,
+      });
+    }
 
-router.put("/users/:id/permissions", auth, requireRole("super_admin"), async (req, res) => {
-  const userId = Number(req.params.id);
+    await ensureUsersTable();
+    await ensureRbacSchema();
 
-  if (!Number.isInteger(userId) || userId <= 0) {
-    return res.status(400).json({
-      status: "error",
-      message: "A valid user id is required",
-    });
-  }
+    const client = await db.pool.connect();
+    let hasOpenTransaction = false;
 
-  const { error, value } = validateReplaceDepartmentPermissions(req.body);
-  if (error) {
-    return res.status(400).json({
-      status: "error",
-      message: error,
-    });
-  }
+    try {
+      await client.query("BEGIN");
+      hasOpenTransaction = true;
 
-  await ensureUsersTable();
-  await ensureRbacSchema();
+      const userResult = await client.query(
+        "SELECT id FROM users WHERE id = $1 LIMIT 1",
+        [userId],
+      );
 
-  const client = await db.connect();
-  let hasOpenTransaction = false;
+      if (!userResult.rowCount) {
+        await client.query("ROLLBACK");
+        hasOpenTransaction = false;
+        return res.status(404).json({
+          status: "error",
+          message: "User not found",
+        });
+      }
 
-  try {
-    await client.query("BEGIN");
-    hasOpenTransaction = true;
-
-    const userResult = await client.query(
-      "SELECT id FROM users WHERE id = $1 LIMIT 1",
-      [userId],
-    );
-
-    if (!userResult.rowCount) {
-      await client.query("ROLLBACK");
+      await replaceUserDepartmentPermissions(client, userId, value.permissions);
+      await client.query("COMMIT");
       hasOpenTransaction = false;
-      return res.status(404).json({
-        status: "error",
-        message: "User not found",
+
+      const user = await loadManagedUser(userId);
+      return res.json({
+        status: "success",
+        message: "Department permissions updated successfully",
+        data: user,
       });
+    } catch (error) {
+      if (hasOpenTransaction) {
+        await client.query("ROLLBACK");
+      }
+      console.error("Replace department permissions error:", error.message);
+      return res.status(500).json({
+        status: "error",
+        message: "Unable to update department permissions",
+      });
+    } finally {
+      client.release();
     }
+  },
+);
 
-    await replaceUserDepartmentPermissions(client, userId, value.permissions);
-    await client.query("COMMIT");
-    hasOpenTransaction = false;
-
-    const user = await loadManagedUser(userId);
-    return res.json({
-      status: "success",
-      message: "Department permissions updated successfully",
-      data: user,
-    });
-  } catch (error) {
-    if (hasOpenTransaction) {
-      await client.query("ROLLBACK");
-    }
-    console.error("Replace department permissions error:", error.message);
-    return res.status(500).json({
-      status: "error",
-      message: "Unable to update department permissions",
-    });
-  } finally {
-    client.release();
-  }
-});
-
+/**
+ * @openapi
+ * /api/v1/admin/users:
+ *   post:
+ *     summary: Create a new user
+ *     tags:
+ *       - Admin
+ *     security:
+ *       - BearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *     responses:
+ *       201:
+ *         description: User created
+ *       409:
+ *         description: Email already registered
+ */
 router.post("/users", auth, requireRole("super_admin"), async (req, res) => {
   const { error, value } = validateAdminUserCreate(req.body);
   if (error) {
@@ -597,33 +721,39 @@ router.post("/users", auth, requireRole("super_admin"), async (req, res) => {
     await ensureUsersTable();
     await ensureRbacSchema();
 
-    const existingUser = await db.query("SELECT id FROM users WHERE email = $1 LIMIT 1", [email]);
+    const existingUser = await db.query(
+      "SELECT id FROM users WHERE email = $1 LIMIT 1",
+      [email],
+    );
     if (existingUser.rowCount > 0) {
-      return res.status(409).json({ status: "error", message: "Email already registered" });
+      return res
+        .status(409)
+        .json({ status: "error", message: "Email already registered" });
     }
 
     const passwordHash = await hashPassword(password);
-    
+
     // Check if username column exists
     const columnCheck = await db.query(`
       SELECT 1 FROM information_schema.columns 
       WHERE table_name = 'users' AND column_name = 'username'
     `);
-    
+
     let result;
     if (columnCheck.rowCount > 0) {
       // Simplified username generation for admin-created users
-      const username = email.split('@')[0] + '_' + Math.floor(Math.random() * 1000);
+      const username =
+        email.split("@")[0] + "_" + Math.floor(Math.random() * 1000);
       result = await db.query(
         `INSERT INTO users (full_name, email, password_hash, role, username) 
          VALUES ($1, $2, $3, $4, $5) RETURNING id`,
-        [fullName, email, passwordHash, role, username]
+        [fullName, email, passwordHash, role, username],
       );
     } else {
       result = await db.query(
         `INSERT INTO users (full_name, email, password_hash, role) 
          VALUES ($1, $2, $3, $4) RETURNING id`,
-        [fullName, email, passwordHash, role]
+        [fullName, email, passwordHash, role],
       );
     }
 
@@ -635,36 +765,71 @@ router.post("/users", auth, requireRole("super_admin"), async (req, res) => {
     });
   } catch (err) {
     console.error("Create user error:", err.message);
-    return res.status(500).json({ status: "error", message: "Unable to create user" });
+    return res
+      .status(500)
+      .json({ status: "error", message: "Unable to create user" });
   }
 });
 
-router.delete("/users/:id", auth, requireRole("super_admin"), async (req, res) => {
-  const userId = Number(req.params.id);
-  const authUser = getAuthUser(req);
+/**
+ * @openapi
+ * /api/v1/admin/users/{id}:
+ *   delete:
+ *     summary: Delete a user
+ *     tags:
+ *       - Admin
+ *     security:
+ *       - BearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: integer
+ *     responses:
+ *       200:
+ *         description: User deleted
+ *       404:
+ *         description: User not found
+ */
+router.delete(
+  "/users/:id",
+  auth,
+  requireRole("super_admin"),
+  async (req, res) => {
+    const userId = Number(req.params.id);
+    const authUser = getAuthUser(req);
 
-  if (userId === authUser.id) {
-    return res.status(400).json({
-      status: "error",
-      message: "You cannot delete your own account",
-    });
-  }
-
-  try {
-    const result = await db.query("DELETE FROM users WHERE id = $1 RETURNING id", [userId]);
-    if (!result.rowCount) {
-      return res.status(404).json({ status: "error", message: "User not found" });
+    if (userId === authUser.id) {
+      return res.status(400).json({
+        status: "error",
+        message: "You cannot delete your own account",
+      });
     }
 
-    return res.json({
-      status: "success",
-      message: "User deleted successfully",
-    });
-  } catch (err) {
-    console.error("Delete user error:", err.message);
-    return res.status(500).json({ status: "error", message: "Unable to delete user" });
-  }
-});
+    try {
+      const result = await db.query(
+        "DELETE FROM users WHERE id = $1 RETURNING id",
+        [userId],
+      );
+      if (!result.rowCount) {
+        return res
+          .status(404)
+          .json({ status: "error", message: "User not found" });
+      }
+
+      return res.json({
+        status: "success",
+        message: "User deleted successfully",
+      });
+    } catch (err) {
+      console.error("Delete user error:", err.message);
+      return res
+        .status(500)
+        .json({ status: "error", message: "Unable to delete user" });
+    }
+  },
+);
 
 // Helper function to construct ETL command-line arguments based on input parameters
 function buildEtlArgs({
@@ -939,6 +1104,19 @@ function queueWorkflow(job, stages) {
 }
 
 // API endpoint to retrieve available task presets, returning their keys, labels, and descriptions for frontend display
+/**
+ * @openapi
+ * /api/v1/admin/task-presets:
+ *   get:
+ *     summary: List available admin task presets
+ *     tags:
+ *       - Admin
+ *     security:
+ *       - BearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Task presets
+ */
 router.get("/task-presets", auth, async (req, res) => {
   try {
     const authUser = getAuthUser(req);
@@ -987,6 +1165,19 @@ router.get("/task-presets", auth, async (req, res) => {
 
 //@Get endpoint
 //@desc Retrieves job details, either for a specific job if job_id is provided or a list of recent jobs if not
+/**
+ * @openapi
+ * /api/v1/admin/jobs:
+ *   get:
+ *     summary: List admin jobs or fetch a specific job
+ *     tags:
+ *       - Admin
+ *     security:
+ *       - BearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Job list or job details
+ */
 router.get("/jobs", auth, async (req, res) => {
   try {
     const jobId = req.query.job_id;
@@ -995,10 +1186,10 @@ router.get("/jobs", auth, async (req, res) => {
     const allowedDepartments = isGlobal
       ? []
       : await getAccessibleDepartmentsForUser(
-          authUser.id,
-          authUser.role,
-          "read",
-        );
+        authUser.id,
+        authUser.role,
+        "read",
+      );
 
     if (jobId) {
       const job = jobs.get(jobId);
@@ -1039,7 +1230,9 @@ router.get("/jobs", auth, async (req, res) => {
             }
 
             const department = resolveJobDepartment(job);
-            return Boolean(department && allowedDepartments.includes(department));
+            return Boolean(
+              department && allowedDepartments.includes(department),
+            );
           })
           .map((job) => serializeJob(job)),
       },
@@ -1057,6 +1250,31 @@ router.get("/jobs", auth, async (req, res) => {
  * POST /admin/upload
  * Handles dataset uploads, creating a new job for the upload and queuing it for background processing
  * Expects multipart/form-data with fields for dataset type, source type, and the file itself, along with optional parameters
+ */
+/**
+ * @openapi
+ * /api/v1/admin/upload:
+ *   post:
+ *     summary: Upload a dataset and queue a background job
+ *     tags:
+ *       - Admin
+ *     security:
+ *       - BearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         multipart/form-data:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               file:
+ *                 type: string
+ *                 format: binary
+ *     responses:
+ *       200:
+ *         description: Upload queued
+ *       400:
+ *         description: Missing required fields
  */
 router.post("/upload", [auth, upload.single("file")], async (req, res) => {
   const {
@@ -1091,7 +1309,9 @@ router.post("/upload", [auth, upload.single("file")], async (req, res) => {
 
   if (
     type === "welfare_beneficiary" &&
-    (programId === undefined || programId === null || String(programId).trim() === "")
+    (programId === undefined ||
+      programId === null ||
+      String(programId).trim() === "")
   ) {
     return res.status(400).json({
       status: "error",
@@ -1101,7 +1321,12 @@ router.post("/upload", [auth, upload.single("file")], async (req, res) => {
 
   const department = DATASET_DEPARTMENT_MAP[type];
   if (department) {
-    const allowed = await requireDepartmentCapability(req, res, department, "write");
+    const allowed = await requireDepartmentCapability(
+      req,
+      res,
+      department,
+      "write",
+    );
     if (!allowed) {
       return;
     }
@@ -1152,6 +1377,25 @@ router.post("/upload", [auth, upload.single("file")], async (req, res) => {
  * POST /admin/sync
  * Initiates a background synchronization job to fetch and process data from an external API, creating a new job and queuing it for execution
  * Expects JSON body with parameters for dataset type, API URL, headers, and other optional settings depending on the type of sync
+ */
+/**
+ * @openapi
+ * /api/v1/admin/sync:
+ *   post:
+ *     summary: Queue a background sync job
+ *     tags:
+ *       - Admin
+ *     security:
+ *       - BearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *     responses:
+ *       200:
+ *         description: Sync queued
  */
 router.post("/sync", auth, async (req, res) => {
   const {
@@ -1232,6 +1476,25 @@ router.post("/sync", auth, async (req, res) => {
 /**
  * POST /admin/run-task
  * t
+ */
+/**
+ * @openapi
+ * /api/v1/admin/run-task:
+ *   post:
+ *     summary: Run a predefined admin task preset
+ *     tags:
+ *       - Admin
+ *     security:
+ *       - BearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *     responses:
+ *       200:
+ *         description: Task queued
  */
 router.post("/run-task", auth, async (req, res) => {
   const {

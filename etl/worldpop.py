@@ -33,7 +33,7 @@ DEFAULT_WORLDPOP_MAX_GEOJSON_CHARS = 12000
 DEFAULT_WORLDPOP_MAX_URL_LENGTH = 1800
 WORLDPOP_SIMPLIFY_TOLERANCES = [0, 0.0001, 0.0005, 0.001, 0.005, 0.01, 0.02, 0.05, 0.1]
 
-
+# Setting up logging for the module
 LOGGER = logging.getLogger('etl.worldpop')
 
 
@@ -188,7 +188,7 @@ def download_worldpop_raster(raster_url, download_dir, filename=None, timeout=30
             original_error=exc,
         ) from exc
 
-
+# Validate raster file if its readable
 def validate_raster_readable(raster_path, strict=False):
     try:
         with rasterio.open(raster_path) as src:
