@@ -24,6 +24,9 @@ function PopulationRasterPanel({
   metadataUrl = DEFAULT_METADATA_URL,
   heightClass = "h-[460px]",
   loading = false,
+  onFeatureClick,
+  selectedFeatureName,
+  featureNameResolver,
 }) {
   const { selectedDistrict, setSelectedDistrict } = useDistrict();
   const [metadata, setMetadata] = useState(null);
@@ -116,6 +119,10 @@ function PopulationRasterPanel({
   const features = activeGeojson?.features || [];
 
   function getFeatureName(feature) {
+    if (typeof featureNameResolver === "function") {
+      return featureNameResolver(feature);
+    }
+
     return (
       feature?.properties?.admin_unit_name ||
       feature?.properties?.name ||
@@ -159,22 +166,29 @@ function PopulationRasterPanel({
           <ImageOverlay bounds={defaultBounds} url={imageUrl} opacity={0.94} />
           {features.length ? (
             <GeoJSON
-              key={`pop-raster-geojson-${features.length}-${selectedDistrict}`}
+              key={`pop-raster-geojson-${features.length}-${selectedDistrict}-${selectedFeatureName || "all"}`}
               data={activeGeojson}
-              style={(feature) => ({
-                color: "#6d7a65",
-                weight:
-                  features.length === 1 || getFeatureName(feature) === hoveredDistrict
-                    ? 2.5
-                    : 1,
-                opacity: 0.6,
-                fillColor:
-                  getFeatureName(feature) === hoveredDistrict
-                    ? "#6d7a65"
-                    : "transparent",
-                fillOpacity:
-                  getFeatureName(feature) === hoveredDistrict ? 0.1 : 0,
-              })}
+              style={(feature) => {
+                const featureName = getFeatureName(feature);
+                const isSelected =
+                  selectedFeatureName &&
+                  featureName &&
+                  String(featureName).toLowerCase() ===
+                    String(selectedFeatureName).toLowerCase();
+                const isHovered = featureName === hoveredDistrict;
+
+                return {
+                  color: isSelected ? "#111827" : "#6d7a65",
+                  weight:
+                    isSelected || features.length === 1 || isHovered
+                      ? 2.5
+                      : 1,
+                  opacity: isSelected ? 0.9 : 0.6,
+                  fillColor:
+                    isSelected || isHovered ? "#6d7a65" : "transparent",
+                  fillOpacity: isSelected ? 0.16 : isHovered ? 0.1 : 0,
+                };
+              }}
               onEachFeature={(feature, layer) => {
                 layer.on({
                   mouseover: (e) => {
@@ -196,10 +210,15 @@ function PopulationRasterPanel({
                       fillOpacity: 0
                     });
                   },
-                  click: () => {
+                  click: (e) => {
                     const name = getFeatureName(feature);
                     const featureType = getFeatureType(feature);
-                    if (name && String(featureType).toLowerCase() === "district") {
+                    if (typeof onFeatureClick === "function") {
+                      onFeatureClick(feature, e);
+                    } else if (
+                      name &&
+                      String(featureType).toLowerCase() === "district"
+                    ) {
                       setSelectedDistrict(name);
                     }
                   }
