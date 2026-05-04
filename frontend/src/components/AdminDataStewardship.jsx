@@ -153,9 +153,9 @@ export default function AdminDataStewardship({ department, deptConfig }) {
   }
 
   return (
-    <div className="flex h-full bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-sm">
+    <div className="flex h-full min-h-[640px] flex-col bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-sm lg:flex-row">
       {/* Secondary Sidebar: Tables List */}
-      <aside className="w-64 bg-slate-50 border-r border-slate-200 flex flex-col flex-shrink-0">
+      <aside className="w-full bg-slate-50 border-b border-slate-200 flex flex-col flex-shrink-0 lg:w-64 lg:border-b-0 lg:border-r">
         <div className="p-4 border-b border-slate-200 bg-white">
           <h3 className="text-sm font-bold text-slate-900 flex items-center gap-2">
             <Database size={16} className="text-slate-400" />
@@ -176,12 +176,12 @@ export default function AdminDataStewardship({ department, deptConfig }) {
             />
           </div>
 
-          <nav className="space-y-0.5">
+          <nav className="flex gap-2 overflow-x-auto lg:block lg:space-y-0.5">
             {tables.map(table => (
               <button
                 key={table.id}
                 onClick={() => setSelectedTableId(table.id)}
-                className={`w-full text-left px-3 py-2 rounded-lg flex items-center gap-2.5 transition-all ${
+                className={`shrink-0 text-left px-3 py-2 rounded-lg flex items-center gap-2.5 transition-all lg:w-full ${
                   selectedTableId === table.id 
                   ? 'bg-slate-900 text-white shadow-md shadow-slate-900/10' 
                   : 'text-slate-600 hover:bg-slate-200/50 hover:text-slate-900'
@@ -198,8 +198,8 @@ export default function AdminDataStewardship({ department, deptConfig }) {
       {/* Main Workspace */}
       <main className="flex-1 flex flex-col min-w-0 bg-white">
         {/* Table Toolbar */}
-        <header className="p-4 border-b border-slate-200 flex items-center justify-between bg-white">
-          <div className="flex items-center gap-4">
+        <header className="p-4 border-b border-slate-200 flex flex-col gap-4 bg-white xl:flex-row xl:items-center xl:justify-between">
+          <div className="flex flex-wrap items-center gap-3 md:gap-4">
             <h2 className="text-lg font-bold text-slate-900">{selectedTable?.label}</h2>
             <div className="h-4 w-px bg-slate-200 mx-2" />
             <div className="flex items-center gap-1">
@@ -212,18 +212,18 @@ export default function AdminDataStewardship({ department, deptConfig }) {
             </div>
           </div>
 
-          <div className="flex items-center gap-3">
-            <div className="relative">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+            <div className="relative min-w-0">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={14} />
               <input 
                 type="text"
                 placeholder="Search records..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                className="pl-9 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm outline-none focus:bg-white focus:ring-2 focus:ring-slate-900/5 transition-all w-64"
+                className="w-full pl-9 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm outline-none focus:bg-white focus:ring-2 focus:ring-slate-900/5 transition-all sm:w-64"
               />
             </div>
-            <button className="flex items-center gap-2 bg-slate-900 text-white px-4 py-2 rounded-xl text-sm font-bold hover:bg-slate-800 transition-all active:scale-95 shadow-lg shadow-slate-900/10">
+            <button className="flex items-center justify-center gap-2 bg-slate-900 text-white px-4 py-2 rounded-xl text-sm font-bold hover:bg-slate-800 transition-all active:scale-95 shadow-lg shadow-slate-900/10">
               <Plus size={16} />
               Add record
             </button>
@@ -287,7 +287,7 @@ export default function AdminDataStewardship({ department, deptConfig }) {
         </div>
 
         {/* Pagination Footer */}
-        <footer className="p-4 border-t border-slate-200 bg-slate-50/50 flex items-center justify-between">
+        <footer className="p-4 border-t border-slate-200 bg-slate-50/50 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div className="text-xs font-medium text-slate-500">
             Showing <span className="font-bold text-slate-900">{(page-1)*25 + 1}</span> to <span className="font-bold text-slate-900">{Math.min(page*25, meta.total)}</span> of <span className="font-bold text-slate-900">{meta.total}</span> records
           </div>

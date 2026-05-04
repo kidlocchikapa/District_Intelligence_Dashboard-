@@ -209,8 +209,8 @@ function AdminPage() {
   }
 
   return (
-    <div className="p-8 max-w-[1600px] mx-auto h-[calc(100vh-2rem)] flex flex-col">
-      <div className="flex items-center justify-between mb-8">
+    <div className="h-[calc(100vh-2rem)] max-w-[1600px] mx-auto flex flex-col overflow-auto px-4 py-5 md:px-8 md:py-8">
+      <div className="flex flex-col gap-5 lg:flex-row lg:items-center lg:justify-between mb-6 md:mb-8">
         <div>
           <h1 className="text-2xl font-bold text-slate-900 tracking-tight flex items-center gap-3">
             <div className="h-10 w-10 bg-slate-900 rounded-xl flex items-center justify-center text-white">
@@ -221,14 +221,14 @@ function AdminPage() {
           <p className="mt-1 text-sm text-slate-500">Manage your department's datasets, run pipeline updates, and monitor system health.</p>
         </div>
 
-        <div className="flex bg-slate-100 p-1 rounded-xl">
+        <div className="flex w-full overflow-x-auto bg-slate-100 p-1 rounded-xl lg:w-auto">
           <TabButton active={activeTab === 'stewardship'} onClick={() => setActiveTab('stewardship')} icon={LayoutDashboard} label="Data Stewardship" />
           <TabButton active={activeTab === 'operations'} onClick={() => setActiveTab('operations')} icon={UploadCloud} label="Operations" />
           <TabButton active={activeTab === 'logs'} onClick={() => setActiveTab('logs')} icon={Terminal} label="System Logs" />
         </div>
       </div>
 
-      <div className="flex-1 min-h-0">
+      <div className="flex-1 min-h-[640px] lg:min-h-0">
         {activeTab === 'stewardship' && (
           <AdminDataStewardship 
             department={selectedDepartment} 
@@ -355,7 +355,7 @@ function TabButton({ active, onClick, icon: Icon, label }) {
   return (
     <button
       onClick={onClick}
-      className={`px-6 py-2.5 rounded-lg text-sm font-bold flex items-center gap-2 transition-all ${
+      className={`shrink-0 px-4 py-2.5 md:px-6 rounded-lg text-sm font-bold flex items-center gap-2 transition-all ${
         active ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-900 hover:bg-white/50'
       }`}
     >
