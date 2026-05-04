@@ -322,7 +322,7 @@ function OverviewPage() {
 
         {/* Middle Row (Map + Bar Chart) */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-10">
-          <div className="border border-gray-100 rounded p-8 shadow-sm bg-white flex flex-col h-[480px]">
+          <div className="border border-gray-100 rounded p-8 shadow-sm bg-white flex flex-col h-[640px]">
             <h3 className="text-[16px] font-extrabold mb-6">
               {selectedTa ? `${selectedTa} Map Overview` : "TA Map Overview"}
             </h3>
@@ -334,7 +334,7 @@ function OverviewPage() {
                 geojson={mapGeojson}
                 title={null}
                 subtitle={null}
-                heightClass="h-full w-full"
+                heightClass="h-full min-h-[520px] w-full"
                 loading={densityMap.loading}
                 metadataUrl="/worldpop/zomba_ppp_2020.preview.json"
                 selectedFeatureName={selectedTa}
