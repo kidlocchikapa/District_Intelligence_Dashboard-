@@ -355,11 +355,12 @@ function TabButton({ active, onClick, icon: Icon, label }) {
   return (
     <button
       onClick={onClick}
-      className={`shrink-0 px-4 py-2.5 md:px-6 rounded border text-sm font-bold flex items-center gap-2 transition-all duration-200 ease-out ${
-        active
-          ? 'border-black bg-black text-white'
-          : 'border-transparent bg-gray-100 text-gray-700 hover:bg-gray-200 hover:text-black'
-      }`}
+      style={{
+        backgroundColor: active ? "#000000" : "#f3f4f6",
+        borderColor: active ? "#000000" : "transparent",
+        color: active ? "#ffffff" : "#374151",
+      }}
+      className="shrink-0 px-4 py-2.5 md:px-6 rounded border text-sm font-bold flex items-center gap-2 transition-all duration-200 ease-out hover:brightness-95"
     >
       <Icon size={16} />
       {label}

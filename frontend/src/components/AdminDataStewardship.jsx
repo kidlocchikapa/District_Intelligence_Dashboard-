@@ -342,25 +342,29 @@ export default function AdminDataStewardship({ department, deptConfig }) {
         </div>
 
         <div className="flex gap-2 overflow-x-auto !bg-white px-4 pb-4 pt-1">
-          {tables.map((table) => (
-            <button
-              key={table.id}
-              type="button"
-              onClick={() => {
-                setSelectedTableId(table.id);
-                setPage(1);
-                setEditingRecord(null);
-              }}
-              className={`flex shrink-0 items-center gap-2 rounded border px-4 py-2 text-sm font-bold transition-all duration-200 ease-out ${
-                selectedTableId === table.id
-                  ? "border-black bg-black text-white"
-                  : "border-gray-200 bg-gray-100 text-gray-700 hover:border-gray-300 hover:bg-gray-200 hover:text-black"
-              }`}
-            >
-              <table.icon size={15} className={selectedTableId === table.id ? "text-white" : "text-gray-600"} />
-              {table.label}
-            </button>
-          ))}
+          {tables.map((table) => {
+            const isActive = selectedTableId === table.id;
+            return (
+              <button
+                key={table.id}
+                type="button"
+                onClick={() => {
+                  setSelectedTableId(table.id);
+                  setPage(1);
+                  setEditingRecord(null);
+                }}
+                style={{
+                  backgroundColor: isActive ? "#000000" : "#f3f4f6",
+                  borderColor: isActive ? "#000000" : "#e5e7eb",
+                  color: isActive ? "#ffffff" : "#374151",
+                }}
+                className="flex shrink-0 items-center gap-2 rounded border px-4 py-2 text-sm font-bold transition-all duration-200 ease-out hover:brightness-95"
+              >
+                <table.icon size={15} style={{ color: isActive ? "#ffffff" : "#4b5563" }} />
+                {table.label}
+              </button>
+            );
+          })}
         </div>
       </header>
 
