@@ -104,6 +104,15 @@ const EDUCATION_SORT_COLUMNS = {
   updated_at: "ef.updated_at",
 };
 
+const EDUCATION_LIST_SORT_COLUMNS = {
+  name: "name",
+  status: "status",
+  student_enrollment_total: "student_enrollment_total",
+  teacher_count: "teacher_count",
+  created_at: "created_at",
+  updated_at: "updated_at",
+};
+
 const HEALTH_SORT_COLUMNS = {
   name: "hf.name",
   type: "hf.type",
@@ -821,7 +830,7 @@ router.get("/education", async (req, res) => {
       buildEducationListFilters(req.query);
     const orderBy = normalizeSortColumn(
       req.query.sort_by,
-      EDUCATION_SORT_COLUMNS,
+      EDUCATION_LIST_SORT_COLUMNS,
       "updated_at",
     );
     const orderDirection = normalizeSortOrder(req.query.sort_order);
@@ -829,8 +838,15 @@ router.get("/education", async (req, res) => {
     const countResult = await db.query(
       `
         SELECT COUNT(*)::int AS total
-        FROM education_facilities ef
-        ${whereClause}
+        FROM (
+          SELECT 1
+          FROM education_facilities ef
+          ${whereClause}
+          GROUP BY
+            LOWER(TRIM(COALESCE(to_jsonb(ef)->>'name', to_jsonb(ef)->>'school_name', ''))),
+            COALESCE(ef.ta_id, 0),
+            COALESCE(ef.district_id, 0)
+        ) deduped_education
       `,
       params,
     );
@@ -838,13 +854,28 @@ router.get("/education", async (req, res) => {
     const dataParams = [...params, pageSize, offset];
     const rowsResult = await db.query(
       `
-        SELECT
-          ${EDUCATION_SELECT_FIELDS}
-        FROM education_facilities ef
-        LEFT JOIN admin3_units ward ON ward.id = ef.ta_id
-        LEFT JOIN districts district ON district.id = COALESCE(ef.district_id, ward.district_id)
-        ${whereClause}
-        ORDER BY ${orderBy} ${orderDirection}, ef.school_id DESC
+        WITH ranked_education AS (
+          SELECT
+            ${EDUCATION_SELECT_FIELDS},
+            ROW_NUMBER() OVER (
+              PARTITION BY
+                LOWER(TRIM(COALESCE(to_jsonb(ef)->>'name', to_jsonb(ef)->>'school_name', ''))),
+                COALESCE(ef.ta_id, 0),
+                COALESCE(ef.district_id, ward.district_id, 0)
+              ORDER BY
+                ef.updated_at DESC NULLS LAST,
+                ef.created_at DESC NULLS LAST,
+                ef.school_id DESC
+            ) AS duplicate_rank
+          FROM education_facilities ef
+          LEFT JOIN admin3_units ward ON ward.id = ef.ta_id
+          LEFT JOIN districts district ON district.id = COALESCE(ef.district_id, ward.district_id)
+          ${whereClause}
+        )
+        SELECT *
+        FROM ranked_education
+        WHERE duplicate_rank = 1
+        ORDER BY ${orderBy} ${orderDirection}, school_id DESC
         LIMIT $${dataParams.length - 1}
         OFFSET $${dataParams.length}
       `,

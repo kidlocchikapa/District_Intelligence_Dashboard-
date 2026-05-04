@@ -355,10 +355,10 @@ function TabButton({ active, onClick, icon: Icon, label }) {
   return (
     <button
       onClick={onClick}
-      className={`shrink-0 px-4 py-2.5 md:px-6 rounded text-sm font-bold flex items-center gap-2 transition-all duration-200 ease-out ${
+      className={`shrink-0 px-4 py-2.5 md:px-6 rounded border text-sm font-bold flex items-center gap-2 transition-all duration-200 ease-out ${
         active
-          ? 'bg-slate-900 text-white'
-          : 'bg-white text-slate-600 hover:bg-slate-50 hover:text-slate-950'
+          ? 'border-slate-900 bg-white text-slate-950 ring-1 ring-slate-900/10'
+          : 'border-transparent bg-white text-slate-600 hover:border-slate-300 hover:text-slate-950'
       }`}
     >
       <Icon size={16} />

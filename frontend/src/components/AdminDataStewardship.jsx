@@ -312,9 +312,9 @@ export default function AdminDataStewardship({ department, deptConfig }) {
   const toRecord = Math.min(page * 25, meta.total);
 
   return (
-    <div className="flex h-full min-h-[640px] flex-col overflow-hidden rounded border border-slate-200 bg-white shadow-none">
-      <header className="bg-white">
-        <div className="flex flex-col gap-4 p-4 xl:flex-row xl:items-center xl:justify-between">
+    <div className="flex h-full min-h-[640px] flex-col overflow-hidden rounded border border-slate-200 !bg-white shadow-none">
+      <header className="!bg-white">
+        <div className="flex flex-col gap-4 !bg-white p-4 xl:flex-row xl:items-center xl:justify-between">
           <div className="min-w-0">
             <div className="flex items-center gap-2 text-sm font-bold text-slate-900">
               <Database size={16} className="text-slate-500" />
@@ -341,7 +341,7 @@ export default function AdminDataStewardship({ department, deptConfig }) {
           </div>
         </div>
 
-        <div className="flex gap-2 overflow-x-auto bg-white px-4 pb-4 pt-1">
+        <div className="flex gap-2 overflow-x-auto !bg-white px-4 pb-4 pt-1">
           {tables.map((table) => (
             <button
               key={table.id}
@@ -370,15 +370,15 @@ export default function AdminDataStewardship({ department, deptConfig }) {
         </div>
       )}
 
-      <main className="relative flex-1 overflow-auto bg-white">
+      <main className="relative flex-1 overflow-auto !bg-white">
         {loading && (
           <div className="absolute inset-0 z-20 flex items-center justify-center bg-white/70 backdrop-blur-[1px]">
             <RefreshCw size={24} className="animate-spin text-slate-500" />
           </div>
         )}
 
-        <table className="w-full min-w-[1500px] border-collapse text-left">
-          <thead className="sticky top-0 z-10 bg-white">
+        <table className="w-full min-w-[1500px] border-collapse !bg-white text-left">
+          <thead className="sticky top-0 z-10 !bg-white">
             <tr>
               {columns.map((col) => (
                 <th key={col} className="px-4 py-3 text-[10px] font-bold uppercase tracking-widest text-slate-500">
