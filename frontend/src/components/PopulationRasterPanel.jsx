@@ -280,11 +280,12 @@ function PopulationRasterPanel({
           </div>
         )}
 
-        <div className="pointer-events-none absolute inset-x-4 bottom-4 flex items-end justify-between gap-4 z-[401]">
-          <div className="rounded-2xl border border-white/80 bg-white/92 px-5 py-4 shadow-md backdrop-blur-md min-w-[240px]">
+        {hoveredFeature ? (
+          <div className="pointer-events-none absolute inset-x-4 bottom-4 flex items-end justify-start gap-4 z-[401]">
+            <div className="rounded-2xl border border-white/80 bg-white/92 px-5 py-4 shadow-md backdrop-blur-md min-w-[240px]">
             <div>
               <p className="text-[10px] font-bold uppercase tracking-[0.15em] text-slate/50 leading-none mb-2.5">
-                {hoveredFeature ? "Hovering Area" : selectedFeature ? "Selected Area" : "Area Stats"}
+                Hovering Area
               </p>
               {focusName ? (
                 <div className="space-y-3">
@@ -357,11 +358,8 @@ function PopulationRasterPanel({
               )}
             </div>
           </div>
-
-          <div className="rounded-full border border-white/80 bg-white/92 px-4 py-2 text-[10px] font-bold uppercase tracking-[0.12em] text-slate/50 shadow-sm backdrop-blur-md border-b-2 border-b-slate/10">
-            WorldPop GIS Source
           </div>
-        </div>
+        ) : null}
       </div>
     </div>
   );
