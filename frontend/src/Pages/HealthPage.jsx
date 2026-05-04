@@ -56,7 +56,8 @@ function HealthPage() {
   const servedPopulationSummary = useDashboardData(
     buildDashboardPath("/dashboard/health/served-population", {
       district: districtScope,
-      admin_type: "District",
+      ta: selectedTa,
+      admin_type: selectedTa ? "TA" : "District",
     }),
   );
 
@@ -64,7 +65,8 @@ function HealthPage() {
   const healthSummary = useDashboardData(
     buildDashboardPath("/dashboard/health/summary", {
       district: districtScope,
-      admin_type: "District",
+      ta: selectedTa,
+      admin_type: selectedTa ? "TA" : "District",
     }),
   );
   const districtHealthSummary = useDashboardData(
@@ -91,6 +93,7 @@ function HealthPage() {
   const healthLocations = useDashboardData(
     buildDashboardPath("/dashboard/health", {
       district: districtScope,
+      ta: selectedTa,
     }),
   );
 
@@ -101,12 +104,6 @@ function HealthPage() {
     healthLocations.error,
     servedPopulationTrend.error,
   ].filter(Boolean);
-
-  const findMetricTotal = (name) => {
-    return (healthSummary.data || [])
-      .filter((metric) => metric.metric_name === name)
-      .reduce((sum, metric) => sum + Number(metric.metric_value || 0), 0);
-  };
 
   const formatStat = (val) => Number(val).toLocaleString();
 
@@ -142,7 +139,7 @@ function HealthPage() {
     0,
   );
 
-  const selectedDistrictHospitals = (healthLocations.data?.features || [])
+  const selectedAreaHospitals = (healthLocations.data?.features || [])
     .filter((f) => {
       const type = (f.properties?.type || "").toLowerCase();
       return type.includes("hospital");
@@ -465,13 +462,15 @@ function HealthPage() {
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
           <div className="border border-gray-100 rounded p-6 shadow-sm bg-white h-[400px] flex flex-col">
             <h3 className="text-[16px] font-extrabold mb-4">
-              {selectedDistrict
-                ? `Hospitals in ${selectedDistrict}`
-                : "Health Facilities Across Zomba"}
+              {selectedTa
+                ? `Hospitals in ${selectedTa}`
+                : selectedDistrict
+                  ? `Hospitals in ${selectedDistrict}`
+                  : "Health Facilities Across Zomba"}
             </h3>
 
             <div className="flex-1 overflow-hidden">
-              {selectedDistrict ? (
+              {selectedDistrict || selectedTa ? (
                 <div className="h-full overflow-y-auto pr-2 custom-scrollbar">
                   {healthLocations.loading ? (
                     <div className="space-y-3">
@@ -488,9 +487,9 @@ function HealthPage() {
                         </div>
                       ))}
                     </div>
-                  ) : selectedDistrictHospitals.length > 0 ? (
+                  ) : selectedAreaHospitals.length > 0 ? (
                     <div className="space-y-3">
-                      {selectedDistrictHospitals.map((hospital, idx) => (
+                      {selectedAreaHospitals.map((hospital, idx) => (
                         <div
                           key={idx}
                           className="flex items-center justify-between p-3 rounded-xl border border-gray-50 bg-gray-50/50 hover:bg-gray-100 transition-colors"
@@ -518,10 +517,14 @@ function HealthPage() {
                     <div className="h-full flex flex-col items-center justify-center text-center p-4">
                       <HeartPulse className="h-8 w-8 text-gray-200 mb-2" />
                       <p className="text-sm font-bold text-gray-400">
-                        No hospitals found in this district
+                        {selectedTa
+                          ? "No hospitals found in this TA"
+                          : "No hospitals found in this district"}
                       </p>
                       <p className="text-[11px] text-gray-300 mt-1">
-                        Try selecting another district or "All Districts"
+                        {selectedTa
+                          ? "Try selecting another TA or clear the TA filter"
+                          : 'Try selecting another district or "All Districts"'}
                       </p>
                     </div>
                   )}
