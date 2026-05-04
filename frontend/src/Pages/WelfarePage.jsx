@@ -44,29 +44,8 @@ function formatDistanceKm(value) {
   return `${Number(value || 0).toFixed(1)} km`;
 }
 
-function formatTaAxisLabel(value) {
-  if (!value) {
-    return "";
-  }
-
-  if (value.length <= 14) {
-    return value;
-  }
-
-  return `${value.slice(0, 14)}...`;
-}
-
-function getTaBarColor(value, maxValue) {
-  if (!Number.isFinite(value) || maxValue <= 0) {
-    return "#cbd5e1";
-  }
-
-  const ratio = value / maxValue;
-
-  if (ratio >= 0.8) return "#dc2626";
-  if (ratio >= 0.55) return "#8b5e3c";
-  if (ratio >= 0.3) return "#2563eb";
-  return "#22c55e";
+function formatMinutes(value) {
+  return `${Number(value || 0).toFixed(0)} min`;
 }
 
 function renderBooleanPill(value, yesLabel = "Yes", noLabel = "No") {
@@ -467,6 +446,22 @@ function WelfarePage() {
       render: (value, row) =>
         value
           ? `${value} (${formatDistanceKm(row.nearest_facility_distance_km)})`
+          : "N/A",
+    },
+    {
+      key: "nearest_health_travel_time_min",
+      label: "Health Road Travel",
+      render: (value, row) =>
+        row.nearest_health_routing_status === "routed"
+          ? `${formatMinutes(value)} (${formatDistanceKm(row.nearest_health_network_distance_km)})`
+          : "N/A",
+    },
+    {
+      key: "nearest_school_travel_time_min",
+      label: "School Road Travel",
+      render: (value, row) =>
+        row.nearest_school_routing_status === "routed"
+          ? `${formatMinutes(value)} (${formatDistanceKm(row.nearest_school_network_distance_km)})`
           : "N/A",
     },
     {

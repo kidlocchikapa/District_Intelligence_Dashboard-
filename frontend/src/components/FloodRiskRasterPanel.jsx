@@ -36,16 +36,58 @@ function geometryToPolygons(geometry) {
   return [];
 }
 
+function pointInRing(point, ring) {
+  if (!ring || ring.length < 3) {
+    return false;
+  }
+
+  const [x, y] = point;
+  let inside = false;
+
+  for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+    const [xi, yi] = ring[i];
+    const [xj, yj] = ring[j];
+    const intersect =
+      yi > y !== yj > y && x < ((xj - xi) * (y - yi)) / (yj - yi + 0.0) + xi;
+    if (intersect) {
+      inside = !inside;
+    }
+  }
+
+  return inside;
+}
+
+function pointInPolygon(point, polygon) {
+  if (!polygon.length) {
+    return false;
+  }
+
+  const [outer, ...holes] = polygon;
+  if (!pointInRing(point, outer)) {
+    return false;
+  }
+
+  return !holes.some((hole) => pointInRing(point, hole));
+}
+
+function geometryContainsPoint(geometry, point) {
+  const polygons = geometryToPolygons(geometry);
+  return polygons.some((polygon) => pointInPolygon(point, polygon));
+}
+
 function FloodRiskRasterPanel({
   geojson,
   title,
   subtitle,
   heightClass = "h-[460px]",
   loading = false,
+  onSelectArea,
+  selectedAreaName,
 }) {
   const wrapperRef = useRef(null);
   const canvasRef = useRef(null);
   const [size, setSize] = useState({ width: 0, height: 0 });
+  const [hoveredFeature, setHoveredFeature] = useState(null);
 
   useEffect(() => {
     if (!wrapperRef.current) {
@@ -66,6 +108,19 @@ function FloodRiskRasterPanel({
   }, []);
 
   const features = geojson?.features || [];
+  const bounds = useMemo(() => getGeoBounds(features), [features]);
+  const selectedFeature = useMemo(() => {
+    if (!selectedAreaName) {
+      return null;
+    }
+    return (
+      features.find(
+        (feature) =>
+          (feature?.properties?.admin_unit_name ||
+            feature?.properties?.name) === selectedAreaName,
+      ) || null
+    );
+  }, [features, selectedAreaName]);
 
   const riskCounts = useMemo(() => {
     return features.reduce(
@@ -159,7 +214,120 @@ function FloodRiskRasterPanel({
     ctx.imageSmoothingEnabled = false;
     ctx.clearRect(0, 0, size.width, size.height);
     ctx.drawImage(rasterCanvas, 0, 0, size.width, size.height);
-  }, [features, size.height, size.width]);
+
+    if (!selectedFeature?.geometry) {
+      return;
+    }
+
+    const projectDisplay = ([lon, lat]) => {
+      const x = ((lon - bounds.minLon) / lonSpan) * size.width;
+      const y = size.height - ((lat - bounds.minLat) / latSpan) * size.height;
+      return [x, y];
+    };
+
+    const polygons = geometryToPolygons(selectedFeature.geometry);
+    polygons.forEach((polygon) => {
+      if (!polygon.length) return;
+      ctx.beginPath();
+      polygon.forEach((ring) => {
+        ring.forEach((coord, index) => {
+          const [x, y] = projectDisplay(coord);
+          if (index === 0) {
+            ctx.moveTo(x, y);
+          } else {
+            ctx.lineTo(x, y);
+          }
+        });
+        ctx.closePath();
+      });
+      ctx.fillStyle = "rgba(15, 23, 42, 0.08)";
+      ctx.fill("evenodd");
+      ctx.strokeStyle = "rgba(15, 23, 42, 0.85)";
+      ctx.lineWidth = 2.5;
+      ctx.setLineDash([6, 4]);
+      ctx.stroke();
+      ctx.setLineDash([]);
+    });
+  }, [features, size.height, size.width, selectedFeature, bounds]);
+
+  const hasValidBounds =
+    Number.isFinite(bounds?.minLat) &&
+    Number.isFinite(bounds?.minLon) &&
+    Number.isFinite(bounds?.maxLat) &&
+    Number.isFinite(bounds?.maxLon);
+
+  const handleMouseMove = (event) => {
+    if (!wrapperRef.current || !hasValidBounds || !features.length) {
+      setHoveredFeature(null);
+      return;
+    }
+
+    const rect = wrapperRef.current.getBoundingClientRect();
+    const x = event.clientX - rect.left;
+    const y = event.clientY - rect.top;
+
+    if (x < 0 || y < 0 || x > rect.width || y > rect.height) {
+      setHoveredFeature(null);
+      return;
+    }
+
+    const lonSpan = Math.max(bounds.maxLon - bounds.minLon, 0.00001);
+    const latSpan = Math.max(bounds.maxLat - bounds.minLat, 0.00001);
+    const lon = bounds.minLon + (x / rect.width) * lonSpan;
+    const lat = bounds.maxLat - (y / rect.height) * latSpan;
+
+    const match = features.find((feature) =>
+      geometryContainsPoint(feature?.geometry, [lon, lat]),
+    );
+
+    if (!match) {
+      setHoveredFeature(null);
+      return;
+    }
+
+    setHoveredFeature({
+      name:
+        match?.properties?.admin_unit_name ||
+        match?.properties?.name ||
+        "Selected area",
+      x,
+      y,
+    });
+  };
+
+  const handleMouseLeave = () => setHoveredFeature(null);
+
+  const handleClick = (event) => {
+    if (!onSelectArea) {
+      return;
+    }
+    if (!wrapperRef.current || !hasValidBounds || !features.length) {
+      return;
+    }
+
+    const rect = wrapperRef.current.getBoundingClientRect();
+    const x = event.clientX - rect.left;
+    const y = event.clientY - rect.top;
+
+    if (x < 0 || y < 0 || x > rect.width || y > rect.height) {
+      return;
+    }
+
+    const lonSpan = Math.max(bounds.maxLon - bounds.minLon, 0.00001);
+    const latSpan = Math.max(bounds.maxLat - bounds.minLat, 0.00001);
+    const lon = bounds.minLon + (x / rect.width) * lonSpan;
+    const lat = bounds.maxLat - (y / rect.height) * latSpan;
+
+    const match = features.find((feature) =>
+      geometryContainsPoint(feature?.geometry, [lon, lat]),
+    );
+
+    if (!match) {
+      return;
+    }
+
+    onSelectArea(match);
+  };
 
   if (!loading && !features.length) {
     return (
@@ -186,6 +354,9 @@ function FloodRiskRasterPanel({
       <div
         ref={wrapperRef}
         className={`relative ${heightClass} min-h-0 overflow-hidden rounded-[1.5rem] border border-fog bg-[#f8f8f3]`}
+        onMouseMove={handleMouseMove}
+        onMouseLeave={handleMouseLeave}
+        onClick={handleClick}
       >
         <canvas ref={canvasRef} className="h-full w-full" />
 
@@ -228,6 +399,18 @@ function FloodRiskRasterPanel({
             ))}
           </div>
         </div>
+
+        {hoveredFeature ? (
+          <div
+            className="pointer-events-none absolute rounded-xl border border-white/80 bg-white/95 px-3 py-2 text-xs font-semibold text-slate-700 shadow-lg"
+            style={{
+              left: Math.min(hoveredFeature.x + 12, size.width - 180),
+              top: Math.max(hoveredFeature.y - 12, 12),
+            }}
+          >
+            {hoveredFeature.name}
+          </div>
+        ) : null}
       </div>
     </div>
   );
