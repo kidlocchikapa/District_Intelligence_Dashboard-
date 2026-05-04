@@ -7,6 +7,27 @@ DATASET_CONFIG = {
         'load_columns': [],
         'indicator_rules': [],
     },
+    'roads': {
+        'table_name': 'road_segments',
+        'required_columns': [],
+        'canonical_columns': {
+            'road_name': ['road_name', 'name', 'ref', 'street_name'],
+            'road_class': ['road_class', 'highway', 'road_type', 'class', 'type', 'fclass'],
+            'surface': ['surface', 'surf_type'],
+            'speed_kmh': ['speed_kmh', 'speed', 'maxspeed', 'max_speed', 'speedlimit'],
+            'oneway': ['oneway', 'one_way', 'oneway_flag', 'direction'],
+        },
+        'numeric_columns': ['speed_kmh'],
+        'load_columns': [
+            'road_name',
+            'road_class',
+            'surface',
+            'speed_kmh',
+            'oneway',
+            'geom',
+        ],
+        'indicator_rules': [],
+    },
     'boundaries': {
         'table_name': 'districts',
         'required_columns': ['code', 'name'],

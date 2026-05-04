@@ -5,10 +5,12 @@ import os
 import shutil
 import tempfile
 import zipfile
+from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
 import geopandas as gpd
 import pandas as pd
+from shapely.geometry import LineString
 
 #importing third-party libaries
 from db_utils import read_table
@@ -21,6 +23,10 @@ SUPPORTED_FILE_EXTENSIONS = GEOSPATIAL_FILE_EXTENSIONS + TABULAR_FILE_EXTENSIONS
 
 # Set up logging for the ingest module
 LOGGER = logging.getLogger('etl.ingest')
+DEFAULT_OVERPASS_USER_AGENT = os.getenv(
+    'OVERPASS_USER_AGENT',
+    'DistrictIntelligence/1.0 (+https://example.org)'
+)
 
 # Error handler
 class IngestError(Exception):
@@ -36,6 +42,7 @@ def log_step(step_name, message, level='info'):
     log_method(f"[{step_name}] {message}")
 
 # Run a specific step in the ingest process, logging its start and completion
+def run_step(step_name, user_message_on_error, fn, *args, **kwargs):
     log_step(step_name, 'started')
     try:
         result = fn(*args, **kwargs)
@@ -210,8 +217,81 @@ def extract_from_api(api_url, headers=None, timeout=30):
 
     return prepare_dataframe(df)
 
+
+def normalize_overpass_query(query):
+    if not query:
+        return query
+    normalized = str(query).strip()
+    if '[out:xml]' in normalized:
+        normalized = normalized.replace('[out:xml]', '[out:json]')
+    if 'out geom' not in normalized:
+        normalized = f"{normalized}\nout geom;"
+    return normalized
+
+
+def extract_from_overpass(api_url, query, timeout=60, user_agent=None):
+    if not api_url:
+        raise ValueError('overpass_url is required for Overpass extraction')
+    if not query:
+        raise ValueError('overpass_query is required for Overpass extraction')
+
+    normalized_query = normalize_overpass_query(query)
+    payload = urlencode({'data': normalized_query}).encode('utf-8')
+    request = Request(
+        api_url,
+        data=payload,
+        headers={
+            'Content-Type': 'application/x-www-form-urlencoded',
+            'Accept': 'application/json',
+            'User-Agent': user_agent or DEFAULT_OVERPASS_USER_AGENT,
+        },
+    )
+
+    with urlopen(request, timeout=timeout) as response:
+        payload = json.loads(response.read().decode('utf-8'))
+
+    elements = payload.get('elements', []) if isinstance(payload, dict) else []
+    rows = []
+    for element in elements:
+        if element.get('type') != 'way':
+            continue
+        geometry = element.get('geometry') or []
+        coords = [
+            (point.get('lon'), point.get('lat'))
+            for point in geometry
+            if point.get('lon') is not None and point.get('lat') is not None
+        ]
+        if len(coords) < 2:
+            continue
+        tags = element.get('tags') or {}
+        rows.append(
+            {
+                'osm_id': element.get('id'),
+                'road_name': tags.get('name') or tags.get('ref'),
+                'road_class': tags.get('highway'),
+                'surface': tags.get('surface'),
+                'speed_kmh': tags.get('maxspeed'),
+                'oneway': tags.get('oneway'),
+                'geometry': LineString(coords),
+            }
+        )
+
+    if not rows:
+        raise ValueError('Overpass response did not include any road ways.')
+
+    road_gdf = gpd.GeoDataFrame(rows, geometry='geometry', crs='EPSG:4326')
+    return prepare_dataframe(road_gdf)
+
 # Main extraction function that determines the source type and calls the appropriate extraction method
-def extract_source(source_type, file_path=None, api_url=None, api_headers=None):
+def extract_source(
+    source_type,
+    file_path=None,
+    api_url=None,
+    api_headers=None,
+    overpass_url=None,
+    overpass_query=None,
+    overpass_timeout=60,
+):
     if source_type == 'file':
         if not file_path:
             raise ValueError('file_path is required for file extraction')
@@ -231,6 +311,16 @@ def extract_source(source_type, file_path=None, api_url=None, api_headers=None):
             fn=extract_from_api,
             api_url=api_url,
             headers=api_headers,
+        )
+
+    if source_type == 'overpass':
+        return run_step(
+            step_name='extract_source_overpass',
+            user_message_on_error='Could not fetch data from Overpass API. Check query and network access.',
+            fn=extract_from_overpass,
+            api_url=overpass_url,
+            query=overpass_query,
+            timeout=overpass_timeout,
         )
 
     raise ValueError(f'Unsupported source type for tabular extraction: {source_type}')

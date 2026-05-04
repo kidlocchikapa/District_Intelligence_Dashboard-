@@ -24,6 +24,11 @@ from load import (
 from load import load_worldpop_age_sex
 from welfare import process_welfare_beneficiary_dataset
 from pipeline_config import DATASET_CONFIG
+from roads import (
+    process_roads_dataset,
+    process_routing_dataset,
+    recompute_beneficiary_facility_travel,
+)
 from transform import (
     add_harmonized_names,
     coerce_numeric_columns,
@@ -57,6 +62,10 @@ from worldpop import (
 
 # Set up logging
 LOGGER = logging.getLogger('etl_pipeline')
+
+DEFAULT_OVERPASS_URL = os.getenv('OVERPASS_API_URL', 'https://overpass-api.de/api/interpreter')
+DEFAULT_OVERPASS_TIMEOUT = int(os.getenv('OVERPASS_TIMEOUT', '180'))
+DEFAULT_OVERPASS_DISTRICTS = os.getenv('OVERPASS_ROADS_DISTRICTS', '')
 
 # Custom exception class for ETL pipeline errors
 class ETLPipelineError(Exception):
@@ -97,6 +106,12 @@ def run_step(step_name, user_message_on_error, fn, *args, **kwargs):
         ) from exc
     log_step(step_name, 'completed')
     return result
+
+
+def parse_csv_list(value):
+    if not value:
+        return []
+    return [item.strip() for item in str(value).split(',') if item.strip()]
 
 # Group Zomba and Zomba city as one
 DISTRICT_GROUPS = {
@@ -867,6 +882,8 @@ def parse_headers(header_values):
 def resolve_table_name_for_failure(dataset_type):
     if dataset_type == 'flood':
         return 'flood_zones'
+    if dataset_type == 'routing':
+        return 'beneficiary_facility_travel'
     if dataset_type == 'analysis':
         return 'analysis_results'
     if dataset_type == 'worldpop':
@@ -877,8 +894,8 @@ def resolve_table_name_for_failure(dataset_type):
 def main():
     setup_logging()
     parser = argparse.ArgumentParser(description='District Intelligence ETL Pipeline')
-    parser.add_argument('--type', required=True, choices=list(DATASET_CONFIG.keys()) + ['flood'], help='Dataset type')
-    parser.add_argument('--source-type', default='file', choices=['file', 'api', 'worldpop'], help='Input source type')
+    parser.add_argument('--type', required=True, choices=list(DATASET_CONFIG.keys()) + ['flood', 'routing'], help='Dataset type')
+    parser.add_argument('--source-type', default='file', choices=['file', 'api', 'worldpop', 'overpass'], help='Input source type')
     parser.add_argument('--file', help='Path to CSV, Excel, JSON, or GeoTIFF file')
     parser.add_argument('--api-url', help='Remote API endpoint for extraction')
     parser.add_argument('--api-header', action='append', help='Optional API headers in KEY=VALUE format')
@@ -891,6 +908,10 @@ def main():
     parser.add_argument('--worldpop-timeout', type=int, default=900, help='WorldPop raster/API timeout in seconds for flood workflow')
     parser.add_argument('--worldpop-max-attempts', type=int, default=3, help='Maximum WorldPop fetch attempts for flood workflow')
     parser.add_argument('--analysis-date', help='Optional analysis date (YYYY-MM-DD) for flood workflow')
+    parser.add_argument('--overpass-url', default=DEFAULT_OVERPASS_URL, help='Overpass API URL for road ingestion')
+    parser.add_argument('--overpass-query', help='Overpass query for road ingestion')
+    parser.add_argument('--overpass-timeout', type=int, default=DEFAULT_OVERPASS_TIMEOUT, help='Overpass request timeout in seconds')
+    parser.add_argument('--road-clip-districts', default=DEFAULT_OVERPASS_DISTRICTS, help='Comma-separated district names for clipping road data')
     parser.add_argument('--school-age-min', type=int, default=DEFAULT_SCHOOL_AGE_MIN, help='Lower bound for school-age population aggregation')
     parser.add_argument('--school-age-max', type=int, default=DEFAULT_SCHOOL_AGE_MAX, help='Upper bound for school-age population aggregation')
     parser.add_argument('--child-class-max', type=int, default=DEFAULT_CHILD_CLASS_MAX, help='Maximum wpgpas class treated as child population')
@@ -911,6 +932,11 @@ def main():
         user_message_on_error='Could not connect to the database. Check database service and credentials.',
         fn=get_session,
     )
+    if args.source_type == 'overpass' and args.type != 'roads':
+        raise ETLPipelineError(
+            user_message='Overpass source type is only supported for road network ingestion.',
+            step_name='validate_source_type',
+        )
     selected_group_districts = DISTRICT_GROUPS.get(args.district_group, [])
     headers = run_step(
         step_name='parse_api_headers',
@@ -919,6 +945,7 @@ def main():
         header_values=args.api_header,
     )
 
+    clip_districts = parse_csv_list(args.road_clip_districts)
     try:
         if args.type == 'worldpop':
             result = run_step(
@@ -995,6 +1022,47 @@ def main():
                 health_dist_km=args.coverage_distance_km if args.coverage_distance_km != 5.0 else 8.0,
                 school_dist_km=3.0 if args.coverage_distance_km == 5.0 else args.coverage_distance_km,
             )
+            run_step(
+                step_name='post_welfare_beneficiary_routing_refresh',
+                user_message_on_error='Welfare beneficiaries loaded, but road travel refresh failed.',
+                fn=recompute_beneficiary_facility_travel,
+                session=session,
+                strict=False,
+            )
+        elif args.type == 'roads':
+            if args.source_type == 'overpass' and not args.overpass_query:
+                raise ETLPipelineError(
+                    user_message='An Overpass query is required for road network ingestion.',
+                    step_name='validate_overpass_query',
+                )
+            if args.source_type != 'overpass' and not args.file:
+                raise ETLPipelineError(
+                    user_message='A road file path is required for road network ingestion.',
+                    step_name='validate_roads_file_path',
+                )
+            result = run_step(
+                step_name='dispatch_roads_pipeline',
+                user_message_on_error='Road network pipeline failed. Check the road file and pgRouting setup.',
+                fn=process_roads_dataset,
+                session=session,
+                file_path=args.file,
+                missing_data_strategy=args.missing_data_strategy,
+                source_type=args.source_type,
+                api_url=args.api_url,
+                api_headers=headers,
+                overpass_url=args.overpass_url,
+                overpass_query=args.overpass_query,
+                overpass_timeout=args.overpass_timeout,
+                clip_districts=clip_districts,
+            )
+        elif args.type == 'routing':
+            result = run_step(
+                step_name='dispatch_routing_pipeline',
+                user_message_on_error='Road travel routing pipeline failed. Check road network and pgRouting setup.',
+                fn=process_routing_dataset,
+                session=session,
+                strict=True,
+            )
         else:
             source_type = 'api' if args.source_type == 'api' else 'file'
             if source_type == 'file' and not args.file:
@@ -1021,6 +1089,15 @@ def main():
                 gazetteer_path=args.gazetteer,
                 missing_data_strategy=args.missing_data_strategy,
             )
+            if args.type in {'education', 'health'}:
+                run_step(
+                    step_name=f'post_{args.type}_routing_refresh',
+                    user_message_on_error=f'{args.type.title()} data loaded, but road travel refresh failed.',
+                    fn=recompute_beneficiary_facility_travel,
+                    session=session,
+                    facility_types=['school'] if args.type == 'education' else ['health'],
+                    strict=False,
+                )
 
         print(
             'ETL completed successfully: '
