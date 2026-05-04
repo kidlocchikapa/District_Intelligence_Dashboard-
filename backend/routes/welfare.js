@@ -313,70 +313,103 @@ router.get("/integration", async (req, res) => {
       normalizedAdminType === "District" ? "fz.district_name" : "fz.ta_name";
     const floodAdminTypeFilter =
       normalizedAdminType === "District" ? "" : "WHERE fz.ta_id <> 0";
+    const shouldResolveNearestHealth = Boolean(district || ta);
 
     const nearestHealthCte = `
       nearest_health AS (
-        SELECT
-          bs.beneficiary_id,
-          nh.facility_id,
-          nh.facility_name,
-          nh.facility_type,
-          nh.ownership,
-          nh.ownership_category,
-          nh.distance_km
-        FROM beneficiary_scope bs
-        LEFT JOIN LATERAL (
-          SELECT
-            hf.id AS facility_id,
-            hf.name AS facility_name,
-            hf.type AS facility_type,
-            hf.ownership,
-            CASE
-              WHEN hf.ownership IS NULL OR BTRIM(hf.ownership) = '' THEN 'unknown'
-              WHEN LOWER(hf.ownership) ~ '(public|government|govt|ministry|district|central)' THEN 'public'
-              WHEN LOWER(hf.ownership) ~ '(private|for.?profit|company|commercial)' THEN 'private'
-              WHEN LOWER(hf.ownership) ~ '(mission|faith|church|ngo|non.?government|community|cham)' THEN 'private'
-              ELSE 'private'
-            END AS ownership_category,
-            ST_Distance(bs.geom::geography, hf.geom::geography) / 1000.0 AS distance_km
-          FROM health_facilities hf
-          WHERE bs.geom IS NOT NULL
-            AND hf.geom IS NOT NULL
-          ORDER BY bs.geom <-> hf.geom
-          LIMIT 1
-        ) nh ON TRUE
+        ${
+          shouldResolveNearestHealth
+            ? `
+              SELECT
+                bs.beneficiary_id,
+                nh.facility_id,
+                nh.facility_name,
+                nh.facility_type,
+                nh.ownership,
+                nh.ownership_category,
+                nh.distance_km
+              FROM beneficiary_scope bs
+              LEFT JOIN LATERAL (
+                SELECT
+                  hf.id AS facility_id,
+                  hf.name AS facility_name,
+                  hf.type AS facility_type,
+                  hf.ownership,
+                  CASE
+                    WHEN hf.ownership IS NULL OR BTRIM(hf.ownership) = '' THEN 'unknown'
+                    WHEN LOWER(hf.ownership) ~ '(public|government|govt|ministry|district|central)' THEN 'public'
+                    WHEN LOWER(hf.ownership) ~ '(private|for.?profit|company|commercial)' THEN 'private'
+                    WHEN LOWER(hf.ownership) ~ '(mission|faith|church|ngo|non.?government|community|cham)' THEN 'private'
+                    ELSE 'private'
+                  END AS ownership_category,
+                  ST_Distance(bs.geom::geography, hf.geom::geography) / 1000.0 AS distance_km
+                FROM health_facilities hf
+                WHERE bs.geom IS NOT NULL
+                  AND hf.geom IS NOT NULL
+                ORDER BY bs.geom <-> hf.geom
+                LIMIT 1
+              ) nh ON TRUE
+            `
+            : `
+              SELECT
+                bs.beneficiary_id,
+                NULL::integer AS facility_id,
+                NULL::text AS facility_name,
+                NULL::text AS facility_type,
+                NULL::text AS ownership,
+                NULL::text AS ownership_category,
+                NULL::double precision AS distance_km
+              FROM beneficiary_scope bs
+            `
+        }
       ),
       nearest_hospital AS (
-        SELECT
-          bs.beneficiary_id,
-          nh.facility_id,
-          nh.facility_name,
-          nh.facility_type,
-          nh.ownership,
-          nh.ownership_category,
-          nh.distance_km
-        FROM beneficiary_scope bs
-        LEFT JOIN LATERAL (
-          SELECT
-            hf.id AS facility_id,
-            hf.name AS facility_name,
-            hf.type AS facility_type,
-            hf.ownership,
-            CASE
-              WHEN hf.ownership IS NULL OR BTRIM(hf.ownership) = '' THEN 'unknown'
-              WHEN LOWER(hf.ownership) ~ '(public|government|govt|ministry|district|central)' THEN 'public'
-              WHEN LOWER(hf.ownership) ~ '(private|for.?profit|company|commercial)' THEN 'private'
-              WHEN LOWER(hf.ownership) ~ '(mission|faith|church|ngo|non.?government|community|cham)' THEN 'private'
-              ELSE 'private'
-            END AS ownership_category,
-            ST_Distance(bs.geom::geography, hf.geom::geography) / 1000.0 AS distance_km
-          FROM health_facilities hf
-          WHERE bs.geom IS NOT NULL
-            AND hf.geom IS NOT NULL
-            AND LOWER(COALESCE(hf.type, '')) LIKE '%hospital%'
-          ORDER BY bs.geom <-> hf.geom
-          LIMIT 1
-        ) nh ON TRUE
+        ${
+          shouldResolveNearestHealth
+            ? `
+              SELECT
+                bs.beneficiary_id,
+                nh.facility_id,
+                nh.facility_name,
+                nh.facility_type,
+                nh.ownership,
+                nh.ownership_category,
+                nh.distance_km
+              FROM beneficiary_scope bs
+              LEFT JOIN LATERAL (
+                SELECT
+                  hf.id AS facility_id,
+                  hf.name AS facility_name,
+                  hf.type AS facility_type,
+                  hf.ownership,
+                  CASE
+                    WHEN hf.ownership IS NULL OR BTRIM(hf.ownership) = '' THEN 'unknown'
+                    WHEN LOWER(hf.ownership) ~ '(public|government|govt|ministry|district|central)' THEN 'public'
+                    WHEN LOWER(hf.ownership) ~ '(private|for.?profit|company|commercial)' THEN 'private'
+                    WHEN LOWER(hf.ownership) ~ '(mission|faith|church|ngo|non.?government|community|cham)' THEN 'private'
+                    ELSE 'private'
+                  END AS ownership_category,
+                  ST_Distance(bs.geom::geography, hf.geom::geography) / 1000.0 AS distance_km
+                FROM health_facilities hf
+                WHERE bs.geom IS NOT NULL
+                  AND hf.geom IS NOT NULL
+                  AND LOWER(COALESCE(hf.type, '')) LIKE '%hospital%'
+                ORDER BY bs.geom <-> hf.geom
+                LIMIT 1
+              ) nh ON TRUE
+            `
+            : `
+              SELECT
+                bs.beneficiary_id,
+                NULL::integer AS facility_id,
+                NULL::text AS facility_name,
+                NULL::text AS facility_type,
+                NULL::text AS ownership,
+                NULL::text AS ownership_category,
+                NULL::double precision AS distance_km
+              FROM beneficiary_scope bs
+            `
+        }
       ),
       education_context AS (
         SELECT
@@ -440,7 +473,7 @@ router.get("/integration", async (req, res) => {
         COUNT(*) FILTER (WHERE COALESCE(bs.age, 0) < 18)::int AS beneficiary_records_under_18,
         COUNT(*) FILTER (WHERE bs.has_school_access)::int AS school_access_count,
         COUNT(*) FILTER (WHERE bs.has_health_facility_access)::int AS health_access_count,
-        COUNT(*) FILTER (WHERE bs.affected_by_flood)::int AS direct_flood_affected_count,
+        COUNT(*) FILTER (WHERE bs.affected_by_flood)::int AS flood_affected_count,
         COUNT(*) FILTER (
           WHERE nh.distance_km <= 8
             AND nh.ownership_category = 'public'

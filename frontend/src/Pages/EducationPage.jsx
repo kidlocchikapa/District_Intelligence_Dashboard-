@@ -199,18 +199,31 @@ function EducationPage() {
   const visibleInsightSummary =
     districtInsights.data?.visible_summary || benchmarkSummary;
   const thresholds = districtInsights.data?.thresholds || {};
-  const selectedInsight = selectedDistrict ? insightRows[0] || null : null;
-  const chartRows = (allInsightRows.length ? allInsightRows : insightRows).map(
+  const sourceInsightRows = allInsightRows.length ? allInsightRows : insightRows;
+  const selectedInsight =
+    selectedTa
+      ? sourceInsightRows.find(
+          (row) =>
+            String(row.admin_unit_name || "").toLowerCase() ===
+            selectedTa.toLowerCase(),
+        ) || null
+      : selectedDistrict
+        ? insightRows[0] || null
+        : null;
+  const chartRows = sourceInsightRows.map(
     (row) => ({
       ...row,
       z: Math.max(Number(row.school_age_population_total || 0), 1),
       fill: getInsightColor(row.insight_label),
-      isSelected: selectedDistrict
-        ? row.district.toLowerCase() === selectedDistrict.toLowerCase()
-        : false,
+      isSelected: selectedTa
+        ? String(row.admin_unit_name || "").toLowerCase() ===
+          selectedTa.toLowerCase()
+        : selectedDistrict
+          ? row.district.toLowerCase() === selectedDistrict.toLowerCase()
+          : false,
     }),
   );
-  const highlightedRows = selectedDistrict
+  const highlightedRows = selectedTa || selectedDistrict
     ? chartRows.filter((row) => row.isSelected)
     : [];
 
@@ -302,7 +315,7 @@ function EducationPage() {
         : [...current, category],
     );
   };
-  const rankedSignals = [...chartRows]
+  const sortedSignals = [...chartRows]
     .sort((left, right) => {
       if (left.insight_label !== right.insight_label) {
         return left.insight_label.localeCompare(right.insight_label);
@@ -321,8 +334,13 @@ function EducationPage() {
       }
 
       return right.schools_per_10k - left.schools_per_10k;
-    })
-    .slice(0, 6);
+    });
+  const rankedSignals = selectedTa
+    ? [
+        ...highlightedRows,
+        ...sortedSignals.filter((row) => !row.isSelected),
+      ].slice(0, 6)
+    : sortedSignals.slice(0, 6);
   const categoryPieData = [
     {
       name: "Infrastructure Gap",
@@ -431,34 +449,47 @@ function EducationPage() {
             : [
                 {
                   label: "Total Schools",
-                  value: formatStat(educationSummary.data?.school_count || 0),
+                  value: formatStat(
+                    selectedInsight?.school_count ||
+                      educationSummary.data?.school_count ||
+                      0,
+                  ),
                   icon: School,
                 },
                 {
                   label: "Total Enrollment",
                   value: formatStat(
-                    educationSummary.data?.student_enrollment_total || 0,
+                    selectedInsight?.student_enrollment_total ||
+                      educationSummary.data?.student_enrollment_total ||
+                      0,
                   ),
                   icon: Users,
                 },
                 {
                   label: "Teachers",
                   value: formatStat(
-                    educationSummary.data?.teacher_count_total || 0,
+                    selectedInsight?.teacher_count_total ||
+                      educationSummary.data?.teacher_count_total ||
+                      0,
                   ),
                   icon: BookOpen,
                 },
                 {
                   label: "School-age Population",
                   value: formatStat(
-                    educationSummary.data?.school_age_population_total || 0,
+                    selectedInsight?.school_age_population_total ||
+                      educationSummary.data?.school_age_population_total ||
+                      0,
                   ),
                   icon: UserRoundCheck,
                 },
                 {
                   label: "Not in School",
                   value: formatStat(
-                    educationSummary.data?.not_in_school_total || 0,
+                    selectedInsight?.school_age_population_unenrolled ||
+                      selectedInsight?.not_in_school_total ||
+                      educationSummary.data?.not_in_school_total ||
+                      0,
                   ),
                   icon: UserRoundX,
                 },
