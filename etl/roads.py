@@ -702,7 +702,28 @@ def clip_roads_to_districts(session, road_gdf, district_names):
             user_message='Road clipping removed all road segments. Check district geometry and query bounds.',
             step_name='clip_roads_to_districts',
         )
-    return clipped
+    if 'geometry' not in clipped.columns:
+        return clipped
+    if not any(clipped.geometry.geom_type.isin(['MultiLineString'])):
+        return clipped
+
+    rows = []
+    for _, row in clipped.iterrows():
+        lines = _explode_lines(row.geometry)
+        if not lines:
+            continue
+        base = row.to_dict()
+        for line in lines:
+            entry = dict(base)
+            entry['geometry'] = line
+            rows.append(entry)
+
+    if not rows:
+        raise RoadNetworkError(
+            user_message='Road clipping removed all road segments. Check district geometry and query bounds.',
+            step_name='clip_roads_to_districts',
+        )
+    return gpd.GeoDataFrame(rows, geometry='geometry', crs=clipped.crs)
 
 
 def process_roads_dataset(
