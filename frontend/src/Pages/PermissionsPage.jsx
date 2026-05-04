@@ -36,7 +36,7 @@ export default function PermissionsPage() {
       if (data && data.length > 0 && !selectedUserId) {
         handleSelectUser(data[0].id);
       }
-    } catch (err) {
+    } catch {
       setStatus("Failed to load users");
     } finally {
       setIsLoadingUsers(false);
@@ -48,10 +48,13 @@ export default function PermissionsPage() {
     try {
       setIsLoadingPerms(true);
       const data = await fetchJson(`/admin/users/${userId}/permissions`);
+      const permissionRows = Array.isArray(data)
+        ? data
+        : data?.access?.permissions || data?.permissions || [];
       
       // Initialize permissions for all departments if missing
       const fullPerms = DEPARTMENTS.map(dept => {
-        const existing = (data || []).find(p => p.department === dept);
+        const existing = permissionRows.find(p => p.department === dept);
         return existing || { 
           department: dept, 
           canRead: true, 
@@ -69,7 +72,7 @@ export default function PermissionsPage() {
       }));
 
       setPermissions(normalized);
-    } catch (err) {
+    } catch {
       setStatus("Failed to load user permissions");
     } finally {
       setIsLoadingPerms(false);
@@ -92,7 +95,7 @@ export default function PermissionsPage() {
       await putJson(`/admin/users/${selectedUserId}/permissions`, { permissions });
       setStatus("Permissions updated successfully!");
       setTimeout(() => setStatus(""), 3000);
-    } catch (err) {
+    } catch {
       setStatus("Failed to update permissions");
     } finally {
       setIsSaving(false);
@@ -100,8 +103,8 @@ export default function PermissionsPage() {
   }
 
   const filteredUsers = users.filter(u => 
-    u.fullName.toLowerCase().includes(searchQuery.toLowerCase()) || 
-    u.email.toLowerCase().includes(searchQuery.toLowerCase())
+    String(u.fullName || "").toLowerCase().includes(searchQuery.toLowerCase()) || 
+    String(u.email || "").toLowerCase().includes(searchQuery.toLowerCase())
   );
 
   const selectedUser = users.find(u => u.id === selectedUserId);
@@ -111,14 +114,14 @@ export default function PermissionsPage() {
       <div className="flex items-end justify-between">
         <div>
           <h1 className="text-2xl font-bold text-slate-900 tracking-tight flex items-center gap-2">
-            <ShieldCheck className="text-emerald-500" />
+            <ShieldCheck className="text-black" />
             User Permissions
           </h1>
           <p className="mt-1 text-sm text-slate-500">Control granular data access and operational rights for departmental admins.</p>
         </div>
         
         {status && (
-          <div className="rounded-lg border border-emerald-100 bg-emerald-50 px-4 py-2 text-xs font-bold text-emerald-700 animate-in slide-in-from-right-4">
+          <div className="rounded-lg border border-gray-200 bg-gray-100 px-4 py-2 text-xs font-bold text-black animate-in slide-in-from-right-4">
             {status}
           </div>
         )}
@@ -189,7 +192,7 @@ export default function PermissionsPage() {
                 <button
                   onClick={handleSave}
                   disabled={isSaving || isLoadingPerms}
-                  className="flex items-center gap-2 rounded-xl bg-emerald-600 px-6 py-2.5 text-sm font-bold text-white hover:bg-emerald-700 transition-all active:scale-[0.98] disabled:opacity-50 shadow-lg shadow-emerald-600/10"
+                  className="flex items-center gap-2 rounded-xl bg-black px-6 py-2.5 text-sm font-bold text-white hover:bg-gray-800 transition-all active:scale-[0.98] disabled:opacity-50 shadow-lg shadow-black/10"
                 >
                   {isSaving ? <RotateCw size={18} className="animate-spin" /> : <Save size={18} />}
                   Save Permissions
@@ -280,7 +283,7 @@ function PermissionToggle({ checked, onChange }) {
     <button
       onClick={onChange}
       className={`h-6 w-11 rounded-full relative transition-all duration-300 focus:outline-none ring-offset-2 focus:ring-2 focus:ring-slate-200 ${
-        checked ? 'bg-emerald-500 shadow-inner' : 'bg-slate-200'
+        checked ? 'bg-black shadow-inner' : 'bg-slate-200'
       }`}
     >
       <div className={`absolute top-1 left-1 h-4 w-4 rounded-full bg-white shadow-sm transition-transform duration-300 ${

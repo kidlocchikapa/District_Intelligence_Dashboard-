@@ -1,6 +1,9 @@
 import {
+  useMemo,
+} from "react";
+import {
   Download,
-  Map,
+  Map as MapIcon,
   Users,
   School,
   HeartPulse,
@@ -67,22 +70,24 @@ function formatTaAxisLabel(value) {
 }
 
 function OverviewPage() {
-  const { selectedDistrict } = useDistrict();
-  const districtScope = selectedDistrict || "Zomba";
+  const { selectedDistrict, selectedTa, setSelectedTa } = useDistrict();
+  const districtScope = selectedDistrict || "";
+  const scopeLabel = selectedTa
+    ? selectedTa
+    : selectedDistrict
+      ? selectedDistrict
+      : "All Districts";
 
   const summary = useDashboardData(
-    buildDashboardPath("/dashboard/summary", { district: districtScope }),
-  );
-  const healthSummaryMetrics = useDashboardData(
-    buildDashboardPath("/dashboard/health/summary", {
+    buildDashboardPath("/dashboard/summary", {
       district: districtScope,
-      admin_type: "District",
-      analysis_type: "health_summary",
+      ta: selectedTa,
     }),
   );
   const densityMap = useDashboardData(
     buildDashboardPath("/dashboard/admin-units", {
       district: districtScope,
+      type: "TA",
     }),
   );
   const populationDistribution = useDashboardData(
@@ -94,19 +99,82 @@ function OverviewPage() {
   const floodSummary = useDashboardData(
     buildDashboardPath("/dashboard/disaster/flood/summary", {
       district: districtScope,
-      admin_type: "District",
+      ta: selectedTa,
+      admin_type: selectedTa ? "TA" : "District",
+    }),
+  );
+  const taFloodExposure = useDashboardData(
+    buildDashboardPath("/dashboard/disaster/flood/population", {
+      district: districtScope,
+      admin_type: "TA",
     }),
   );
 
-  const healthFacilitiesFromMetrics = (healthSummaryMetrics.data || [])
-    .filter((metric) => metric.metric_name === "health_facility_count")
-    .reduce((sum, metric) => sum + Number(metric.metric_value || 0), 0);
-
   const chartData = (populationDistribution.data || []).map((item) => ({
+    admin3Id: item.admin3_id,
     admin3: item.admin3_name,
     district: item.district,
     population: item.population,
   }));
+  const selectedTaChartRow = chartData.find(
+    (item) =>
+      selectedTa &&
+      item.admin3.toLowerCase() === selectedTa.toLowerCase(),
+  );
+  const taFloodLookup = useMemo(() => {
+    const lookup = new Map();
+
+    (taFloodExposure.data || []).forEach((row) => {
+      if (!row.admin_unit_name) {
+        return;
+      }
+
+      lookup.set(row.admin_unit_name.toLowerCase(), {
+        exposedPopulation: Number(row.exposed_population || 0),
+        exposedPopulationPct: Number(row.exposed_population_pct || 0),
+        riskLevel: row.risk_level,
+      });
+    });
+
+    return lookup;
+  }, [taFloodExposure.data]);
+
+  const mapGeojson = useMemo(() => {
+    if (!densityMap.data) {
+      return densityMap.data;
+    }
+
+    const features = (densityMap.data.features || [])
+      .filter((feature) => {
+        const name = feature?.properties?.name || "";
+        return !selectedTa || name.toLowerCase() === selectedTa.toLowerCase();
+      })
+      .map((feature) => {
+        const name = feature?.properties?.name || "";
+        const floodStats = taFloodLookup.get(name.toLowerCase()) || {};
+
+        return {
+          ...feature,
+          properties: {
+            ...feature.properties,
+            admin_unit_name: name,
+            exposed_population: floodStats.exposedPopulation || 0,
+            exposed_population_pct: floodStats.exposedPopulationPct || 0,
+            risk_level: floodStats.riskLevel,
+          },
+        };
+      });
+
+    return {
+      ...densityMap.data,
+      features,
+    };
+  }, [densityMap.data, selectedTa, taFloodLookup]);
+
+  const selectTa = (taName) => {
+    setSelectedTa(taName || "");
+  };
+
   const exposedPopulation = Math.max(
     Math.round(Number(floodSummary.data?.exposed_population || 0)),
     0,
@@ -172,9 +240,11 @@ function OverviewPage() {
 
       <div className="px-8 mt-8">
         <p className="text-[14px] font-semibold text-gray-500 mb-6">
-          {selectedDistrict
-            ? `Showing ${selectedDistrict} Records`
-            : "Showing Zomba Records (merged from Zomba and Zomba City)"}
+          {selectedTa
+            ? `Showing records for ${selectedTa}`
+            : selectedDistrict
+              ? `Showing ${selectedDistrict} Records`
+              : "Showing All Districts Records"}
         </p>
 
         {/* Actions Row */}
@@ -190,39 +260,44 @@ function OverviewPage() {
             onClick={downloadImage}
             className="flex items-center gap-2 border border-gray-300 rounded px-3 py-1.5 text-[13px] font-bold hover:bg-gray-50 transition-all shadow-sm active:scale-95"
           >
-            <Map className="h-4 w-4" />
+            <MapIcon className="h-4 w-4" />
             Download Map
           </button>
           <SharedDistrictSelector />
-
         </div>
 
         {/* Stats Row */}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 mb-10">
-          {summary.loading || healthSummaryMetrics.loading
+          {summary.loading
             ? [...Array(4)].map((_, i) => <StatCardSkeleton key={i} />)
             : [
                 {
                   label: "Total Population",
                   value: formatStat(
-                    summary.data?.total_estimated_population || 0,
+                    selectedTaChartRow?.population ||
+                      summary.data?.total_estimated_population ||
+                      0,
                   ),
                   icon: Users,
+                  helper: scopeLabel,
                 },
                 {
                   label: "Schools",
                   value: formatStat(summary.data?.total_schools || 0),
                   icon: School,
+                  helper: scopeLabel,
                 },
                 {
                   label: "Health Facilities",
-                  value: formatStat(healthFacilitiesFromMetrics || 0),
+                  value: formatStat(summary.data?.total_health_facilities || 0),
                   icon: HeartPulse,
+                  helper: scopeLabel,
                 },
                 {
                   label: "Flood Exposed Population",
                   value: formatStat(exposedPopulation),
                   icon: Accessibility,
+                  helper: scopeLabel,
                 },
               ].map((stat, i) => (
                 <div
@@ -238,37 +313,46 @@ function OverviewPage() {
                   <div className="mt-4 text-[32px] font-extrabold tracking-tight">
                     {stat.value}
                   </div>
+                  <p className="mt-2 text-[12px] font-semibold text-gray-400">
+                    {stat.helper}
+                  </p>
                 </div>
               ))}
         </div>
 
         {/* Middle Row (Map + Bar Chart) */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-10">
-          <div className="border border-gray-100 rounded p-8 shadow-sm bg-white flex flex-col h-[480px]">
+          <div className="border border-gray-100 rounded p-8 shadow-sm bg-white flex flex-col h-[640px]">
             <h3 className="text-[16px] font-extrabold mb-6">
-              District Map Overview
+              {selectedTa ? `${selectedTa} Map Overview` : "TA Map Overview"}
             </h3>
             <div
               ref={mapRef}
               className="w-full flex-1 rounded overflow-hidden relative border border-gray-50 shadow-inner bg-gray-50"
             >
               <PopulationRasterPanel
-                geojson={densityMap.data}
+                geojson={mapGeojson}
                 title={null}
                 subtitle={null}
-                heightClass="h-full w-full"
+                heightClass="h-full min-h-[520px] w-full"
                 loading={densityMap.loading}
                 metadataUrl="/worldpop/zomba_ppp_2020.preview.json"
+                selectedFeatureName={selectedTa}
+                onFeatureClick={(feature) =>
+                  selectTa(feature?.properties?.name || "")
+                }
               />
             </div>
           </div>
 
           <div className="border border-gray-100 rounded p-8 shadow-sm bg-white flex flex-col min-h-[460px]">
             <h3 className="text-[16px] font-extrabold mb-6">
-              Population by TA
+              {selectedTa ? `Population for ${selectedTa}` : "Population by TA"}
             </h3>
             <p className="text-xs text-gray-500 font-semibold mb-3">
-              Showing TA-level population totals
+              {selectedTa
+                ? `${selectedTa} is highlighted; click another bar to sync the map and overview metrics.`
+                : "Showing TA-level population totals. Click a bar to sync the map and overview metrics."}
             </p>
             <div className="flex-1">
               {populationDistribution.loading ? (
@@ -327,16 +411,32 @@ function OverviewPage() {
                       radius={[2, 2, 0, 0]}
                       barSize={14}
                       activeBar={<Rectangle fill="#7e22ce" />}
+                      onClick={(entry) => selectTa(entry?.admin3 || "")}
                     >
-                      {chartData.map((entry) => (
-                        <Cell
-                          key={`population-bar-${entry.admin3}`}
-                          fill={getPopulationBarColor(
-                            Number(entry.population),
-                            maxPopulation,
-                          )}
-                        />
-                      ))}
+                      {chartData.map((entry) => {
+                        const isSelected =
+                          selectedTa &&
+                          entry.admin3.toLowerCase() ===
+                            selectedTa.toLowerCase();
+
+                        return (
+                          <Cell
+                            key={`population-bar-${entry.admin3}`}
+                            cursor="pointer"
+                            fill={
+                              isSelected
+                                ? "#7e22ce"
+                                : getPopulationBarColor(
+                                    Number(entry.population),
+                                    maxPopulation,
+                                  )
+                            }
+                            stroke={isSelected ? "#111827" : "transparent"}
+                            strokeWidth={isSelected ? 2 : 0}
+                            fillOpacity={selectedTa && !isSelected ? 0.28 : 1}
+                          />
+                        );
+                      })}
                     </Bar>
                   </BarChart>
                 </ResponsiveContainer>
@@ -348,7 +448,7 @@ function OverviewPage() {
         {/* Bottom Row (Pie Chart) */}
         <div className="border border-gray-100 rounded p-10 shadow-sm bg-white">
           <h3 className="text-[16px] font-extrabold mb-10">
-            Flood Exposure Distribution
+            Flood Exposure Distribution for {scopeLabel}
           </h3>
           <div className="w-full flex flex-col md:flex-row items-center justify-start gap-16">
             <div className="h-[280px] w-full md:w-[400px]">

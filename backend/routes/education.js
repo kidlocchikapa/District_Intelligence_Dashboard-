@@ -5,6 +5,7 @@ const {
   appendDistrictGeometryCondition,
   appendDistrictNameCondition,
   resolveDistrictFilterValues,
+  buildCanonicalDistrictExpression,
 } = require("./queryFilters");
 
 function parseNumericValue(value) {
@@ -184,7 +185,18 @@ router.get("/", async (req, res) => {
   try {
     const conditions = ["geom IS NOT NULL"];
     const params = [];
-    appendDistrictGeometryCondition(conditions, params, "ef.geom", district);
+    if (district) {
+      params.push(
+        String(district).trim().toLowerCase().startsWith("zomba")
+          ? "zomba"
+          : String(district).trim().toLowerCase(),
+      );
+      conditions.push(
+        `${buildCanonicalDistrictExpression(
+          "COALESCE(direct_district.name, spatial_district.name, '')",
+        )} = $${params.length}`,
+      );
+    }
     const whereClause = conditions.length
       ? `WHERE ${conditions.join(" AND ")}`
       : "";
@@ -216,6 +228,12 @@ router.get("/", async (req, res) => {
                 )
               ) AS feature
               FROM education_facilities ef
+              LEFT JOIN districts direct_district
+                ON direct_district.id = ef.district_id
+              LEFT JOIN districts spatial_district
+                ON spatial_district.geom IS NOT NULL
+               AND ef.geom IS NOT NULL
+               AND ST_Intersects(ef.geom, spatial_district.geom)
               ${whereClause}
             ) rowconf;
         `;
@@ -540,7 +558,18 @@ router.get("/summary", async (req, res) => {
   try {
     const conditions = ["ef.geom IS NOT NULL"];
     const params = [];
-    appendDistrictGeometryCondition(conditions, params, "ef.geom", district);
+    if (district) {
+      params.push(
+        String(district).trim().toLowerCase().startsWith("zomba")
+          ? "zomba"
+          : String(district).trim().toLowerCase(),
+      );
+      conditions.push(
+        `${buildCanonicalDistrictExpression(
+          "COALESCE(direct_district.name, spatial_district.name, '')",
+        )} = $${params.length}`,
+      );
+    }
     const whereClause = conditions.length
       ? `WHERE ${conditions.join(" AND ")}`
       : "";
@@ -552,6 +581,12 @@ router.get("/summary", async (req, res) => {
           teacher_count,
           teacher_distribution
         FROM education_facilities ef
+        LEFT JOIN districts direct_district
+          ON direct_district.id = ef.district_id
+        LEFT JOIN districts spatial_district
+          ON spatial_district.geom IS NOT NULL
+         AND ef.geom IS NOT NULL
+         AND ST_Intersects(ef.geom, spatial_district.geom)
         ${whereClause}
       `,
       params,

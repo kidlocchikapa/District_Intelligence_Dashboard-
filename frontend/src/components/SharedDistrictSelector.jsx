@@ -2,7 +2,8 @@ import { useDistrict } from "../context/DistrictContext";
 import { useDistrictOptions } from "../hooks/useDistrictOptions";
 
 function SharedDistrictSelector() {
-  const { selectedDistrict, setSelectedDistrict } = useDistrict();
+  const { selectedDistrict, setSelectedDistrict, selectedTa, setSelectedTa } =
+    useDistrict();
   const districts = useDistrictOptions();
 
   return (
@@ -21,6 +22,15 @@ function SharedDistrictSelector() {
           ))}
         </select>
       </div>
+      {selectedTa ? (
+        <button
+          type="button"
+          onClick={() => setSelectedTa("")}
+          className="rounded border border-gray-200 bg-gray-50 px-3 py-2 text-[12px] font-bold text-gray-700 transition-all hover:bg-white"
+        >
+          Clear: {selectedTa}
+        </button>
+      ) : null}
     </div>
   );
 }

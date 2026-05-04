@@ -90,6 +90,9 @@ function MapPanel({
   showZoomControls = true,
   heightClass = "h-[380px]",
   loading = false,
+  onFeatureClick,
+  selectedFeatureName,
+  featureNameResolver,
 }) {
   const { setSelectedDistrict } = useDistrict();
   const [activeGeojson, setActiveGeojson] = useState(geojson);
@@ -183,6 +186,16 @@ function MapPanel({
 
   const styleFeature = (feature) => {
     if (hasPointFeatures) return {};
+    const properties = feature?.properties || {};
+    const featureName =
+      typeof featureNameResolver === "function"
+        ? featureNameResolver(feature)
+        : properties.admin_unit_name || properties.name;
+    const isSelected =
+      selectedFeatureName &&
+      featureName &&
+      String(featureName).toLowerCase() ===
+        String(selectedFeatureName).toLowerCase();
 
     let fillColor;
     if (isRiskBandPalette) {
@@ -199,11 +212,11 @@ function MapPanel({
 
     return {
       fillColor,
-      weight: 1.4,
+      weight: isSelected ? 3 : 1.4,
       opacity: 1,
-      color: "white",
-      dashArray: "3",
-      fillOpacity: 0.7,
+      color: isSelected ? "#111827" : "white",
+      dashArray: isSelected ? "" : "3",
+      fillOpacity: isSelected ? 0.92 : 0.7,
     };
   };
 
@@ -245,7 +258,9 @@ function MapPanel({
         click: (e) => {
           const properties = feature?.properties || {};
           const districtName = properties.admin_unit_name || properties.name;
-          if (districtName) {
+          if (typeof onFeatureClick === "function") {
+            onFeatureClick(feature, e);
+          } else if (districtName) {
             setSelectedDistrict(districtName);
           }
         },
@@ -282,7 +297,7 @@ function MapPanel({
           {bounds && bounds.minY !== Infinity && <MapFitter bounds={bounds} />}
 
           <GeoJSON
-            key={`${metricName}-${features.length}`}
+            key={`${metricName}-${features.length}-${selectedFeatureName || "all"}`}
             data={activeGeojson}
             style={styleFeature}
             pointToLayer={

@@ -17,6 +17,15 @@ function normalizeAdminType(adminType) {
   return String(adminType).trim();
 }
 
+function appendOptionalTaCondition(conditions, params, columnExpression, taName) {
+  if (!taName) {
+    return;
+  }
+
+  params.push(taName);
+  conditions.push(`LOWER(${columnExpression}) = LOWER($${params.length})`);
+}
+
 function buildCanonicalDistrictNameExpression(columnExpression) {
   return `CASE
     WHEN LOWER(${columnExpression}) IN ('zomba', 'zomba city') THEN 'Zomba'
@@ -57,14 +66,93 @@ router.use(
  *         description: Summary metrics
  */
 router.get("/summary", async (req, res) => {
-  const { district } = req.query;
+  const { district, ta } = req.query;
 
   try {
     let schoolsCount;
     let healthCount;
     let populationTotal;
 
-    if (district) {
+    if (ta) {
+      const schoolConditions = ["ef.geom IS NOT NULL"];
+      const schoolParams = [];
+      appendDistrictNameCondition(
+        schoolConditions,
+        schoolParams,
+        "d.name",
+        district,
+      );
+      appendOptionalTaCondition(schoolConditions, schoolParams, "a3.name", ta);
+
+      const schoolWhereClause = schoolConditions.length
+        ? `WHERE ${schoolConditions.join(" AND ")}`
+        : "";
+
+      schoolsCount = await db.query(
+        `
+          SELECT COUNT(*)
+          FROM education_facilities ef
+          LEFT JOIN admin3_units a3 ON a3.id = ef.ta_id
+          LEFT JOIN districts d ON d.id = a3.district_id
+          ${schoolWhereClause}
+        `,
+        schoolParams,
+      );
+
+      const healthConditions = ["hf.geom IS NOT NULL"];
+      const healthParams = [];
+      appendDistrictNameCondition(
+        healthConditions,
+        healthParams,
+        "d.name",
+        district,
+      );
+      appendOptionalTaCondition(healthConditions, healthParams, "a3.name", ta);
+
+      const healthWhereClause = healthConditions.length
+        ? `WHERE ${healthConditions.join(" AND ")}`
+        : "";
+
+      healthCount = await db.query(
+        `
+          SELECT COUNT(*)
+          FROM health_facilities hf
+          LEFT JOIN admin3_units a3 ON a3.id = hf.ta_id
+          LEFT JOIN districts d ON d.id = a3.district_id
+          ${healthWhereClause}
+        `,
+        healthParams,
+      );
+
+      const populationConditions = [];
+      const populationParams = [];
+      appendDistrictNameCondition(
+        populationConditions,
+        populationParams,
+        "d.name",
+        district,
+      );
+      appendOptionalTaCondition(
+        populationConditions,
+        populationParams,
+        "a3.name",
+        ta,
+      );
+
+      const populationWhereClause = populationConditions.length
+        ? `WHERE ${populationConditions.join(" AND ")}`
+        : "";
+
+      populationTotal = await db.query(
+        `
+          SELECT SUM(a3.population_total)
+          FROM admin3_units a3
+          LEFT JOIN districts d ON d.id = a3.district_id
+          ${populationWhereClause}
+        `,
+        populationParams,
+      );
+    } else if (district) {
       const schoolConditions = ["ef.geom IS NOT NULL"];
       const schoolParams = [];
       appendDistrictGeometryCondition(
@@ -147,6 +235,7 @@ router.get("/summary", async (req, res) => {
         total_health_facilities: parseInt(healthCount.rows[0].count),
         total_estimated_population: parseInt(populationTotal.rows[0].sum || 0),
         selected_district: district || null,
+        selected_ta: ta || null,
       },
     });
   } catch (err) {

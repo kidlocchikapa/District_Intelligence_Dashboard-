@@ -96,7 +96,7 @@ const recomputeState = {
 };
 
 const EDUCATION_SORT_COLUMNS = {
-  name: "ef.name",
+  name: "COALESCE(to_jsonb(ef)->>'name', to_jsonb(ef)->>'school_name')",
   status: "ef.status",
   student_enrollment_total: "ef.student_enrollment_total",
   teacher_count: "ef.teacher_count",
@@ -104,10 +104,19 @@ const EDUCATION_SORT_COLUMNS = {
   updated_at: "ef.updated_at",
 };
 
+const EDUCATION_LIST_SORT_COLUMNS = {
+  name: "name",
+  status: "status",
+  student_enrollment_total: "student_enrollment_total",
+  teacher_count: "teacher_count",
+  created_at: "created_at",
+  updated_at: "updated_at",
+};
+
 const HEALTH_SORT_COLUMNS = {
   name: "hf.name",
   type: "hf.type",
-  healthcare: "hf.healthcare",
+  healthcare: "COALESCE(to_jsonb(hf)->>'healthcare', hf.type)",
   beds_count: "hf.beds_count",
   patient_visits_total: "hf.patient_visits_total",
   created_at: "hf.created_at",
@@ -131,25 +140,38 @@ const DISASTER_SORT_COLUMNS = {
 
 const EDUCATION_SELECT_FIELDS = `
   ef.school_id,
-  ef.name,
-  ef."name:en" AS name_en,
-  ef."name:ny" AS name_ny,
-  ef.amenity,
-  ef.building,
-  ef."operator:type" AS operator_type,
-  ef."capacity:persons" AS capacity_persons,
-  ef."addr:full" AS address_full,
-  ef."addr:city" AS address_city,
-  ef.source,
+  COALESCE(to_jsonb(ef)->>'name', to_jsonb(ef)->>'school_name') AS name,
+  COALESCE(to_jsonb(ef)->>'name:en', to_jsonb(ef)->>'school_name') AS name_en,
+  to_jsonb(ef)->>'name:ny' AS name_ny,
+  to_jsonb(ef)->>'amenity' AS amenity,
+  to_jsonb(ef)->>'building' AS building,
+  COALESCE(to_jsonb(ef)->>'operator:type', to_jsonb(ef)->>'operator') AS operator_type,
+  CASE
+    WHEN (to_jsonb(ef)->>'capacity:persons') ~ '^[0-9]+$'
+      THEN (to_jsonb(ef)->>'capacity:persons')::integer
+    ELSE NULL
+  END AS capacity_persons,
+  to_jsonb(ef)->>'addr:full' AS address_full,
+  to_jsonb(ef)->>'addr:city' AS address_city,
+  to_jsonb(ef)->>'source' AS source,
   ef.status,
-  ef.comments,
-  ef.student_enrollment,
+  to_jsonb(ef)->>'comments' AS comments,
+  COALESCE(to_jsonb(ef)->'student_enrollment', '{}'::jsonb) AS student_enrollment,
   ef.student_enrollment_total,
+  ef.student_classroom_ratio,
+  ef.special_needs_students,
   ef.teacher_distribution,
   ef.teacher_count,
-  ef.osm_id,
-  ef.osm_type,
-  ef.ward_id,
+  ef.blocks_count,
+  ef.water_equipment_facility_count,
+  ef.toilets_count,
+  ef.classroom_pressure,
+  ef.teacher_pressure,
+  ef.x_coordinate,
+  ef.y_coordinate,
+  to_jsonb(ef)->>'osm_id' AS osm_id,
+  to_jsonb(ef)->>'osm_type' AS osm_type,
+  ef.ta_id AS ward_id,
   ward.name AS ward_name,
   ef.district_id,
   district.name AS district_name,
@@ -164,11 +186,11 @@ const HEALTH_SELECT_FIELDS = `
   hf.id,
   hf.name,
   hf.type,
-  hf.healthcare,
+  COALESCE(to_jsonb(hf)->>'healthcare', hf.type) AS healthcare,
   hf.beds_count,
   hf.patient_visits_total,
   hf.services_offered,
-  hf.ward_id,
+  hf.ta_id AS ward_id,
   ward.name AS ward_name,
   hf.district_id,
   district.name AS district_name,
@@ -183,9 +205,9 @@ const WELFARE_SELECT_FIELDS = `
   wb.id,
   wb.program_name,
   wb.beneficiary_count,
-  wb.ward_id,
+  wb.ta_id AS ward_id,
   ward.name AS ward_name,
-  ward.parent_id AS district_id,
+  ward.district_id AS district_id,
   district.name AS district_name,
   wb.is_active,
   wb.created_at,
@@ -424,9 +446,9 @@ function buildEducationListFilters(query) {
     params.push(`%${String(query.search).trim()}%`);
     conditions.push(`
       (
-        COALESCE(ef.name, '') ILIKE $${params.length}
-        OR COALESCE(ef."name:en", '') ILIKE $${params.length}
-        OR COALESCE(ef."name:ny", '') ILIKE $${params.length}
+        COALESCE(to_jsonb(ef)->>'name', to_jsonb(ef)->>'school_name', '') ILIKE $${params.length}
+        OR COALESCE(to_jsonb(ef)->>'name:en', '') ILIKE $${params.length}
+        OR COALESCE(to_jsonb(ef)->>'name:ny', '') ILIKE $${params.length}
         OR COALESCE(ef.status, '') ILIKE $${params.length}
       )
     `);
@@ -446,15 +468,17 @@ function buildEducationListFilters(query) {
   const wardId = parsePositiveInteger(query.ward_id, null);
   if (wardId) {
     params.push(wardId);
-    conditions.push(`ef.ward_id = $${params.length}`);
+    conditions.push(`ef.ta_id = $${params.length}`);
   }
 
   if (query.filter === "flood_exposed") {
     conditions.push(`
       EXISTS (
-        SELECT 1 FROM disaster_zones dz
-        WHERE dz.event_type = 'flood'
-        AND ST_Intersects(ef.geom, dz.geom)
+        SELECT 1
+        FROM flood_facility_exposure ffe
+        WHERE ffe.facility_type = 'education'
+          AND ffe.is_exposed = TRUE
+          AND ffe.facility_id = ef.school_id
       )
     `);
   }
@@ -488,7 +512,7 @@ function buildHealthListFilters(query) {
       (
         COALESCE(hf.name, '') ILIKE $${params.length}
         OR COALESCE(hf.type, '') ILIKE $${params.length}
-        OR COALESCE(hf.healthcare, '') ILIKE $${params.length}
+        OR COALESCE(to_jsonb(hf)->>'healthcare', '') ILIKE $${params.length}
       )
     `);
   }
@@ -502,15 +526,17 @@ function buildHealthListFilters(query) {
   const wardId = parsePositiveInteger(query.ward_id, null);
   if (wardId) {
     params.push(wardId);
-    conditions.push(`hf.ward_id = $${params.length}`);
+    conditions.push(`hf.ta_id = $${params.length}`);
   }
 
   if (query.filter === "flood_exposed") {
     conditions.push(`
       EXISTS (
-        SELECT 1 FROM disaster_zones dz
-        WHERE dz.event_type = 'flood'
-        AND ST_Intersects(hf.geom, dz.geom)
+        SELECT 1
+        FROM flood_facility_exposure ffe
+        WHERE ffe.facility_type = 'health'
+          AND ffe.is_exposed = TRUE
+          AND ffe.facility_id = hf.id
       )
     `);
   }
@@ -546,13 +572,13 @@ function buildWelfareListFilters(query) {
   const wardId = parsePositiveInteger(query.ward_id, null);
   if (wardId) {
     params.push(wardId);
-    conditions.push(`wb.ward_id = $${params.length}`);
+    conditions.push(`wb.ta_id = $${params.length}`);
   }
 
   const districtId = parsePositiveInteger(query.district_id, null);
   if (districtId) {
     params.push(districtId);
-    conditions.push(`ward.parent_id = $${params.length}`);
+    conditions.push(`ward.district_id = $${params.length}`);
   }
 
   return {
@@ -599,22 +625,21 @@ function buildDisasterListFilters(query) {
 
 function mapEducationPayloadToColumns(payload) {
   const columnMap = [
-    ["name", "name"],
-    ["nameEn", '"name:en"'],
-    ["nameNy", '"name:ny"'],
-    ["amenity", "amenity"],
-    ["building", "building"],
-    ["operatorType", '"operator:type"'],
-    ["capacityPersons", '"capacity:persons"'],
-    ["addressFull", '"addr:full"'],
-    ["addressCity", '"addr:city"'],
-    ["source", "source"],
+    ["name", "school_name"],
+    ["operatorType", "operator"],
     ["status", "status"],
-    ["comments", "comments"],
     ["studentEnrollmentTotal", "student_enrollment_total"],
+    ["studentClassroomRatio", "student_classroom_ratio"],
+    ["specialNeedsStudents", "special_needs_students"],
+    ["teacherDistribution", "teacher_distribution"],
     ["teacherCount", "teacher_count"],
+    ["blocksCount", "blocks_count"],
+    ["waterEquipmentFacilityCount", "water_equipment_facility_count"],
+    ["toiletsCount", "toilets_count"],
+    ["classroomPressure", "classroom_pressure"],
+    ["teacherPressure", "teacher_pressure"],
     ["districtId", "district_id"],
-    ["wardId", "ward_id"],
+    ["wardId", "ta_id"],
     ["isActive", "is_active"],
   ];
 
@@ -637,7 +662,7 @@ function mapHealthPayloadToColumns(payload) {
     ["patientVisitsTotal", "patient_visits_total"],
     ["servicesOffered", "services_offered"],
     ["districtId", "district_id"],
-    ["wardId", "ward_id"],
+    ["wardId", "ta_id"],
     ["isActive", "is_active"],
   ];
 
@@ -655,7 +680,7 @@ function mapWelfarePayloadToColumns(payload) {
   const columnMap = [
     ["programName", "program_name"],
     ["beneficiaryCount", "beneficiary_count"],
-    ["wardId", "ward_id"],
+    ["wardId", "ta_id"],
     ["isActive", "is_active"],
   ];
 
@@ -693,8 +718,8 @@ async function fetchEducationRecord(client, schoolId) {
       SELECT
         ${EDUCATION_SELECT_FIELDS}
       FROM education_facilities ef
-      LEFT JOIN administrative_units ward ON ward.id = ef.ward_id
-      LEFT JOIN administrative_units district ON district.id = ef.district_id
+      LEFT JOIN admin3_units ward ON ward.id = ef.ta_id
+      LEFT JOIN districts district ON district.id = COALESCE(ef.district_id, ward.district_id)
       WHERE ef.school_id = $1
       LIMIT 1
     `,
@@ -710,8 +735,8 @@ async function fetchHealthRecord(client, id) {
       SELECT
         ${HEALTH_SELECT_FIELDS}
       FROM health_facilities hf
-      LEFT JOIN administrative_units ward ON ward.id = hf.ward_id
-      LEFT JOIN administrative_units district ON district.id = hf.district_id
+      LEFT JOIN admin3_units ward ON ward.id = hf.ta_id
+      LEFT JOIN districts district ON district.id = COALESCE(hf.district_id, ward.district_id)
       WHERE hf.id = $1
       LIMIT 1
     `,
@@ -727,8 +752,8 @@ async function fetchWelfareRecord(client, id) {
       SELECT
         ${WELFARE_SELECT_FIELDS}
       FROM welfare_beneficiaries wb
-      LEFT JOIN administrative_units ward ON ward.id = wb.ward_id
-      LEFT JOIN administrative_units district ON district.id = ward.parent_id
+      LEFT JOIN admin3_units ward ON ward.id = wb.ta_id
+      LEFT JOIN districts district ON district.id = ward.district_id
       WHERE wb.id = $1
       LIMIT 1
     `,
@@ -805,7 +830,7 @@ router.get("/education", async (req, res) => {
       buildEducationListFilters(req.query);
     const orderBy = normalizeSortColumn(
       req.query.sort_by,
-      EDUCATION_SORT_COLUMNS,
+      EDUCATION_LIST_SORT_COLUMNS,
       "updated_at",
     );
     const orderDirection = normalizeSortOrder(req.query.sort_order);
@@ -813,8 +838,15 @@ router.get("/education", async (req, res) => {
     const countResult = await db.query(
       `
         SELECT COUNT(*)::int AS total
-        FROM education_facilities ef
-        ${whereClause}
+        FROM (
+          SELECT 1
+          FROM education_facilities ef
+          ${whereClause}
+          GROUP BY
+            LOWER(TRIM(COALESCE(to_jsonb(ef)->>'name', to_jsonb(ef)->>'school_name', ''))),
+            COALESCE(ef.ta_id, 0),
+            COALESCE(ef.district_id, 0)
+        ) deduped_education
       `,
       params,
     );
@@ -822,13 +854,28 @@ router.get("/education", async (req, res) => {
     const dataParams = [...params, pageSize, offset];
     const rowsResult = await db.query(
       `
-        SELECT
-          ${EDUCATION_SELECT_FIELDS}
-        FROM education_facilities ef
-        LEFT JOIN administrative_units ward ON ward.id = ef.ward_id
-        LEFT JOIN administrative_units district ON district.id = ef.district_id
-        ${whereClause}
-        ORDER BY ${orderBy} ${orderDirection}, ef.school_id DESC
+        WITH ranked_education AS (
+          SELECT
+            ${EDUCATION_SELECT_FIELDS},
+            ROW_NUMBER() OVER (
+              PARTITION BY
+                LOWER(TRIM(COALESCE(to_jsonb(ef)->>'name', to_jsonb(ef)->>'school_name', ''))),
+                COALESCE(ef.ta_id, 0),
+                COALESCE(ef.district_id, ward.district_id, 0)
+              ORDER BY
+                ef.updated_at DESC NULLS LAST,
+                ef.created_at DESC NULLS LAST,
+                ef.school_id DESC
+            ) AS duplicate_rank
+          FROM education_facilities ef
+          LEFT JOIN admin3_units ward ON ward.id = ef.ta_id
+          LEFT JOIN districts district ON district.id = COALESCE(ef.district_id, ward.district_id)
+          ${whereClause}
+        )
+        SELECT *
+        FROM ranked_education
+        WHERE duplicate_rank = 1
+        ORDER BY ${orderBy} ${orderDirection}, school_id DESC
         LIMIT $${dataParams.length - 1}
         OFFSET $${dataParams.length}
       `,
@@ -970,8 +1017,8 @@ router.get("/health", async (req, res) => {
         SELECT
           ${HEALTH_SELECT_FIELDS}
         FROM health_facilities hf
-        LEFT JOIN administrative_units ward ON ward.id = hf.ward_id
-        LEFT JOIN administrative_units district ON district.id = hf.district_id
+        LEFT JOIN admin3_units ward ON ward.id = hf.ta_id
+        LEFT JOIN districts district ON district.id = COALESCE(hf.district_id, ward.district_id)
         ${whereClause}
         ORDER BY ${orderBy} ${orderDirection}, hf.id DESC
         LIMIT $${dataParams.length - 1}
@@ -1043,7 +1090,7 @@ router.get("/social_welfare", async (req, res) => {
       `
         SELECT COUNT(*)::int AS total
         FROM welfare_beneficiaries wb
-        LEFT JOIN administrative_units ward ON ward.id = wb.ward_id
+        LEFT JOIN admin3_units ward ON ward.id = wb.ta_id
         ${whereClause}
       `,
       params,
@@ -1055,8 +1102,8 @@ router.get("/social_welfare", async (req, res) => {
         SELECT
           ${WELFARE_SELECT_FIELDS}
         FROM welfare_beneficiaries wb
-        LEFT JOIN administrative_units ward ON ward.id = wb.ward_id
-        LEFT JOIN administrative_units district ON district.id = ward.parent_id
+        LEFT JOIN admin3_units ward ON ward.id = wb.ta_id
+        LEFT JOIN districts district ON district.id = ward.district_id
         ${whereClause}
         ORDER BY ${orderBy} ${orderDirection}, wb.id DESC
         LIMIT $${dataParams.length - 1}
@@ -1604,52 +1651,54 @@ router.post("/education", async (req, res) => {
         const insertedResult = await client.query(
           `
             INSERT INTO education_facilities (
-              name,
-              "name:en",
-              "name:ny",
-              amenity,
-              building,
-              "operator:type",
-              "capacity:persons",
-              "addr:full",
-              "addr:city",
-              source,
+              school_name,
+              operator,
               status,
-              comments,
               student_enrollment_total,
+              student_classroom_ratio,
+              special_needs_students,
+              teacher_distribution,
               teacher_count,
+              blocks_count,
+              water_equipment_facility_count,
+              toilets_count,
+              classroom_pressure,
+              teacher_pressure,
               district_id,
-              ward_id,
+              ta_id,
+              x_coordinate,
+              y_coordinate,
               geom,
               is_active,
               updated_at
             )
             VALUES (
               $1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
-              $11, $12, $13, $14, $15, $16,
-              ST_SetSRID(ST_MakePoint($17, $18), 4326),
-              COALESCE($19, TRUE),
+              $11, $12, $13, $14,
+              ST_SetSRID(ST_MakePoint($15, $16), 4326),
+              COALESCE($17, TRUE),
               CURRENT_TIMESTAMP
             )
             RETURNING school_id
           `,
           [
             value.name,
-            value.nameEn ?? null,
-            value.nameNy ?? null,
-            value.amenity ?? null,
-            value.building ?? null,
             value.operatorType ?? null,
-            value.capacityPersons ?? null,
-            value.addressFull ?? null,
-            value.addressCity ?? null,
-            value.source ?? null,
             value.status ?? null,
-            value.comments ?? null,
             value.studentEnrollmentTotal ?? null,
+            value.studentClassroomRatio ?? null,
+            value.specialNeedsStudents ?? null,
+            value.teacherDistribution ?? null,
             value.teacherCount ?? null,
+            value.blocksCount ?? null,
+            value.waterEquipmentFacilityCount ?? null,
+            value.toiletsCount ?? null,
+            value.classroomPressure ?? null,
+            value.teacherPressure ?? null,
             value.districtId ?? null,
             value.wardId ?? null,
+            value.longitude,
+            value.latitude,
             value.longitude,
             value.latitude,
             value.isActive,

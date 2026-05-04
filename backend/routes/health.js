@@ -44,12 +44,13 @@ function appendOptionalTaCondition(
  *         description: Health facilities GeoJSON
  */
 router.get("/", async (req, res) => {
-  const { district } = req.query;
+  const { district, ta } = req.query;
 
   try {
-    const conditions = ["geom IS NOT NULL"];
+    const conditions = ["hf.geom IS NOT NULL"];
     const params = [];
     appendDistrictGeometryCondition(conditions, params, "hf.geom", district);
+    appendOptionalTaCondition(conditions, params, "a3.name", ta);
     const whereClause = conditions.length
       ? `WHERE ${conditions.join(" AND ")}`
       : "";
@@ -81,11 +82,13 @@ router.get("/", async (req, res) => {
                       'name_ny', NULL,
                       'ward_id', hf.ta_id,
                       'ta_id', hf.ta_id,
+                      'ta_name', a3.name,
                       'district_id', hf.district_id
                     )
                   )
                 ) AS feature
                 FROM health_facilities hf
+                LEFT JOIN admin3_units a3 ON a3.id = hf.ta_id
                 ${whereClause}
             ) rowconf;
         `;
@@ -121,6 +124,7 @@ router.get("/summary", async (req, res) => {
     admin_type: adminType = "District",
     analysis_type: analysisType = "health_summary",
     district,
+    ta,
   } = req.query;
   const normalizedAdminType = normalizeAdminType(adminType);
 
@@ -138,12 +142,16 @@ router.get("/summary", async (req, res) => {
       "LOWER(admin_unit_type) = LOWER($2)",
     ];
     const params = [analysisType, normalizedAdminType];
-    appendDistrictNameCondition(
-      conditions,
-      params,
-      "admin_unit_name",
-      district,
-    );
+    if (normalizedAdminType === "TA") {
+      appendOptionalTaCondition(conditions, params, "admin_unit_name", ta);
+    } else {
+      appendDistrictNameCondition(
+        conditions,
+        params,
+        "admin_unit_name",
+        district,
+      );
+    }
 
     const result = await db.query(
       `
@@ -187,7 +195,7 @@ router.get("/summary", async (req, res) => {
  *         description: Served population metrics
  */
 router.get("/served-population", async (req, res) => {
-  const { admin_type: adminType = "District", district } = req.query;
+  const { admin_type: adminType = "District", district, ta } = req.query;
   const normalizedAdminType = normalizeAdminType(adminType);
 
   try {
@@ -196,12 +204,16 @@ router.get("/served-population", async (req, res) => {
       "LOWER(admin_unit_type) = LOWER($1)",
     ];
     const params = [normalizedAdminType];
-    appendDistrictNameCondition(
-      conditions,
-      params,
-      "admin_unit_name",
-      district,
-    );
+    if (normalizedAdminType === "TA") {
+      appendOptionalTaCondition(conditions, params, "admin_unit_name", ta);
+    } else {
+      appendDistrictNameCondition(
+        conditions,
+        params,
+        "admin_unit_name",
+        district,
+      );
+    }
 
     const result = await db.query(
       `

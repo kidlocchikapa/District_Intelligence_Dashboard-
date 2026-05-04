@@ -24,7 +24,8 @@ function isGlobalAccessRole(role) {
 }
 
 function normalizeDepartment(department) {
-  return String(department || "").trim().toLowerCase();
+  const normalized = String(department || "").trim().toLowerCase();
+  return normalized === "welfare" ? "social_welfare" : normalized;
 }
 
 function hasPermissionForAction(permission, action) {
@@ -57,7 +58,10 @@ async function fetchUserDepartmentPermissions(userId) {
   const result = await db.query(
     `
       SELECT
-        department,
+        CASE
+          WHEN department = 'welfare' THEN 'social_welfare'
+          ELSE department
+        END AS department,
         can_read,
         can_write,
         can_recompute,

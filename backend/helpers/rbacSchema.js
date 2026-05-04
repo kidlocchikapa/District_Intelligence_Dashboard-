@@ -25,6 +25,26 @@ const schemaStatements = [
         SELECT 1
         FROM information_schema.tables
         WHERE table_schema = 'public'
+          AND table_name = 'user_department_permissions'
+      ) THEN
+        ALTER TABLE user_department_permissions
+        DROP CONSTRAINT IF EXISTS user_department_permissions_department_check;
+
+        ALTER TABLE user_department_permissions
+        ADD CONSTRAINT user_department_permissions_department_check
+        CHECK (department IN (
+          'education',
+          'health',
+          'social_welfare',
+          'welfare',
+          'disaster'
+        ));
+      END IF;
+
+      IF EXISTS (
+        SELECT 1
+        FROM information_schema.tables
+        WHERE table_schema = 'public'
           AND table_name = 'users'
       ) THEN
         IF EXISTS (

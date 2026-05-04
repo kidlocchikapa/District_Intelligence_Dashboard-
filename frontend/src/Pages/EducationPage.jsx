@@ -105,6 +105,13 @@ function getPressureCategoryColor(value) {
   return getInsightColor(value);
 }
 
+function normalizeTaName(value) {
+  return String(value || "")
+    .trim()
+    .replace(/^ta\s+/i, "")
+    .toLowerCase();
+}
+
 function EducationScatterTooltip({ active, payload }) {
   if (!active || !payload?.length) {
     return null;
@@ -155,7 +162,7 @@ function EducationCategoryPieTooltip({ active, payload }) {
 }
 
 function EducationPage() {
-  const { selectedDistrict } = useDistrict();
+  const { selectedDistrict, selectedTa } = useDistrict();
   const [selectedPressureCategories, setSelectedPressureCategories] = useState(
     PRESSURE_FILTER_CATEGORIES,
   );
@@ -164,6 +171,7 @@ function EducationPage() {
   const educationSummary = useDashboardData(
     buildDashboardPath("/dashboard/education/summary", {
       district: selectedDistrict,
+      ta: selectedTa,
       admin_type: "District",
     }),
   );
@@ -198,18 +206,29 @@ function EducationPage() {
   const visibleInsightSummary =
     districtInsights.data?.visible_summary || benchmarkSummary;
   const thresholds = districtInsights.data?.thresholds || {};
-  const selectedInsight = selectedDistrict ? insightRows[0] || null : null;
-  const chartRows = (allInsightRows.length ? allInsightRows : insightRows).map(
+  const sourceInsightRows = allInsightRows.length ? allInsightRows : insightRows;
+  const selectedInsight =
+    selectedTa
+      ? sourceInsightRows.find(
+          (row) =>
+            normalizeTaName(row.admin_unit_name) === normalizeTaName(selectedTa),
+        ) || null
+      : selectedDistrict
+        ? insightRows[0] || null
+        : null;
+  const chartRows = sourceInsightRows.map(
     (row) => ({
       ...row,
       z: Math.max(Number(row.school_age_population_total || 0), 1),
       fill: getInsightColor(row.insight_label),
-      isSelected: selectedDistrict
-        ? row.district.toLowerCase() === selectedDistrict.toLowerCase()
-        : false,
+      isSelected: selectedTa
+        ? normalizeTaName(row.admin_unit_name) === normalizeTaName(selectedTa)
+        : selectedDistrict
+          ? row.district.toLowerCase() === selectedDistrict.toLowerCase()
+          : false,
     }),
   );
-  const highlightedRows = selectedDistrict
+  const highlightedRows = selectedTa || selectedDistrict
     ? chartRows.filter((row) => row.isSelected)
     : [];
 
@@ -290,9 +309,11 @@ function EducationPage() {
 
     return {
       ...schoolLocations.data,
-      features: filteredSchoolFeatures,
+      features: filteredSchoolFeatures.length
+        ? filteredSchoolFeatures
+        : schoolFeaturesWithPressure,
     };
-  }, [schoolLocations.data, filteredSchoolFeatures]);
+  }, [schoolLocations.data, filteredSchoolFeatures, schoolFeaturesWithPressure]);
 
   const togglePressureCategory = (category) => {
     setSelectedPressureCategories((current) =>
@@ -301,7 +322,7 @@ function EducationPage() {
         : [...current, category],
     );
   };
-  const rankedSignals = [...chartRows]
+  const sortedSignals = [...chartRows]
     .sort((left, right) => {
       if (left.insight_label !== right.insight_label) {
         return left.insight_label.localeCompare(right.insight_label);
@@ -320,8 +341,13 @@ function EducationPage() {
       }
 
       return right.schools_per_10k - left.schools_per_10k;
-    })
-    .slice(0, 6);
+    });
+  const rankedSignals = selectedTa
+    ? [
+        ...highlightedRows,
+        ...sortedSignals.filter((row) => !row.isSelected),
+      ].slice(0, 6)
+    : sortedSignals.slice(0, 6);
   const categoryPieData = [
     {
       name: "Infrastructure Gap",
@@ -406,8 +432,10 @@ function EducationPage() {
       <div className="px-8 mt-8">
         <p className="text-[14px] font-semibold text-gray-500 mb-6">
           {selectedDistrict
-            ? `Education stats for ${selectedDistrict}`
-            : "National Education Overview"}
+            ? `Education stats for ${selectedTa || selectedDistrict}`
+            : selectedTa
+              ? `Education stats for ${selectedTa}`
+              : "National Education Overview"}
         </p>
 
         <div className="flex gap-4 mb-6">
@@ -428,34 +456,47 @@ function EducationPage() {
             : [
                 {
                   label: "Total Schools",
-                  value: formatStat(educationSummary.data?.school_count || 0),
+                  value: formatStat(
+                    selectedInsight?.school_count ||
+                      educationSummary.data?.school_count ||
+                      0,
+                  ),
                   icon: School,
                 },
                 {
                   label: "Total Enrollment",
                   value: formatStat(
-                    educationSummary.data?.student_enrollment_total || 0,
+                    selectedInsight?.student_enrollment_total ||
+                      educationSummary.data?.student_enrollment_total ||
+                      0,
                   ),
                   icon: Users,
                 },
                 {
                   label: "Teachers",
                   value: formatStat(
-                    educationSummary.data?.teacher_count_total || 0,
+                    selectedInsight?.teacher_count_total ||
+                      educationSummary.data?.teacher_count_total ||
+                      0,
                   ),
                   icon: BookOpen,
                 },
                 {
                   label: "School-age Population",
                   value: formatStat(
-                    educationSummary.data?.school_age_population_total || 0,
+                    selectedInsight?.school_age_population_total ||
+                      educationSummary.data?.school_age_population_total ||
+                      0,
                   ),
                   icon: UserRoundCheck,
                 },
                 {
                   label: "Not in School",
                   value: formatStat(
-                    educationSummary.data?.not_in_school_total || 0,
+                    selectedInsight?.school_age_population_unenrolled ||
+                      selectedInsight?.not_in_school_total ||
+                      educationSummary.data?.not_in_school_total ||
+                      0,
                   ),
                   icon: UserRoundX,
                 },
@@ -656,7 +697,13 @@ function EducationPage() {
                               fill={row.fill}
                               stroke={row.isSelected ? "#111827" : "#ffffff"}
                               strokeWidth={row.isSelected ? 2.5 : 1}
-                              fillOpacity={row.isSelected ? 0.98 : 0.82}
+                              fillOpacity={
+                                selectedTa && !row.isSelected
+                                  ? 0.24
+                                  : row.isSelected
+                                    ? 1
+                                    : 0.82
+                              }
                             />
                           ))}
                         </Scatter>
@@ -876,6 +923,7 @@ function EducationPage() {
               ) : (
                 <MapPanel
                   geojson={schoolLocationsForMap}
+                  loading={schoolLocations.loading}
                   pointColor="#2563eb"
                   pointColorResolver={(feature) =>
                     getPressureCategoryColor(

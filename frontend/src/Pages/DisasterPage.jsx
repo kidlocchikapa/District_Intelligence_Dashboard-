@@ -52,7 +52,7 @@ function getExposureBarColor(value, maxValue) {
 }
 
 function DisasterPage() {
-  const { selectedDistrict } = useDistrict();
+  const { selectedDistrict, selectedTa, setSelectedTa } = useDistrict();
   const { contentRef, exportPdf } = usePdfExport("DisasterRisk_Report.pdf");
   const [selectedTa, setSelectedTa] = useState("");
 
@@ -87,7 +87,7 @@ function DisasterPage() {
     buildDashboardPath("/dashboard/disaster/flood/summary", {
       district: disasterDistrictFilter,
       ta: selectedTa,
-      admin_type: selectedTa ? "TA" : "District",
+      admin_type: "District",
     }),
   );
 
@@ -95,7 +95,7 @@ function DisasterPage() {
     buildDashboardPath("/dashboard/disaster/flood/facilities/summary", {
       district: disasterDistrictFilter,
       ta: selectedTa,
-      admin_type: selectedTa ? "TA" : "District",
+      admin_type: "District",
       facility_type: "education",
     }),
   );
@@ -104,7 +104,7 @@ function DisasterPage() {
     buildDashboardPath("/dashboard/disaster/flood/facilities/summary", {
       district: disasterDistrictFilter,
       ta: selectedTa,
-      admin_type: selectedTa ? "TA" : "District",
+      admin_type: "District",
       facility_type: "health",
     }),
   );
@@ -113,6 +113,7 @@ function DisasterPage() {
   const floodRiskZones = useDashboardData(
     buildDashboardPath("/dashboard/disaster/flood", {
       district: disasterDistrictFilter,
+      ta: selectedTa,
       admin_type: "TA",
       ta: selectedTa,
     }),
@@ -128,7 +129,7 @@ function DisasterPage() {
     buildDashboardPath("/dashboard/welfare/integration", {
       district: selectedDistrict,
       ta: selectedTa,
-      admin_type: selectedTa ? "TA" : "District",
+      admin_type: "District",
     }),
   );
 
@@ -249,8 +250,10 @@ function DisasterPage() {
       <div className="px-8 mt-8">
         <p className="text-[14px] font-semibold text-gray-500 mb-6">
           {selectedDistrict
-            ? `Risk analysis for ${selectedDistrict}`
-            : "Risk analysis for Zomba + Zomba City"}
+            ? `Risk analysis for ${selectedTa || selectedDistrict}`
+            : selectedTa
+              ? `Risk analysis for ${selectedTa}`
+              : "Risk analysis for All Districts"}
         </p>
 
         {selectedTa ? (
@@ -453,16 +456,31 @@ function DisasterPage() {
                       radius={[2, 2, 0, 0]}
                       barSize={18}
                       activeBar={<Rectangle fill="#7e22ce" />}
+                      onClick={(entry) => setSelectedTa(entry?.ta || "")}
                     >
-                      {exposedTaChartData.map((entry) => (
-                        <Cell
-                          key={`ta-exposure-${entry.ta}`}
-                          fill={getExposureBarColor(
-                            entry.exposedPopulation,
-                            maxExposedPopulation,
-                          )}
-                        />
-                      ))}
+                      {exposedTaChartData.map((entry) => {
+                        const isSelected =
+                          selectedTa &&
+                          entry.ta.toLowerCase() === selectedTa.toLowerCase();
+
+                        return (
+                          <Cell
+                            key={`ta-exposure-${entry.ta}`}
+                            cursor="pointer"
+                            fill={
+                              isSelected
+                                ? "#7e22ce"
+                                : getExposureBarColor(
+                                    entry.exposedPopulation,
+                                    maxExposedPopulation,
+                                  )
+                            }
+                            stroke={isSelected ? "#111827" : "transparent"}
+                            strokeWidth={isSelected ? 2 : 0}
+                            fillOpacity={selectedTa && !isSelected ? 0.28 : 1}
+                          />
+                        );
+                      })}
                     </Bar>
                   </BarChart>
                 </ResponsiveContainer>
