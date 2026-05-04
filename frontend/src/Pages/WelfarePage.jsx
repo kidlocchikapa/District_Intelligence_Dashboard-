@@ -185,7 +185,7 @@ function WelfarePage() {
   const baseByArea = baseIntegration.data?.by_area || [];
   const programOptions = baseProgramBreakdown;
   const scopeLabel = selectedTa
-    ? `TA ${selectedTa}`
+    ? selectedTa
     : selectedDistrict
       ? selectedDistrict
       : "all TAs";
@@ -541,7 +541,7 @@ function WelfarePage() {
               onClick={() => selectTa("")}
               className="rounded border border-gray-200 bg-gray-50 px-3 py-2 text-[12px] font-bold text-gray-700 transition-all hover:bg-white"
             >
-              Clear TA: {selectedTa}
+              Clear: {selectedTa}
             </button>
           ) : null}
         </div>
@@ -589,7 +589,7 @@ function WelfarePage() {
                   </h3>
                   <p className="mt-2 text-sm text-gray-500 font-semibold">
                     {selectedTa
-                      ? `Showing welfare indicators for TA ${selectedTa}.`
+                      ? `Showing welfare indicators for ${selectedTa}.`
                       : "Click a TA boundary to focus every welfare indicator on that TA."}
                   </p>
                 </div>
@@ -633,7 +633,7 @@ function WelfarePage() {
               </h3>
               <p className="text-sm text-gray-500 font-semibold mb-4">
                 {selectedTa
-                  ? `TA ${selectedTa} is highlighted; click another bar to sync the map, records, and insights.`
+                  ? `${selectedTa} is highlighted; click another bar to sync the map, records, and insights.`
                   : "Click a TA bar to focus the map, records, and insights."}
               </p>
               <div className="flex-1">
@@ -686,7 +686,7 @@ function WelfarePage() {
                           Number(value).toLocaleString(),
                           "Beneficiaries",
                         ]}
-                        labelFormatter={(label) => `TA ${label}`}
+                        labelFormatter={(label) => label}
                         contentStyle={{
                           borderRadius: "4px",
                           border: "none",
@@ -891,13 +891,13 @@ function WelfarePage() {
               </select>
             </div>
             <p className="mt-3 text-[12px] font-semibold text-gray-500">
-              Showing {formatWholeNumber(filteredByArea.length)} {selectedTa ? `record for TA ${selectedTa}` : "TA records"} after filtering.
+              Showing {formatWholeNumber(filteredByArea.length)} {selectedTa ? `record for ${selectedTa}` : "TA records"} after filtering.
             </p>
           </div>
           <DataTable
             rows={filteredByArea}
             columns={areaColumns}
-            title={selectedTa ? `TA ${selectedTa} Decision View` : "TA Decision View"}
+            title={selectedTa ? `${selectedTa} Decision View` : "TA Decision View"}
             subtitle={`Previewing linked social welfare, education, health, and disaster indicators for ${scopeLabel}.`}
           />
         </div>
@@ -947,7 +947,7 @@ function WelfarePage() {
           <DataTable
             rows={filteredBeneficiaryPreview}
             columns={beneficiaryColumns}
-            title={selectedTa ? `Beneficiary Preview for TA ${selectedTa}` : "Beneficiary Preview"}
+            title={selectedTa ? `Beneficiary Preview for ${selectedTa}` : "Beneficiary Preview"}
             subtitle={`A record-level sample showing program membership, residence, nearby services, and flood context for ${scopeLabel}.`}
           />
         </div>

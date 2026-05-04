@@ -76,7 +76,7 @@ function OverviewPage() {
   const districtScope = selectedDistrict || "Zomba";
   const [selectedTa, setSelectedTa] = useState("");
   const scopeLabel = selectedTa
-    ? `TA ${selectedTa}`
+    ? selectedTa
     : selectedDistrict
       ? selectedDistrict
       : "Zomba";
@@ -209,7 +209,7 @@ function OverviewPage() {
       <div className="px-8 mt-8">
         <p className="text-[14px] font-semibold text-gray-500 mb-6">
           {selectedTa
-            ? `Showing records for TA ${selectedTa}`
+            ? `Showing records for ${selectedTa}`
             : selectedDistrict
               ? `Showing ${selectedDistrict} Records`
               : "Showing Zomba Records"}
@@ -237,7 +237,7 @@ function OverviewPage() {
               onClick={() => selectTa("")}
               className="rounded border border-gray-200 bg-gray-50 px-3 py-1.5 text-[13px] font-bold text-gray-700 transition-all hover:bg-white"
             >
-              Clear TA: {selectedTa}
+              Clear: {selectedTa}
             </button>
           ) : null}
 
@@ -301,7 +301,7 @@ function OverviewPage() {
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-10">
           <div className="border border-gray-100 rounded p-8 shadow-sm bg-white flex flex-col h-[480px]">
             <h3 className="text-[16px] font-extrabold mb-6">
-              {selectedTa ? `TA ${selectedTa} Map Overview` : "TA Map Overview"}
+              {selectedTa ? `${selectedTa} Map Overview` : "TA Map Overview"}
             </h3>
             <div
               ref={mapRef}
@@ -324,11 +324,11 @@ function OverviewPage() {
 
           <div className="border border-gray-100 rounded p-8 shadow-sm bg-white flex flex-col min-h-[460px]">
             <h3 className="text-[16px] font-extrabold mb-6">
-              {selectedTa ? `Population for TA ${selectedTa}` : "Population by TA"}
+              {selectedTa ? `Population for ${selectedTa}` : "Population by TA"}
             </h3>
             <p className="text-xs text-gray-500 font-semibold mb-3">
               {selectedTa
-                ? `TA ${selectedTa} is highlighted; click another bar to sync the map and overview metrics.`
+                ? `${selectedTa} is highlighted; click another bar to sync the map and overview metrics.`
                 : "Showing TA-level population totals. Click a bar to sync the map and overview metrics."}
             </p>
             <div className="flex-1">
