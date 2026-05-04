@@ -105,6 +105,13 @@ function getPressureCategoryColor(value) {
   return getInsightColor(value);
 }
 
+function normalizeTaName(value) {
+  return String(value || "")
+    .trim()
+    .replace(/^ta\s+/i, "")
+    .toLowerCase();
+}
+
 function EducationScatterTooltip({ active, payload }) {
   if (!active || !payload?.length) {
     return null;
@@ -204,8 +211,7 @@ function EducationPage() {
     selectedTa
       ? sourceInsightRows.find(
           (row) =>
-            String(row.admin_unit_name || "").toLowerCase() ===
-            selectedTa.toLowerCase(),
+            normalizeTaName(row.admin_unit_name) === normalizeTaName(selectedTa),
         ) || null
       : selectedDistrict
         ? insightRows[0] || null
@@ -216,8 +222,7 @@ function EducationPage() {
       z: Math.max(Number(row.school_age_population_total || 0), 1),
       fill: getInsightColor(row.insight_label),
       isSelected: selectedTa
-        ? String(row.admin_unit_name || "").toLowerCase() ===
-          selectedTa.toLowerCase()
+        ? normalizeTaName(row.admin_unit_name) === normalizeTaName(selectedTa)
         : selectedDistrict
           ? row.district.toLowerCase() === selectedDistrict.toLowerCase()
           : false,
@@ -304,9 +309,11 @@ function EducationPage() {
 
     return {
       ...schoolLocations.data,
-      features: filteredSchoolFeatures,
+      features: filteredSchoolFeatures.length
+        ? filteredSchoolFeatures
+        : schoolFeaturesWithPressure,
     };
-  }, [schoolLocations.data, filteredSchoolFeatures]);
+  }, [schoolLocations.data, filteredSchoolFeatures, schoolFeaturesWithPressure]);
 
   const togglePressureCategory = (category) => {
     setSelectedPressureCategories((current) =>
@@ -690,7 +697,13 @@ function EducationPage() {
                               fill={row.fill}
                               stroke={row.isSelected ? "#111827" : "#ffffff"}
                               strokeWidth={row.isSelected ? 2.5 : 1}
-                              fillOpacity={row.isSelected ? 0.98 : 0.82}
+                              fillOpacity={
+                                selectedTa && !row.isSelected
+                                  ? 0.24
+                                  : row.isSelected
+                                    ? 1
+                                    : 0.82
+                              }
                             />
                           ))}
                         </Scatter>
@@ -910,6 +923,7 @@ function EducationPage() {
               ) : (
                 <MapPanel
                   geojson={schoolLocationsForMap}
+                  loading={schoolLocations.loading}
                   pointColor="#2563eb"
                   pointColorResolver={(feature) =>
                     getPressureCategoryColor(

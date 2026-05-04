@@ -314,6 +314,7 @@ function PopulationPage() {
                         }
                         stroke={isSelected ? "#111827" : "transparent"}
                         strokeWidth={isSelected ? 2 : 0}
+                        fillOpacity={selectedTa && !isSelected ? 0.28 : 1}
                       />
                     );
                   })}
