@@ -5,7 +5,7 @@ import {
 } from "react";
 import {
   Download,
-  Map,
+  Map as MapIcon,
   Users,
   School,
   HeartPulse,
@@ -106,6 +106,12 @@ function OverviewPage() {
       admin_type: selectedTa ? "TA" : "District",
     }),
   );
+  const taFloodExposure = useDashboardData(
+    buildDashboardPath("/dashboard/disaster/flood/population", {
+      district: districtScope,
+      admin_type: "TA",
+    }),
+  );
 
   const chartData = (populationDistribution.data || []).map((item) => ({
     admin3Id: item.admin3_id,
@@ -118,22 +124,55 @@ function OverviewPage() {
       selectedTa &&
       item.admin3.toLowerCase() === selectedTa.toLowerCase(),
   );
+  const taFloodLookup = useMemo(() => {
+    const lookup = new Map();
+
+    (taFloodExposure.data || []).forEach((row) => {
+      if (!row.admin_unit_name) {
+        return;
+      }
+
+      lookup.set(row.admin_unit_name.toLowerCase(), {
+        exposedPopulation: Number(row.exposed_population || 0),
+        exposedPopulationPct: Number(row.exposed_population_pct || 0),
+        riskLevel: row.risk_level,
+      });
+    });
+
+    return lookup;
+  }, [taFloodExposure.data]);
 
   const mapGeojson = useMemo(() => {
     if (!densityMap.data) {
       return densityMap.data;
     }
 
-    const features = (densityMap.data.features || []).filter((feature) => {
-      const name = feature?.properties?.name || "";
-      return !selectedTa || name.toLowerCase() === selectedTa.toLowerCase();
-    });
+    const features = (densityMap.data.features || [])
+      .filter((feature) => {
+        const name = feature?.properties?.name || "";
+        return !selectedTa || name.toLowerCase() === selectedTa.toLowerCase();
+      })
+      .map((feature) => {
+        const name = feature?.properties?.name || "";
+        const floodStats = taFloodLookup.get(name.toLowerCase()) || {};
+
+        return {
+          ...feature,
+          properties: {
+            ...feature.properties,
+            admin_unit_name: name,
+            exposed_population: floodStats.exposedPopulation || 0,
+            exposed_population_pct: floodStats.exposedPopulationPct || 0,
+            risk_level: floodStats.riskLevel,
+          },
+        };
+      });
 
     return {
       ...densityMap.data,
       features,
     };
-  }, [densityMap.data, selectedTa]);
+  }, [densityMap.data, selectedTa, taFloodLookup]);
 
   const selectTa = (taName) => {
     setSelectedTa(taName || "");
@@ -228,7 +267,7 @@ function OverviewPage() {
             onClick={downloadImage}
             className="flex items-center gap-2 border border-gray-300 rounded px-3 py-1.5 text-[13px] font-bold hover:bg-gray-50 transition-all shadow-sm active:scale-95"
           >
-            <Map className="h-4 w-4" />
+            <MapIcon className="h-4 w-4" />
             Download Map
           </button>
           <SharedDistrictSelector />
