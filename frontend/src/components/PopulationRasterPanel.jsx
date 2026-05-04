@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import "leaflet/dist/leaflet.css";
 import { GeoJSON, ImageOverlay, MapContainer, ZoomControl, useMap } from "react-leaflet";
 import { useDistrict } from "../context/DistrictContext";
@@ -24,12 +24,14 @@ function PopulationRasterPanel({
   metadataUrl = DEFAULT_METADATA_URL,
   heightClass = "h-[460px]",
   loading = false,
+  onFeatureClick,
+  selectedFeatureName,
+  featureNameResolver,
 }) {
   const { selectedDistrict, setSelectedDistrict } = useDistrict();
   const [metadata, setMetadata] = useState(null);
-  const [activeGeojson, setActiveGeojson] = useState(geojson);
-  const [activeBounds, setActiveBounds] = useState(null);
   const [hoveredDistrict, setHoveredDistrict] = useState(null);
+  const [hoveredFeature, setHoveredFeature] = useState(null);
   const [error, setError] = useState(null);
 
   useEffect(() => {
@@ -60,33 +62,75 @@ function PopulationRasterPanel({
     };
   }, [metadataUrl]);
 
-  if (error) {
-    return <EmptyState title={title} description={error} />;
-  }
-
   const defaultBounds = metadata?.bounds;
-
-  useEffect(() => {
-    if (!loading && geojson && metadata) {
-      setActiveGeojson(geojson);
-      const features = geojson.features || [];
-      if (features.length > 0) {
-        const b = getGeoBounds(features);
-        if (b.minLat !== Infinity) {
-          setActiveBounds([[b.minLat, b.minLon], [b.maxLat, b.maxLon]]);
-        } else {
-          setActiveBounds(defaultBounds);
-        }
-      } else {
-        setActiveBounds(defaultBounds);
-      }
+  const features = geojson?.features || [];
+  const activeBounds = useMemo(() => {
+    if (!metadata) {
+      return null;
     }
-  }, [geojson, loading, defaultBounds, metadata]);
+
+    if (!features.length) {
+      return defaultBounds;
+    }
+
+    const bounds = getGeoBounds(features);
+
+    if (bounds.minLat === Infinity) {
+      return defaultBounds;
+    }
+
+    return [
+      [bounds.minLat, bounds.minLon],
+      [bounds.maxLat, bounds.maxLon],
+    ];
+  }, [defaultBounds, features, metadata]);
+
+  const selectedFeature = useMemo(() => {
+    if (!selectedFeatureName) {
+      return null;
+    }
+
+    return (
+      features.find((feature) => {
+        const name =
+          typeof featureNameResolver === "function"
+            ? featureNameResolver(feature)
+            : feature?.properties?.admin_unit_name ||
+              feature?.properties?.name;
+
+        return (
+          name &&
+          String(name).toLowerCase() ===
+            String(selectedFeatureName).toLowerCase()
+        );
+      }) || null
+    );
+  }, [featureNameResolver, features, selectedFeatureName]);
+
+  const focusFeature = hoveredFeature || selectedFeature;
+  const focusProperties = focusFeature?.properties || {};
+  const focusName =
+    hoveredDistrict ||
+    focusProperties.admin_unit_name ||
+    focusProperties.name ||
+    selectedFeatureName;
 
   const hasHeader = Boolean(title || subtitle);
   const wrapperClassName = hasHeader
     ? "flex h-full min-h-0 flex-col gap-4"
     : "h-full";
+
+  const formatStat = (value, digits = 0) => {
+    const number = Number(value || 0);
+
+    return number.toLocaleString(undefined, {
+      maximumFractionDigits: digits,
+    });
+  };
+
+  if (error) {
+    return <EmptyState title={title} description={error} />;
+  }
 
   if (!metadata) {
     return (
@@ -113,7 +157,26 @@ function PopulationRasterPanel({
   const imageUrl = metadata.image.startsWith("/")
     ? metadata.image
     : `${metadataUrl.slice(0, metadataUrl.lastIndexOf("/") + 1)}${metadata.image}`;
-  const features = activeGeojson?.features || [];
+
+  function getFeatureName(feature) {
+    if (typeof featureNameResolver === "function") {
+      return featureNameResolver(feature);
+    }
+
+    return (
+      feature?.properties?.admin_unit_name ||
+      feature?.properties?.name ||
+      null
+    );
+  }
+
+  function getFeatureType(feature) {
+    return (
+      feature?.properties?.admin_unit_type ||
+      feature?.properties?.type ||
+      null
+    );
+  }
 
   return (
     <div className={wrapperClassName}>
@@ -143,20 +206,35 @@ function PopulationRasterPanel({
           <ImageOverlay bounds={defaultBounds} url={imageUrl} opacity={0.94} />
           {features.length ? (
             <GeoJSON
-              key={`pop-raster-geojson-${features.length}-${selectedDistrict}`}
-              data={activeGeojson}
-              style={(feature) => ({
-                color: "#6d7a65",
-                weight: features.length === 1 || feature.properties.admin_unit_name === hoveredDistrict ? 2.5 : 1,
-                opacity: 0.6,
-                fillColor: feature.properties.admin_unit_name === hoveredDistrict ? "#6d7a65" : "transparent",
-                fillOpacity: feature.properties.admin_unit_name === hoveredDistrict ? 0.1 : 0,
-              })}
+              key={`pop-raster-geojson-${features.map((feature) => feature.id || getFeatureName(feature)).join("|")}-${selectedDistrict}-${selectedFeatureName || "all"}`}
+              data={geojson}
+              style={(feature) => {
+                const featureName = getFeatureName(feature);
+                const isSelected =
+                  selectedFeatureName &&
+                  featureName &&
+                  String(featureName).toLowerCase() ===
+                    String(selectedFeatureName).toLowerCase();
+                const isHovered = featureName === hoveredDistrict;
+
+                return {
+                  color: isSelected ? "#111827" : "#6d7a65",
+                  weight:
+                    isSelected || features.length === 1 || isHovered
+                      ? 2.5
+                      : 1,
+                  opacity: isSelected ? 0.9 : 0.6,
+                  fillColor:
+                    isSelected || isHovered ? "#6d7a65" : "transparent",
+                  fillOpacity: isSelected ? 0.16 : isHovered ? 0.1 : 0,
+                };
+              }}
               onEachFeature={(feature, layer) => {
                 layer.on({
                   mouseover: (e) => {
-                    const name = feature.properties.admin_unit_name || feature.properties.name;
+                    const name = getFeatureName(feature);
                     setHoveredDistrict(name);
+                    setHoveredFeature(feature);
                     const layer = e.target;
                     layer.setStyle({
                       weight: 3,
@@ -166,6 +244,7 @@ function PopulationRasterPanel({
                   },
                   mouseout: (e) => {
                     setHoveredDistrict(null);
+                    setHoveredFeature(null);
                     const layer = e.target;
                     layer.setStyle({
                       weight: features.length === 1 ? 2.5 : 1,
@@ -173,9 +252,17 @@ function PopulationRasterPanel({
                       fillOpacity: 0
                     });
                   },
-                  click: () => {
-                    const name = feature.properties.admin_unit_name || feature.properties.name;
-                    if (name) setSelectedDistrict(name);
+                  click: (e) => {
+                    const name = getFeatureName(feature);
+                    const featureType = getFeatureType(feature);
+                    if (typeof onFeatureClick === "function") {
+                      onFeatureClick(feature, e);
+                    } else if (
+                      name &&
+                      String(featureType).toLowerCase() === "district"
+                    ) {
+                      setSelectedDistrict(name);
+                    }
                   }
                 });
               }}
@@ -193,44 +280,86 @@ function PopulationRasterPanel({
           </div>
         )}
 
-        <div className="pointer-events-none absolute inset-x-4 bottom-4 flex items-end justify-between gap-4 z-[401]">
-          <div className="rounded-2xl border border-white/80 bg-white/92 px-5 py-4 shadow-md backdrop-blur-md min-w-[220px]">
-            {hoveredDistrict && (
-              <div className="mb-3 pb-3 border-b border-slate/10 animate-in fade-in slide-in-from-bottom-2 duration-300">
-                <p className="text-[10px] font-bold uppercase tracking-wider text-blue-600/60 leading-none">Hovering District</p>
-                <p className="mt-1.5 text-[15px] font-black text-slate leading-none">{hoveredDistrict}</p>
-              </div>
-            )}
+        {hoveredFeature ? (
+          <div className="pointer-events-none absolute inset-x-4 bottom-4 flex items-end justify-start gap-4 z-[401]">
+            <div className="rounded-2xl border border-white/80 bg-white/92 px-5 py-4 shadow-md backdrop-blur-md min-w-[240px]">
             <div>
               <p className="text-[10px] font-bold uppercase tracking-[0.15em] text-slate/50 leading-none mb-2.5">
-                {metadata.legend?.label || "Population Density"}
+                Hovering Area
               </p>
-              <div className="flex flex-col gap-3">
-                <div className="flex items-stretch overflow-hidden rounded-full border border-slate/10 h-2.5 w-full">
-                  {(metadata.legend?.colors || []).map((color) => (
-                    <span
-                      key={color}
-                      className="flex-1"
-                      style={{ backgroundColor: color }}
-                    />
-                  ))}
-                </div>
-                <div className="flex items-center justify-between text-[10px] font-bold text-slate/60 uppercase tracking-wider">
-                  <span>{metadata.legend?.lowLabel || "Low"}</span>
-                  <div className="flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-slate/5 border border-slate/5">
-                    <span className="w-1.5 h-1.5 rounded-full bg-blue-500/50 animate-pulse"></span>
-                    <span className="text-[9px]">Live Data</span>
+              {focusName ? (
+                <div className="space-y-3">
+                  <p className="text-[15px] font-black text-slate leading-none">
+                    {focusName}
+                  </p>
+                  <div className="grid grid-cols-2 gap-3 text-[11px] font-semibold text-slate/65">
+                    <div>
+                      <p className="uppercase tracking-[0.12em] text-slate/40">
+                        Population
+                      </p>
+                      <p className="mt-1 text-[14px] font-black text-slate">
+                        {formatStat(focusProperties.population_total)}
+                      </p>
+                    </div>
+                    <div>
+                      <p className="uppercase tracking-[0.12em] text-slate/40">
+                        Density
+                      </p>
+                      <p className="mt-1 text-[14px] font-black text-slate">
+                        {formatStat(focusProperties.population_density, 1)}
+                      </p>
+                    </div>
+                    {focusProperties.beneficiary_count !== undefined ? (
+                      <div>
+                        <p className="uppercase tracking-[0.12em] text-slate/40">
+                          Beneficiaries
+                        </p>
+                        <p className="mt-1 text-[14px] font-black text-slate">
+                          {formatStat(focusProperties.beneficiary_count)}
+                        </p>
+                      </div>
+                    ) : null}
+                    {focusProperties.flood_affected_count !== undefined ? (
+                      <div>
+                        <p className="uppercase tracking-[0.12em] text-slate/40">
+                          Flood Affected
+                        </p>
+                        <p className="mt-1 text-[14px] font-black text-slate">
+                          {formatStat(focusProperties.flood_affected_count)}
+                        </p>
+                      </div>
+                    ) : null}
+                    {focusProperties.exposed_population !== undefined ? (
+                      <div>
+                        <p className="uppercase tracking-[0.12em] text-slate/40">
+                          Flood Exposed
+                        </p>
+                        <p className="mt-1 text-[14px] font-black text-slate">
+                          {formatStat(focusProperties.exposed_population)}
+                        </p>
+                      </div>
+                    ) : null}
+                    {focusProperties.exposed_population_pct !== undefined ? (
+                      <div>
+                        <p className="uppercase tracking-[0.12em] text-slate/40">
+                          Exposure %
+                        </p>
+                        <p className="mt-1 text-[14px] font-black text-slate">
+                          {formatStat(focusProperties.exposed_population_pct, 1)}%
+                        </p>
+                      </div>
+                    ) : null}
                   </div>
-                  <span>{metadata.legend?.highLabel || "High"}</span>
                 </div>
-              </div>
+              ) : (
+                <p className="text-[12px] font-semibold text-slate/60">
+                  Hover a TA to view its local stats.
+                </p>
+              )}
             </div>
           </div>
-
-          <div className="rounded-full border border-white/80 bg-white/92 px-4 py-2 text-[10px] font-bold uppercase tracking-[0.12em] text-slate/50 shadow-sm backdrop-blur-md border-b-2 border-b-slate/10">
-            WorldPop GIS Source
           </div>
-        </div>
+        ) : null}
       </div>
     </div>
   );

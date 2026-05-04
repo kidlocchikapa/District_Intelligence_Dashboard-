@@ -4,9 +4,22 @@ const DistrictContext = createContext();
 
 export function DistrictProvider({ children }) {
   const [selectedDistrict, setSelectedDistrict] = useState('');
+  const [selectedTa, setSelectedTa] = useState('');
+
+  const updateSelectedDistrict = (district) => {
+    setSelectedDistrict(district);
+    setSelectedTa('');
+  };
 
   return (
-    <DistrictContext.Provider value={{ selectedDistrict, setSelectedDistrict }}>
+    <DistrictContext.Provider
+      value={{
+        selectedDistrict,
+        setSelectedDistrict: updateSelectedDistrict,
+        selectedTa,
+        setSelectedTa,
+      }}
+    >
       {children}
     </DistrictContext.Provider>
   );

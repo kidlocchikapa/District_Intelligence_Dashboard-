@@ -6,7 +6,7 @@ const schemaStatements = [
       id SERIAL PRIMARY KEY,
       user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
       department VARCHAR(50) NOT NULL CHECK (
-        department IN ('education', 'health', 'welfare', 'disaster')
+        department IN ('education', 'health', 'social_welfare', 'disaster')
       ),
       can_read BOOLEAN NOT NULL DEFAULT TRUE,
       can_write BOOLEAN NOT NULL DEFAULT FALSE,
@@ -25,6 +25,26 @@ const schemaStatements = [
         SELECT 1
         FROM information_schema.tables
         WHERE table_schema = 'public'
+          AND table_name = 'user_department_permissions'
+      ) THEN
+        ALTER TABLE user_department_permissions
+        DROP CONSTRAINT IF EXISTS user_department_permissions_department_check;
+
+        ALTER TABLE user_department_permissions
+        ADD CONSTRAINT user_department_permissions_department_check
+        CHECK (department IN (
+          'education',
+          'health',
+          'social_welfare',
+          'welfare',
+          'disaster'
+        ));
+      END IF;
+
+      IF EXISTS (
+        SELECT 1
+        FROM information_schema.tables
+        WHERE table_schema = 'public'
           AND table_name = 'users'
       ) THEN
         IF EXISTS (
@@ -38,7 +58,17 @@ const schemaStatements = [
 
         ALTER TABLE users
         ADD CONSTRAINT users_role_check
-        CHECK (role IN ('super_admin', 'admin', 'department_admin', 'analyst', 'user'));
+        CHECK (role IN (
+          'super_admin', 
+          'admin', 
+          'education_admin', 
+          'health_admin', 
+          'disaster_admin', 
+          'welfare_admin',
+          'department_admin', 
+          'analyst', 
+          'user'
+        ));
       END IF;
     END $$;
   `,

@@ -13,6 +13,13 @@ const userUpdateSchema = Joi.object({
   "object.min": "At least one user field is required",
 });
 
+const userCreateSchema = Joi.object({
+  fullName: Joi.string().trim().required(),
+  email: Joi.string().email().trim().required(),
+  password: Joi.string().min(8).required(),
+  role: Joi.string().trim().lowercase().valid(...USER_ROLES).default('user'),
+});
+
 const departmentPermissionSchema = Joi.object({
   department: Joi.string().trim().lowercase().valid(...DEPARTMENTS).required(),
   canRead: Joi.boolean().default(true),
@@ -48,7 +55,12 @@ function validateReplaceDepartmentPermissions(payload) {
   return validateWithSchema(replaceDepartmentPermissionsSchema, payload);
 }
 
+function validateAdminUserCreate(payload) {
+  return validateWithSchema(userCreateSchema, payload);
+}
+
 module.exports = {
+  validateAdminUserCreate,
   validateAdminUserUpdate,
   validateReplaceDepartmentPermissions,
 };

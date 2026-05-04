@@ -11,12 +11,13 @@ import { useMemo, useState } from "react";
 import DataTable from "../components/DataTable";
 import { useDashboardData } from "../hooks/useDashboardData";
 import { useDistrict } from "../context/DistrictContext";
-import { useDistrictOptions } from "../hooks/useDistrictOptions";
 import { usePdfExport } from "../hooks/usePdfExport";
 import { formatNumber } from "../lib/format";
 import { buildDashboardPath } from "../lib/query";
 import MapPanel from "../components/MapPanel";
 import CoverageShapePanel from "../components/CoverageShapePanel";
+import IntegrationSummaryPanel from "../components/IntegrationSummaryPanel";
+import SharedDistrictSelector from "../components/SharedDistrictSelector";
 import {
   Cell,
   CartesianGrid,
@@ -104,6 +105,13 @@ function getPressureCategoryColor(value) {
   return getInsightColor(value);
 }
 
+function normalizeTaName(value) {
+  return String(value || "")
+    .trim()
+    .replace(/^ta\s+/i, "")
+    .toLowerCase();
+}
+
 function EducationScatterTooltip({ active, payload }) {
   if (!active || !payload?.length) {
     return null;
@@ -154,16 +162,16 @@ function EducationCategoryPieTooltip({ active, payload }) {
 }
 
 function EducationPage() {
-  const { selectedDistrict, setSelectedDistrict } = useDistrict();
+  const { selectedDistrict, selectedTa } = useDistrict();
   const [selectedPressureCategories, setSelectedPressureCategories] = useState(
     PRESSURE_FILTER_CATEGORIES,
   );
   const { contentRef, exportPdf } = usePdfExport("Education_Report.pdf");
-  const districts = useDistrictOptions();
 
   const educationSummary = useDashboardData(
     buildDashboardPath("/dashboard/education/summary", {
       district: selectedDistrict,
+      ta: selectedTa,
       admin_type: "District",
     }),
   );
@@ -184,6 +192,12 @@ function EducationPage() {
       buffer_km: 5,
     }),
   );
+  const educationIntegration = useDashboardData(
+    buildDashboardPath("/dashboard/welfare/integration", {
+      district: selectedDistrict,
+      admin_type: "District",
+    }),
+  );
 
   const formatStat = (value, digits = 0) => formatNumber(value, digits);
   const allInsightRows = districtInsights.data?.all_districts || [];
@@ -192,18 +206,29 @@ function EducationPage() {
   const visibleInsightSummary =
     districtInsights.data?.visible_summary || benchmarkSummary;
   const thresholds = districtInsights.data?.thresholds || {};
-  const selectedInsight = selectedDistrict ? insightRows[0] || null : null;
-  const chartRows = (allInsightRows.length ? allInsightRows : insightRows).map(
+  const sourceInsightRows = allInsightRows.length ? allInsightRows : insightRows;
+  const selectedInsight =
+    selectedTa
+      ? sourceInsightRows.find(
+          (row) =>
+            normalizeTaName(row.admin_unit_name) === normalizeTaName(selectedTa),
+        ) || null
+      : selectedDistrict
+        ? insightRows[0] || null
+        : null;
+  const chartRows = sourceInsightRows.map(
     (row) => ({
       ...row,
       z: Math.max(Number(row.school_age_population_total || 0), 1),
       fill: getInsightColor(row.insight_label),
-      isSelected: selectedDistrict
-        ? row.district.toLowerCase() === selectedDistrict.toLowerCase()
-        : false,
+      isSelected: selectedTa
+        ? normalizeTaName(row.admin_unit_name) === normalizeTaName(selectedTa)
+        : selectedDistrict
+          ? row.district.toLowerCase() === selectedDistrict.toLowerCase()
+          : false,
     }),
   );
-  const highlightedRows = selectedDistrict
+  const highlightedRows = selectedTa || selectedDistrict
     ? chartRows.filter((row) => row.isSelected)
     : [];
 
@@ -284,9 +309,11 @@ function EducationPage() {
 
     return {
       ...schoolLocations.data,
-      features: filteredSchoolFeatures,
+      features: filteredSchoolFeatures.length
+        ? filteredSchoolFeatures
+        : schoolFeaturesWithPressure,
     };
-  }, [schoolLocations.data, filteredSchoolFeatures]);
+  }, [schoolLocations.data, filteredSchoolFeatures, schoolFeaturesWithPressure]);
 
   const togglePressureCategory = (category) => {
     setSelectedPressureCategories((current) =>
@@ -295,7 +322,7 @@ function EducationPage() {
         : [...current, category],
     );
   };
-  const rankedSignals = [...chartRows]
+  const sortedSignals = [...chartRows]
     .sort((left, right) => {
       if (left.insight_label !== right.insight_label) {
         return left.insight_label.localeCompare(right.insight_label);
@@ -314,8 +341,13 @@ function EducationPage() {
       }
 
       return right.schools_per_10k - left.schools_per_10k;
-    })
-    .slice(0, 6);
+    });
+  const rankedSignals = selectedTa
+    ? [
+        ...highlightedRows,
+        ...sortedSignals.filter((row) => !row.isSelected),
+      ].slice(0, 6)
+    : sortedSignals.slice(0, 6);
   const categoryPieData = [
     {
       name: "Infrastructure Gap",
@@ -379,6 +411,7 @@ function EducationPage() {
     { key: "students_per_school", label: "Students / School", digits: 0 },
   ];
 
+
   const StatCardSkeleton = () => (
     <div className="border border-gray-100 rounded p-6 shadow-md bg-white animate-pulse">
       <div className="h-4 w-32 bg-gray-200 rounded mb-4"></div>
@@ -399,8 +432,10 @@ function EducationPage() {
       <div className="px-8 mt-8">
         <p className="text-[14px] font-semibold text-gray-500 mb-6">
           {selectedDistrict
-            ? `Education stats for ${selectedDistrict}`
-            : "National Education Overview"}
+            ? `Education stats for ${selectedTa || selectedDistrict}`
+            : selectedTa
+              ? `Education stats for ${selectedTa}`
+              : "National Education Overview"}
         </p>
 
         <div className="flex gap-4 mb-6">
@@ -411,21 +446,8 @@ function EducationPage() {
             <Download className="h-4 w-4" />
             Download PDF
           </button>
+          <SharedDistrictSelector />
 
-          <div className="relative">
-            <select
-              className="bg-black text-white rounded px-6 py-2 text-[14px] font-bold appearance-none min-w-[160px] cursor-pointer"
-              value={selectedDistrict}
-              onChange={(event) => setSelectedDistrict(event.target.value)}
-            >
-              <option value="">All Districts</option>
-              {districts.options?.map((option) => (
-                <option key={option.value} value={option.value}>
-                  {option.label}
-                </option>
-              ))}
-            </select>
-          </div>
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-5 gap-6 mb-10">
@@ -434,34 +456,47 @@ function EducationPage() {
             : [
                 {
                   label: "Total Schools",
-                  value: formatStat(educationSummary.data?.school_count || 0),
+                  value: formatStat(
+                    selectedInsight?.school_count ||
+                      educationSummary.data?.school_count ||
+                      0,
+                  ),
                   icon: School,
                 },
                 {
                   label: "Total Enrollment",
                   value: formatStat(
-                    educationSummary.data?.student_enrollment_total || 0,
+                    selectedInsight?.student_enrollment_total ||
+                      educationSummary.data?.student_enrollment_total ||
+                      0,
                   ),
                   icon: Users,
                 },
                 {
                   label: "Teachers",
                   value: formatStat(
-                    educationSummary.data?.teacher_count_total || 0,
+                    selectedInsight?.teacher_count_total ||
+                      educationSummary.data?.teacher_count_total ||
+                      0,
                   ),
                   icon: BookOpen,
                 },
                 {
                   label: "School-age Population",
                   value: formatStat(
-                    educationSummary.data?.school_age_population_total || 0,
+                    selectedInsight?.school_age_population_total ||
+                      educationSummary.data?.school_age_population_total ||
+                      0,
                   ),
                   icon: UserRoundCheck,
                 },
                 {
                   label: "Not in School",
                   value: formatStat(
-                    educationSummary.data?.not_in_school_total || 0,
+                    selectedInsight?.school_age_population_unenrolled ||
+                      selectedInsight?.not_in_school_total ||
+                      educationSummary.data?.not_in_school_total ||
+                      0,
                   ),
                   icon: UserRoundX,
                 },
@@ -481,6 +516,51 @@ function EducationPage() {
                   </div>
                 </div>
               ))}
+        </div>
+
+        <div className="mb-10">
+          <IntegrationSummaryPanel
+            title="Integrated Education Context"
+            subtitle="Education planning shown with linked beneficiary access, health reach, and flood-sensitive welfare context."
+            loading={educationIntegration.loading}
+            items={[
+              {
+                label: "Education Access",
+                metrics: {
+                  beneficiaries_with_school_access:
+                    educationIntegration.data?.summary?.school_access_count || 0,
+                  school_access_pct:
+                    educationIntegration.data?.summary?.school_access_pct || 0,
+                  school_age_unenrolled:
+                    educationIntegration.data?.summary
+                      ?.school_age_population_unenrolled || 0,
+                },
+              },
+              {
+                label: "Health Link",
+                metrics: {
+                  beneficiaries_with_health_access:
+                    educationIntegration.data?.summary?.health_access_count || 0,
+                  public_hospital_access:
+                    educationIntegration.data?.summary
+                      ?.public_hospital_access_count || 0,
+                  private_hospital_access:
+                    educationIntegration.data?.summary
+                      ?.private_hospital_access_count || 0,
+                },
+              },
+              {
+                label: "Risk Link",
+                metrics: {
+                  flood_affected_beneficiaries:
+                    educationIntegration.data?.summary?.flood_affected_count ||
+                    0,
+                  flood_affected_pct:
+                    educationIntegration.data?.summary?.flood_affected_pct || 0,
+                },
+              },
+            ]}
+          />
         </div>
 
         <div className="mb-10 rounded border border-gray-100 bg-[#f8f8f3] p-6 shadow-sm">
@@ -617,7 +697,13 @@ function EducationPage() {
                               fill={row.fill}
                               stroke={row.isSelected ? "#111827" : "#ffffff"}
                               strokeWidth={row.isSelected ? 2.5 : 1}
-                              fillOpacity={row.isSelected ? 0.98 : 0.82}
+                              fillOpacity={
+                                selectedTa && !row.isSelected
+                                  ? 0.24
+                                  : row.isSelected
+                                    ? 1
+                                    : 0.82
+                              }
                             />
                           ))}
                         </Scatter>
@@ -837,6 +923,7 @@ function EducationPage() {
               ) : (
                 <MapPanel
                   geojson={schoolLocationsForMap}
+                  loading={schoolLocations.loading}
                   pointColor="#2563eb"
                   pointColorResolver={(feature) =>
                     getPressureCategoryColor(

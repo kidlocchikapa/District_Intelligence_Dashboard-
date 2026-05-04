@@ -1,6 +1,6 @@
 const Joi = require("joi");
 
-const VALID_ROLES = ["department_admin"];
+const VALID_ROLES = ["super_admin", "admin", "education_admin", "health_admin", "disaster_admin", "welfare_admin", "department_admin", "analyst", "user"];
 const validationOptions = {
   abortEarly: true,
   stripUnknown: true,

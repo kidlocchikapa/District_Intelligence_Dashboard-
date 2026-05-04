@@ -17,6 +17,22 @@ function normalizeAdminType(adminType) {
   return String(adminType).trim();
 }
 
+function appendOptionalTaCondition(conditions, params, columnExpression, taName) {
+  if (!taName) {
+    return;
+  }
+
+  params.push(taName);
+  conditions.push(`LOWER(${columnExpression}) = LOWER($${params.length})`);
+}
+
+function buildCanonicalDistrictNameExpression(columnExpression) {
+  return `CASE
+    WHEN LOWER(${columnExpression}) IN ('zomba', 'zomba city') THEN 'Zomba'
+    ELSE ${columnExpression}
+  END`;
+}
+
 // Import sub-routers for different dashboard sections
 const educationRoutes = require("./education");
 const healthRoutes = require("./health");
@@ -38,15 +54,105 @@ router.use(
  * @route   GET /api/v1/dashboard/summary
  * @desc    Get summary statistics for the dashboard with optional district filter
  */
+/**
+ * @openapi
+ * /api/v1/dashboard/summary:
+ *   get:
+ *     summary: Get dashboard summary statistics
+ *     tags:
+ *       - Dashboard
+ *     responses:
+ *       200:
+ *         description: Summary metrics
+ */
 router.get("/summary", async (req, res) => {
-  const { district } = req.query;
+  const { district, ta } = req.query;
 
   try {
     let schoolsCount;
     let healthCount;
     let populationTotal;
 
-    if (district) {
+    if (ta) {
+      const schoolConditions = ["ef.geom IS NOT NULL"];
+      const schoolParams = [];
+      appendDistrictNameCondition(
+        schoolConditions,
+        schoolParams,
+        "d.name",
+        district,
+      );
+      appendOptionalTaCondition(schoolConditions, schoolParams, "a3.name", ta);
+
+      const schoolWhereClause = schoolConditions.length
+        ? `WHERE ${schoolConditions.join(" AND ")}`
+        : "";
+
+      schoolsCount = await db.query(
+        `
+          SELECT COUNT(*)
+          FROM education_facilities ef
+          LEFT JOIN admin3_units a3 ON a3.id = ef.ta_id
+          LEFT JOIN districts d ON d.id = a3.district_id
+          ${schoolWhereClause}
+        `,
+        schoolParams,
+      );
+
+      const healthConditions = ["hf.geom IS NOT NULL"];
+      const healthParams = [];
+      appendDistrictNameCondition(
+        healthConditions,
+        healthParams,
+        "d.name",
+        district,
+      );
+      appendOptionalTaCondition(healthConditions, healthParams, "a3.name", ta);
+
+      const healthWhereClause = healthConditions.length
+        ? `WHERE ${healthConditions.join(" AND ")}`
+        : "";
+
+      healthCount = await db.query(
+        `
+          SELECT COUNT(*)
+          FROM health_facilities hf
+          LEFT JOIN admin3_units a3 ON a3.id = hf.ta_id
+          LEFT JOIN districts d ON d.id = a3.district_id
+          ${healthWhereClause}
+        `,
+        healthParams,
+      );
+
+      const populationConditions = [];
+      const populationParams = [];
+      appendDistrictNameCondition(
+        populationConditions,
+        populationParams,
+        "d.name",
+        district,
+      );
+      appendOptionalTaCondition(
+        populationConditions,
+        populationParams,
+        "a3.name",
+        ta,
+      );
+
+      const populationWhereClause = populationConditions.length
+        ? `WHERE ${populationConditions.join(" AND ")}`
+        : "";
+
+      populationTotal = await db.query(
+        `
+          SELECT SUM(a3.population_total)
+          FROM admin3_units a3
+          LEFT JOIN districts d ON d.id = a3.district_id
+          ${populationWhereClause}
+        `,
+        populationParams,
+      );
+    } else if (district) {
       const schoolConditions = ["ef.geom IS NOT NULL"];
       const schoolParams = [];
       appendDistrictGeometryCondition(
@@ -129,6 +235,7 @@ router.get("/summary", async (req, res) => {
         total_health_facilities: parseInt(healthCount.rows[0].count),
         total_estimated_population: parseInt(populationTotal.rows[0].sum || 0),
         selected_district: district || null,
+        selected_ta: ta || null,
       },
     });
   } catch (err) {
@@ -141,19 +248,33 @@ router.get("/summary", async (req, res) => {
  * @route   GET /api/v1/dashboard/districts
  * @desc    Get list of districts for dropdown filter
  */
+/**
+ * @openapi
+ * /api/v1/dashboard/districts:
+ *   get:
+ *     summary: List districts
+ *     tags:
+ *       - Dashboard
+ *     responses:
+ *       200:
+ *         description: District list
+ */
 router.get("/districts", async (req, res) => {
   try {
     const result = await db.query(
       `
-            SELECT DISTINCT name
-            FROM districts
-            ORDER BY name
+            SELECT canonical_name
+            FROM (
+              SELECT DISTINCT ${buildCanonicalDistrictNameExpression("name")} AS canonical_name
+              FROM districts
+            ) district_names
+            ORDER BY canonical_name
             `,
     );
 
     res.json({
       status: "success",
-      data: result.rows.map((row) => row.name),
+      data: result.rows.map((row) => row.canonical_name),
     });
   } catch (err) {
     console.error(err.message);
@@ -165,26 +286,38 @@ router.get("/districts", async (req, res) => {
  * @route   GET /api/v1/dashboard/population-by-district
  * @desc    Get district population totals for the overview bar chart
  */
+/**
+ * @openapi
+ * /api/v1/dashboard/population-by-district:
+ *   get:
+ *     summary: Get district population totals
+ *     tags:
+ *       - Dashboard
+ *     responses:
+ *       200:
+ *         description: Population totals by district
+ */
 router.get("/population-by-district", async (req, res) => {
   const { district } = req.query;
 
   try {
     const params = [];
-    let whereClause = "WHERE 1=1";
-
-    if (district) {
-      params.push(district);
-      whereClause += ` AND LOWER(name) = LOWER($${params.length})`;
-    }
+    const conditions = [];
+    appendDistrictNameCondition(conditions, params, "name", district);
+    const whereClause = conditions.length
+      ? `WHERE ${conditions.join(" AND ")}`
+      : "";
+    const canonicalDistrictName = buildCanonicalDistrictNameExpression("name");
 
     const result = await db.query(
       `
         SELECT
-          name AS district,
-          COALESCE(population_total, 0) AS population
+          ${canonicalDistrictName} AS district,
+          SUM(COALESCE(population_total, 0)) AS population
         FROM districts
         ${whereClause}
-        ORDER BY name
+        GROUP BY ${canonicalDistrictName}
+        ORDER BY ${canonicalDistrictName}
       `,
       params,
     );
@@ -205,6 +338,17 @@ router.get("/population-by-district", async (req, res) => {
 /**
  * @route   GET /api/v1/dashboard/population-by-admin3
  * @desc    Get TA/admin3 population totals for the overview bar chart
+ */
+/**
+ * @openapi
+ * /api/v1/dashboard/population-by-admin3:
+ *   get:
+ *     summary: Get admin3 population totals
+ *     tags:
+ *       - Dashboard
+ *     responses:
+ *       200:
+ *         description: Population totals by admin3 unit
  */
 router.get("/population-by-admin3", async (req, res) => {
   const { district, type = "TA" } = req.query;
@@ -270,6 +414,17 @@ router.get("/population-by-admin3", async (req, res) => {
 /**
  * @route   GET /api/v1/dashboard/admin-units
  * @desc    Get administrative units as GeoJSON with optional type and district filters
+ */
+/**
+ * @openapi
+ * /api/v1/dashboard/admin-units:
+ *   get:
+ *     summary: Get administrative units as GeoJSON
+ *     tags:
+ *       - Dashboard
+ *     responses:
+ *       200:
+ *         description: Admin unit GeoJSON
  */
 router.get("/admin-units", async (req, res) => {
   const { type: adminType, district } = req.query;

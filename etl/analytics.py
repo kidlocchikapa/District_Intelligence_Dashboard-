@@ -8,10 +8,10 @@ from sqlalchemy import text
 
 from worldpop import get_zonal_stats
 
-
+#Logger setup for analytics module
 LOGGER = logging.getLogger('etl.analytics')
 
-
+#Exception class for handling errors
 class AnalyticsError(Exception):
     def __init__(self, user_message, step_name, original_error=None):
         self.user_message = user_message
@@ -19,12 +19,12 @@ class AnalyticsError(Exception):
         self.original_error = original_error
         super().__init__(f"{user_message} (step: {step_name})")
 
-
+#Helper function to log the start and completion of each step
 def log_step(step_name, message, level='info'):
     log_method = getattr(LOGGER, level, LOGGER.info)
     log_method(f"[{step_name}] {message}")
 
-
+#Wrapper 
 def run_step(step_name, user_message_on_error, fn, *args, **kwargs):
     log_step(step_name, 'started')
     try:
@@ -73,8 +73,6 @@ def fetch_admin_units_for_analysis(session, admin_level=None):
                 name,
                 CASE
                     WHEN LOWER(type) = 'ta' THEN 'TA'
-                    WHEN LOWER(type) = 'ward' THEN 'Ward'
-                    WHEN LOWER(type) = 'village' THEN 'Village'
                     ELSE INITCAP(type)
                 END AS type,
                 geom,
@@ -207,7 +205,7 @@ def compute_nearest_facility_distance(admin_units_gdf, facilities_gdf, analysis_
 
     return pd.DataFrame(records)
 
-# Calculate the percentage of each administrative unit's area that is covered by facilities within a specified distance and return a DataFrame with the results
+# Calculate the percentage of each administrative unit's area that is covered by facilities within a specified distance
 def compute_service_coverage(admin_units_gdf, facilities_gdf, analysis_type, metric_name, coverage_distance_km=5.0):
     admin_proj = admin_units_gdf.to_crs('EPSG:3857')
     facilities_proj = facilities_gdf.to_crs('EPSG:3857')
@@ -238,7 +236,7 @@ def compute_service_coverage(admin_units_gdf, facilities_gdf, analysis_type, met
     return pd.DataFrame(records)
 
 #Calculate the population served by health facilities within a specified adminstrative unit
-def compute_health_population_served(admin_units_gdf, health_gdf, raster_path, coverage_distance_km=5.0):
+def compute_health_population_served(admin_units_gdf, health_gdf, raster_path, coverage_distance_km=8.0):
     if health_gdf.empty:
         raise ValueError('No health facilities available for health_population_served')
     if not raster_path:
@@ -301,7 +299,7 @@ def compute_health_population_served(admin_units_gdf, health_gdf, raster_path, c
 
     return pd.DataFrame(records)
 
-#Calculate health facility counts, bed counts, patient visits, and related metrics for each administrative unit and return a DataFrame with the results
+#Calculate health facility counts, bed counts, patient visits, and related metrics for each administrative unit
 def compute_health_summary(admin_units_gdf, health_gdf, admin_level=None):
     if health_gdf.empty:
         raise ValueError('No health facilities available for health_summary')
@@ -443,7 +441,8 @@ def compute_education_summary(admin_units_gdf, schools_gdf, school_age_lookup=No
 
     return pd.DataFrame(records)
 
-# Main function to run selected spatial analyses based on provided parameters, fetching necessary data and computing results for each analysis type, and returning a combined DataFrame with all results
+# Main function to run selected spatial analyses based on provided parameters, fetching necessary data and computing 
+# results for each analysis type, and returning a combined DataFrame with all results
 def run_spatial_analyses(session, analysis_types=None, admin_level=None, coverage_distance_km=5.0, raster_path=None):
     try:
         selected_types = set(analysis_types or ANALYSIS_TYPES)

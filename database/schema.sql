@@ -111,7 +111,7 @@ ALTER TABLE IF EXISTS health_facilities DROP COLUMN IF EXISTS "operator:type";
 ALTER TABLE IF EXISTS health_facilities DROP COLUMN IF EXISTS osm_id;
 ALTER TABLE IF EXISTS health_facilities DROP COLUMN IF EXISTS osm_type;
 
--- Welfare Beneficiaries
+-- Welfare Beneficiaries (Aggregate)
 CREATE TABLE IF NOT EXISTS welfare_beneficiaries (
     id SERIAL PRIMARY KEY,
     program_name VARCHAR(100),
@@ -121,8 +121,55 @@ CREATE TABLE IF NOT EXISTS welfare_beneficiaries (
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
+-- Welfare Programs
+CREATE TABLE IF NOT EXISTS welfare_programs (
+    id SERIAL PRIMARY KEY,
+    program_name VARCHAR(255) NOT NULL,
+    department VARCHAR(100),
+    description TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Individual Welfare Beneficiaries
+CREATE TABLE IF NOT EXISTS welfare_beneficiary (
+    id SERIAL PRIMARY KEY,
+    program_id INTEGER REFERENCES welfare_programs(id) ON DELETE SET NULL,
+    firstname VARCHAR(100),
+    lastname VARCHAR(100),
+    gender VARCHAR(20),
+    age INTEGER,
+    district_id INTEGER REFERENCES districts(id) ON DELETE SET NULL,
+    ta_id INTEGER REFERENCES admin3_units(id) ON DELETE SET NULL,
+    household_size INTEGER,
+    status VARCHAR(50),
+    start_date DATE,
+    end_date DATE,
+    area_sqkm DOUBLE PRECISION,
+    center_lat DOUBLE PRECISION,
+    center_long DOUBLE PRECISION,
+    geom GEOMETRY(Point, 4326),
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Welfare Beneficiary Indicators
+CREATE TABLE IF NOT EXISTS welfare_beneficiary_indicators (
+    id SERIAL PRIMARY KEY,
+    beneficiary_id INTEGER REFERENCES welfare_beneficiary(id) ON DELETE CASCADE,
+    program_id INTEGER REFERENCES welfare_programs(id) ON DELETE CASCADE,
+    ta_id INTEGER REFERENCES admin3_units(id) ON DELETE SET NULL,
+    district_id INTEGER REFERENCES districts(id) ON DELETE SET NULL,
+    affected_by_flood BOOLEAN DEFAULT FALSE,
+    has_school_access BOOLEAN DEFAULT FALSE,
+    has_health_facility_access BOOLEAN DEFAULT FALSE,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
 -- Flood exposure outputs for district and TA units
 CREATE TABLE IF NOT EXISTS flood_zones (
+    id SERIAL PRIMARY KEY,
     district_id INTEGER NOT NULL REFERENCES districts(id) ON DELETE CASCADE,
     district_name VARCHAR(255) NOT NULL,
     ta_id INTEGER NOT NULL DEFAULT 0,
@@ -132,13 +179,33 @@ CREATE TABLE IF NOT EXISTS flood_zones (
     low_risk_population DOUBLE PRECISION NOT NULL DEFAULT 0,
     medium_risk_population DOUBLE PRECISION NOT NULL DEFAULT 0,
     high_risk_population DOUBLE PRECISION NOT NULL DEFAULT 0,
+    exposed_area_sq_km DOUBLE PRECISION NOT NULL DEFAULT 0,
     analysis_date DATE NOT NULL,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    PRIMARY KEY (district_id, ta_id, analysis_date)
+    UNIQUE (district_id, ta_id, analysis_date)
 );
 
+CREATE TABLE IF NOT EXISTS flood_risk_polygons (
+    id SERIAL PRIMARY KEY,
+    analysis_date DATE NOT NULL,
+    risk_level VARCHAR(20) NOT NULL,
+    source_raster VARCHAR(255),
+    geom GEOMETRY(MultiPolygon, 4326) NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_flood_risk_polygons_date
+    ON flood_risk_polygons (analysis_date);
+
+CREATE INDEX IF NOT EXISTS idx_flood_risk_polygons_risk
+    ON flood_risk_polygons (risk_level);
+
+CREATE INDEX IF NOT EXISTS idx_flood_risk_polygons_geom
+    ON flood_risk_polygons USING GIST (geom);
+
 CREATE TABLE IF NOT EXISTS flood_facility_exposure (
+    id SERIAL PRIMARY KEY,
     analysis_date DATE NOT NULL,
     district_id INTEGER NOT NULL,
     district_name VARCHAR(255) NOT NULL,
@@ -152,10 +219,11 @@ CREATE TABLE IF NOT EXISTS flood_facility_exposure (
     is_exposed BOOLEAN NOT NULL DEFAULT FALSE,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    PRIMARY KEY (analysis_date, facility_type, facility_id)
+    UNIQUE (analysis_date, facility_type, facility_id)
 );
 
 CREATE TABLE IF NOT EXISTS flood_facility_exposure_summary (
+    id SERIAL PRIMARY KEY,
     analysis_date DATE NOT NULL,
     district_id INTEGER NOT NULL,
     district_name VARCHAR(255) NOT NULL,
@@ -169,7 +237,7 @@ CREATE TABLE IF NOT EXISTS flood_facility_exposure_summary (
     high_risk_count INTEGER NOT NULL DEFAULT 0,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    PRIMARY KEY (analysis_date, district_id, ta_id, facility_type)
+    UNIQUE (analysis_date, district_id, ta_id, facility_type)
 );
 
 DROP TABLE IF EXISTS disaster_zones;
@@ -313,6 +381,12 @@ CREATE INDEX IF NOT EXISTS idx_edu_facilities_district_id ON education_facilitie
 CREATE INDEX IF NOT EXISTS idx_health_facilities_geom ON health_facilities USING GIST(geom);
 CREATE INDEX IF NOT EXISTS idx_health_facilities_district_id ON health_facilities(district_id);
 CREATE INDEX IF NOT EXISTS idx_welfare_geom ON welfare_beneficiaries USING GIST(geom);
+CREATE INDEX IF NOT EXISTS idx_welfare_beneficiary_geom ON welfare_beneficiary USING GIST(geom);
+CREATE INDEX IF NOT EXISTS idx_welfare_beneficiary_program_id ON welfare_beneficiary(program_id);
+CREATE INDEX IF NOT EXISTS idx_welfare_beneficiary_district_id ON welfare_beneficiary(district_id);
+CREATE INDEX IF NOT EXISTS idx_welfare_beneficiary_ta_id ON welfare_beneficiary(ta_id);
+CREATE INDEX IF NOT EXISTS idx_welfare_indicators_beneficiary_id ON welfare_beneficiary_indicators(beneficiary_id);
+CREATE INDEX IF NOT EXISTS idx_welfare_indicators_lookup ON welfare_beneficiary_indicators(program_id, district_id, ta_id);
 CREATE INDEX IF NOT EXISTS idx_flood_zones_analysis_date ON flood_zones(analysis_date);
 CREATE INDEX IF NOT EXISTS idx_flood_facility_exposure_lookup ON flood_facility_exposure(analysis_date, facility_type, district_id, ta_id);
 CREATE INDEX IF NOT EXISTS idx_flood_facility_exposure_summary_lookup ON flood_facility_exposure_summary(analysis_date, facility_type, district_id, ta_id);

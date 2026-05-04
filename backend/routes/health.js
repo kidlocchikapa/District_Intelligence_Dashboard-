@@ -16,15 +16,41 @@ function normalizeAdminType(adminType = "District") {
   return "District";
 }
 
+function appendOptionalTaCondition(
+  conditions,
+  params,
+  columnExpression,
+  taName,
+) {
+  if (!taName) {
+    return;
+  }
+
+  params.push(taName);
+  conditions.push(`LOWER(${columnExpression}) = LOWER($${params.length})`);
+}
+
 // @route   GET api/v1/dashboard/health
 // @desc    Get health facility locations (GeoJSON)
+/**
+ * @openapi
+ * /api/v1/dashboard/health:
+ *   get:
+ *     summary: Get health facility locations as GeoJSON
+ *     tags:
+ *       - Health
+ *     responses:
+ *       200:
+ *         description: Health facilities GeoJSON
+ */
 router.get("/", async (req, res) => {
-  const { district } = req.query;
+  const { district, ta } = req.query;
 
   try {
-    const conditions = ["geom IS NOT NULL"];
+    const conditions = ["hf.geom IS NOT NULL"];
     const params = [];
     appendDistrictGeometryCondition(conditions, params, "hf.geom", district);
+    appendOptionalTaCondition(conditions, params, "a3.name", ta);
     const whereClause = conditions.length
       ? `WHERE ${conditions.join(" AND ")}`
       : "";
@@ -56,11 +82,13 @@ router.get("/", async (req, res) => {
                       'name_ny', NULL,
                       'ward_id', hf.ta_id,
                       'ta_id', hf.ta_id,
+                      'ta_name', a3.name,
                       'district_id', hf.district_id
                     )
                   )
                 ) AS feature
                 FROM health_facilities hf
+                LEFT JOIN admin3_units a3 ON a3.id = hf.ta_id
                 ${whereClause}
             ) rowconf;
         `;
@@ -80,11 +108,23 @@ router.get("/", async (req, res) => {
 
 // @route   GET api/v1/dashboard/health/summary
 // @desc    Get ward/district health aggregates
+/**
+ * @openapi
+ * /api/v1/dashboard/health/summary:
+ *   get:
+ *     summary: Get health summary metrics
+ *     tags:
+ *       - Health
+ *     responses:
+ *       200:
+ *         description: Health summary
+ */
 router.get("/summary", async (req, res) => {
   const {
     admin_type: adminType = "District",
     analysis_type: analysisType = "health_summary",
     district,
+    ta,
   } = req.query;
   const normalizedAdminType = normalizeAdminType(adminType);
 
@@ -102,12 +142,16 @@ router.get("/summary", async (req, res) => {
       "LOWER(admin_unit_type) = LOWER($2)",
     ];
     const params = [analysisType, normalizedAdminType];
-    appendDistrictNameCondition(
-      conditions,
-      params,
-      "admin_unit_name",
-      district,
-    );
+    if (normalizedAdminType === "TA") {
+      appendOptionalTaCondition(conditions, params, "admin_unit_name", ta);
+    } else {
+      appendDistrictNameCondition(
+        conditions,
+        params,
+        "admin_unit_name",
+        district,
+      );
+    }
 
     const result = await db.query(
       `
@@ -139,8 +183,19 @@ router.get("/summary", async (req, res) => {
 
 // @route   GET api/v1/dashboard/health/served-population
 // @desc    Get ward/district health served population aggregates
+/**
+ * @openapi
+ * /api/v1/dashboard/health/served-population:
+ *   get:
+ *     summary: Get health served population metrics
+ *     tags:
+ *       - Health
+ *     responses:
+ *       200:
+ *         description: Served population metrics
+ */
 router.get("/served-population", async (req, res) => {
-  const { admin_type: adminType = "District", district } = req.query;
+  const { admin_type: adminType = "District", district, ta } = req.query;
   const normalizedAdminType = normalizeAdminType(adminType);
 
   try {
@@ -149,12 +204,16 @@ router.get("/served-population", async (req, res) => {
       "LOWER(admin_unit_type) = LOWER($1)",
     ];
     const params = [normalizedAdminType];
-    appendDistrictNameCondition(
-      conditions,
-      params,
-      "admin_unit_name",
-      district,
-    );
+    if (normalizedAdminType === "TA") {
+      appendOptionalTaCondition(conditions, params, "admin_unit_name", ta);
+    } else {
+      appendDistrictNameCondition(
+        conditions,
+        params,
+        "admin_unit_name",
+        district,
+      );
+    }
 
     const result = await db.query(
       `
@@ -186,6 +245,17 @@ router.get("/served-population", async (req, res) => {
 
 // @route   GET api/v1/dashboard/health/served-population/geojson
 // @desc    Get ward/district health served population results as GeoJSON
+/**
+ * @openapi
+ * /api/v1/dashboard/health/served-population/geojson:
+ *   get:
+ *     summary: Get health served population as GeoJSON
+ *     tags:
+ *       - Health
+ *     responses:
+ *       200:
+ *         description: Served population GeoJSON
+ */
 router.get("/served-population/geojson", async (req, res) => {
   const { admin_type: adminType = "District", district } = req.query;
   const normalizedAdminType = normalizeAdminType(adminType);
@@ -277,6 +347,17 @@ router.get("/served-population/geojson", async (req, res) => {
 
 // @route   GET api/v1/dashboard/health/access-zones/geojson
 // @desc    Get served/unserved health access zones plus facility points
+/**
+ * @openapi
+ * /api/v1/dashboard/health/access-zones/geojson:
+ *   get:
+ *     summary: Get health access zones as GeoJSON
+ *     tags:
+ *       - Health
+ *     responses:
+ *       200:
+ *         description: Access zones GeoJSON
+ */
 router.get("/access-zones/geojson", async (req, res) => {
   const { district, buffer_km: bufferKmParam } = req.query;
   const parsedBufferKm = Number(bufferKmParam);
@@ -459,6 +540,304 @@ router.get("/access-zones/geojson", async (req, res) => {
       message: err.message,
       district,
       bufferKm,
+    });
+    res.status(500).send("Server error");
+  }
+});
+
+// @route   GET api/v1/dashboard/health/drilldown
+// @desc    Get health drilldown summary, TA breakdown, and facility-level details
+/**
+ * @openapi
+ * /api/v1/dashboard/health/drilldown:
+ *   get:
+ *     summary: Get health drilldown statistics
+ *     tags:
+ *       - Health
+ *     responses:
+ *       200:
+ *         description: Health drilldown
+ */
+router.get("/drilldown", async (req, res) => {
+  const {
+    district,
+    ta,
+    admin_type: adminType = "District",
+    buffer_km: bufferKmParam,
+  } = req.query;
+  const normalizedAdminType = normalizeAdminType(adminType);
+  const parsedBufferKm = Number(bufferKmParam);
+  const bufferKm =
+    Number.isFinite(parsedBufferKm) && parsedBufferKm > 0
+      ? Math.min(parsedBufferKm, 30)
+      : 8;
+  const bufferMeters = bufferKm * 1000;
+
+  try {
+    const facilityParams = [bufferMeters];
+    const facilityConditions = ["hf.geom IS NOT NULL"];
+    appendDistrictGeometryCondition(
+      facilityConditions,
+      facilityParams,
+      "hf.geom",
+      district,
+    );
+    appendOptionalTaCondition(
+      facilityConditions,
+      facilityParams,
+      "a3.name",
+      ta,
+    );
+    const facilityWhereClause = facilityConditions.length
+      ? `WHERE ${facilityConditions.join(" AND ")}`
+      : "";
+
+    const facilityQuery = `
+      WITH facility_scope AS (
+        SELECT
+          hf.id AS facility_id,
+          COALESCE(hf.name, '') AS facility_name,
+          hf.type AS facility_type,
+          hf.ownership AS ownership,
+          hf."capacity:persons" AS capacity_persons,
+          hf.doctor_count,
+          hf.nurse_midwife_count,
+          hf.patient_visits_total,
+          hf.bed_capacity,
+          hf.beds_count,
+          hf.ta_id,
+          a3.name AS ta_name,
+          hf.district_id,
+          d.name AS district_name,
+          hf.geom,
+          ST_Buffer(hf.geom::geography, $1)::geometry AS buffer_geom
+        FROM health_facilities hf
+        LEFT JOIN admin3_units a3
+          ON a3.id = hf.ta_id
+        LEFT JOIN districts d
+          ON d.id = hf.district_id
+        ${facilityWhereClause}
+      ),
+      admin_scope AS (
+        SELECT
+          a3.id,
+          a3.population_total,
+          a3.geom
+        FROM admin3_units a3
+        WHERE a3.geom IS NOT NULL
+      ),
+      served_population AS (
+        SELECT
+          fs.facility_id,
+          SUM(
+            CASE
+              WHEN ST_Area(ST_Transform(a3.geom, 3857)) > 0
+                THEN COALESCE(a3.population_total, 0)
+                  * ST_Area(
+                      ST_Transform(
+                        ST_Intersection(fs.buffer_geom, a3.geom),
+                        3857
+                      )
+                    )
+                  / ST_Area(ST_Transform(a3.geom, 3857))
+              ELSE 0
+            END
+          ) AS served_population_est
+        FROM facility_scope fs
+        JOIN admin_scope a3
+          ON ST_Intersects(fs.buffer_geom, a3.geom)
+        GROUP BY fs.facility_id
+      ),
+      welfare_access AS (
+        SELECT
+          fs.facility_id,
+          COUNT(wb.id) AS welfare_beneficiaries_within_buffer
+        FROM facility_scope fs
+        LEFT JOIN welfare_beneficiary wb
+          ON wb.geom IS NOT NULL
+         AND ST_Intersects(wb.geom, fs.buffer_geom)
+        GROUP BY fs.facility_id
+      ),
+      flood_latest AS (
+        SELECT MAX(analysis_date) AS analysis_date
+        FROM flood_facility_exposure
+        WHERE LOWER(facility_type) = LOWER('health')
+      ),
+      flood_exposure AS (
+        SELECT
+          ffe.facility_id,
+          ffe.risk_class,
+          ffe.is_exposed,
+          ffe.analysis_date
+        FROM flood_facility_exposure ffe
+        JOIN flood_latest fl
+          ON ffe.analysis_date = fl.analysis_date
+        WHERE LOWER(ffe.facility_type) = LOWER('health')
+      ),
+      nearest_facility AS (
+        SELECT
+          fs.facility_id,
+          MIN(
+            ST_Distance(fs.geom::geography, hf2.geom::geography)
+          ) AS nearest_distance_m
+        FROM facility_scope fs
+        JOIN health_facilities hf2
+          ON hf2.geom IS NOT NULL
+         AND hf2.id <> fs.facility_id
+        GROUP BY fs.facility_id
+      )
+      SELECT
+        fs.facility_id,
+        fs.facility_name,
+        fs.facility_type,
+        fs.ownership,
+        fs.capacity_persons,
+        fs.doctor_count,
+        fs.nurse_midwife_count,
+        fs.patient_visits_total,
+        fs.bed_capacity,
+        fs.beds_count,
+        fs.ta_id,
+        fs.ta_name,
+        fs.district_id,
+        fs.district_name,
+        ST_AsGeoJSON(fs.geom)::jsonb AS geom,
+        COALESCE(sp.served_population_est, 0) AS served_population_est,
+        COALESCE(wa.welfare_beneficiaries_within_buffer, 0) AS welfare_beneficiaries_within_buffer,
+        fe.risk_class AS flood_risk_class,
+        COALESCE(fe.is_exposed, FALSE) AS flood_is_exposed,
+        fe.analysis_date AS flood_analysis_date,
+        COALESCE(nf.nearest_distance_m, 0) / 1000.0 AS nearest_facility_distance_km,
+        $1 / 1000.0 AS coverage_distance_km
+      FROM facility_scope fs
+      LEFT JOIN served_population sp
+        ON sp.facility_id = fs.facility_id
+      LEFT JOIN welfare_access wa
+        ON wa.facility_id = fs.facility_id
+      LEFT JOIN flood_exposure fe
+        ON fe.facility_id = fs.facility_id
+      LEFT JOIN nearest_facility nf
+        ON nf.facility_id = fs.facility_id
+      ORDER BY fs.district_name, fs.ta_name, fs.facility_name;
+    `;
+
+    const facilitiesResult = await db.query(facilityQuery, facilityParams);
+
+    const summaryConditions = ["a3.geom IS NOT NULL"];
+    const summaryParams = [];
+    appendDistrictNameCondition(
+      summaryConditions,
+      summaryParams,
+      "d.name",
+      district,
+    );
+    const summaryWhereClause = summaryConditions.length
+      ? `WHERE ${summaryConditions.join(" AND ")}`
+      : "";
+
+    const taQuery = `
+      WITH ta_base AS (
+        SELECT
+          a3.id AS ta_id,
+          a3.name AS ta_name,
+          d.name AS district_name,
+          COALESCE(a3.population_total, 0) AS population_total,
+          COUNT(hf.id) AS facility_count
+        FROM admin3_units a3
+        LEFT JOIN districts d
+          ON d.id = a3.district_id
+        LEFT JOIN health_facilities hf
+          ON hf.ta_id = a3.id
+        ${summaryWhereClause}
+        GROUP BY a3.id, a3.name, d.name, a3.population_total
+      ),
+      coverage AS (
+        SELECT
+          admin_unit_id,
+          MAX(CASE WHEN metric_name = 'health_population_served_total' THEN metric_value END) AS health_population_served_total,
+          MAX(CASE WHEN metric_name = 'health_population_served_pct' THEN metric_value END) AS health_population_served_pct
+        FROM analysis_results
+        WHERE analysis_type = 'health_population_served'
+          AND LOWER(admin_unit_type) = LOWER('TA')
+        GROUP BY admin_unit_id
+      ),
+      ta_metrics AS (
+        SELECT
+          tb.ta_id,
+          tb.ta_name,
+          tb.district_name,
+          tb.population_total,
+          tb.facility_count,
+          COALESCE(c.health_population_served_total, 0) AS health_population_served_total,
+          COALESCE(c.health_population_served_pct, 0) AS health_population_served_pct,
+          CASE
+            WHEN tb.facility_count > 0
+              THEN tb.population_total / tb.facility_count
+            ELSE NULL
+          END AS population_per_facility
+        FROM ta_base tb
+        LEFT JOIN coverage c
+          ON c.admin_unit_id = tb.ta_id
+      )
+      SELECT
+        ta_metrics.*,
+        percent_rank() OVER (ORDER BY population_per_facility) AS population_per_facility_percentile,
+        percent_rank() OVER (ORDER BY health_population_served_pct) AS coverage_percentile,
+        CASE
+          WHEN population_per_facility IS NOT NULL AND population_per_facility > 10000
+            THEN TRUE
+          ELSE FALSE
+        END AS gap_population_per_facility
+      FROM ta_metrics
+      ORDER BY district_name, ta_name;
+    `;
+
+    const taResult = await db.query(taQuery, summaryParams);
+
+    const summary = taResult.rows.reduce(
+      (accumulator, row) => {
+        accumulator.population_total += Number(row.population_total || 0);
+        accumulator.facility_count += Number(row.facility_count || 0);
+        accumulator.health_population_served_total += Number(
+          row.health_population_served_total || 0,
+        );
+        return accumulator;
+      },
+      {
+        population_total: 0,
+        facility_count: 0,
+        health_population_served_total: 0,
+      },
+    );
+
+    summary.population_per_facility = summary.facility_count
+      ? summary.population_total / summary.facility_count
+      : null;
+    summary.health_population_served_pct = summary.population_total
+      ? (summary.health_population_served_total * 100.0) /
+        summary.population_total
+      : 0;
+    summary.gap_population_per_facility =
+      summary.population_per_facility !== null &&
+      summary.population_per_facility > 10000;
+
+    res.json({
+      status: "success",
+      data: {
+        admin_type: normalizedAdminType,
+        district: district || null,
+        ta: ta || null,
+        coverage_distance_km: bufferKm,
+        summary,
+        ta_breakdown: normalizedAdminType === "District" ? taResult.rows : [],
+        facilities: facilitiesResult.rows,
+      },
+    });
+  } catch (err) {
+    console.error("Health drilldown error", {
+      message: err.message,
+      district,
+      ta,
     });
     res.status(500).send("Server error");
   }

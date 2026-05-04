@@ -22,7 +22,15 @@ const educationBaseSchema = {
   status: Joi.string().trim().max(100).allow("", null),
   comments: Joi.string().trim().allow("", null),
   studentEnrollmentTotal: Joi.number().integer().min(0).allow(null),
+  studentClassroomRatio: Joi.number().min(0).allow(null),
+  specialNeedsStudents: Joi.number().integer().min(0).allow(null),
+  teacherDistribution: Joi.number().integer().min(0).allow(null),
   teacherCount: Joi.number().integer().min(0).allow(null),
+  blocksCount: Joi.number().integer().min(0).allow(null),
+  waterEquipmentFacilityCount: Joi.number().integer().min(0).allow(null),
+  toiletsCount: Joi.number().integer().min(0).allow(null),
+  classroomPressure: Joi.number().min(0).allow(null),
+  teacherPressure: Joi.number().min(0).allow(null),
   districtId: Joi.number().integer().positive().allow(null),
   wardId: Joi.number().integer().positive().allow(null),
   latitude: latitudeSchema.allow(null),
@@ -216,6 +224,20 @@ function validateDisasterUpdate(payload) {
   return validateWithSchema(disasterUpdateSchema, payload);
 }
 
+const welfareProgramCreateSchema = Joi.object({
+  program_name: Joi.string().trim().max(255).required().messages({
+    "any.required": "program_name is required",
+  }),
+  department: Joi.string().trim().max(100).required().messages({
+    "any.required": "department is required",
+  }),
+  description: Joi.string().trim().allow("", null),
+});
+
+function validateWelfareProgramCreate(payload) {
+  return validateWithSchema(welfareProgramCreateSchema, payload);
+}
+
 module.exports = {
   validateEducationCreate,
   validateEducationUpdate,
@@ -225,4 +247,5 @@ module.exports = {
   validateWelfareUpdate,
   validateDisasterCreate,
   validateDisasterUpdate,
+  validateWelfareProgramCreate,
 };

@@ -69,6 +69,7 @@ async function getFloodGeoJson(req, res) {
             SUM(src.low_risk_population) AS low_risk_population,
             SUM(src.medium_risk_population) AS medium_risk_population,
             SUM(src.high_risk_population) AS high_risk_population,
+            SUM(src.exposed_area_sq_km) AS exposed_area_sq_km,
             MAX(src.analysis_date) AS analysis_date
           FROM source_rows src
           WHERE src.ta_id <> 0
@@ -87,6 +88,7 @@ async function getFloodGeoJson(req, res) {
             SUM(src.low_risk_population) AS low_risk_population,
             SUM(src.medium_risk_population) AS medium_risk_population,
             SUM(src.high_risk_population) AS high_risk_population,
+            SUM(src.exposed_area_sq_km) AS exposed_area_sq_km,
             MAX(src.analysis_date) AS analysis_date
           FROM source_rows src
           ${whereClause}
@@ -151,6 +153,7 @@ async function getFloodGeoJson(req, res) {
                   'low_risk_population', agg.low_risk_population,
                   'medium_risk_population', agg.medium_risk_population,
                   'high_risk_population', agg.high_risk_population,
+                  'exposed_area_sq_km', agg.exposed_area_sq_km,
                   'exposed_population_pct', CASE
                     WHEN COALESCE(agg.total_population, 0) > 0
                       THEN (agg.exposed_population * 100.0 / agg.total_population)
@@ -166,8 +169,8 @@ async function getFloodGeoJson(req, res) {
                   END,
                   'risk_level', CASE
                     WHEN COALESCE(agg.total_population, 0) = 0 THEN 'unknown'
-                    WHEN (agg.high_risk_population * 100.0 / agg.total_population) >= 20 THEN 'high'
-                    WHEN (agg.medium_risk_population * 100.0 / agg.total_population) >= 20 THEN 'medium'
+                    WHEN (agg.high_risk_population * 100.0 / agg.total_population) >= 5 THEN 'high'
+                    WHEN (agg.medium_risk_population * 100.0 / agg.total_population) >= 2 THEN 'medium'
                     ELSE 'low'
                   END
               )
@@ -222,7 +225,8 @@ async function getFloodSummary(req, res) {
             SUM(src.exposed_population) AS exposed_population,
             SUM(src.low_risk_population) AS low_risk_population,
             SUM(src.medium_risk_population) AS medium_risk_population,
-            SUM(src.high_risk_population) AS high_risk_population
+            SUM(src.high_risk_population) AS high_risk_population,
+            SUM(src.exposed_area_sq_km) AS exposed_area_sq_km
           FROM source_rows src
           WHERE src.ta_id <> 0
             ${whereClause ? `AND (${conditions.join(" AND ")})` : ""}
@@ -235,7 +239,8 @@ async function getFloodSummary(req, res) {
             SUM(src.exposed_population) AS exposed_population,
             SUM(src.low_risk_population) AS low_risk_population,
             SUM(src.medium_risk_population) AS medium_risk_population,
-            SUM(src.high_risk_population) AS high_risk_population
+            SUM(src.high_risk_population) AS high_risk_population,
+            SUM(src.exposed_area_sq_km) AS exposed_area_sq_km
           FROM source_rows src
           WHERE 1=1
             ${whereClause ? `AND (${conditions.join(" AND ")})` : ""}
@@ -296,16 +301,7 @@ async function getFloodSummary(req, res) {
           COALESCE(SUM(ut.medium_risk_population), 0) AS medium_risk_population,
           COALESCE(SUM(ut.high_risk_population), 0) AS high_risk_population,
           COALESCE(SUM(ua.unit_area_sq_km), 0) AS total_area_sq_km,
-          COALESCE(
-            SUM(
-              CASE
-                WHEN COALESCE(ut.total_population, 0) > 0
-                  THEN ua.unit_area_sq_km * (ut.exposed_population / ut.total_population)
-                ELSE 0
-              END
-            ),
-            0
-          ) AS exposed_area_sq_km,
+          COALESCE(SUM(ut.exposed_area_sq_km), 0) AS exposed_area_sq_km,
           COUNT(*)::int AS unit_count
         FROM unit_totals ut
         LEFT JOIN unit_areas ua
@@ -352,21 +348,76 @@ async function getFloodSummary(req, res) {
 }
 
 // Compatibility route
+/**
+ * @openapi
+ * /api/v1/dashboard/disaster:
+ *   get:
+ *     summary: Get flood exposure zones as GeoJSON
+ *     tags:
+ *       - Disaster
+ *     responses:
+ *       200:
+ *         description: Flood exposure GeoJSON
+ */
 router.get("/", getFloodGeoJson);
 
 // @route   GET api/v1/dashboard/disaster/flood
 // @desc    Get flood exposure zones (GeoJSON) for District or TA
+/**
+ * @openapi
+ * /api/v1/dashboard/disaster/flood:
+ *   get:
+ *     summary: Get flood exposure zones as GeoJSON
+ *     tags:
+ *       - Disaster
+ *     responses:
+ *       200:
+ *         description: Flood exposure GeoJSON
+ */
 router.get("/flood", getFloodGeoJson);
 
 // Compatibility route
+/**
+ * @openapi
+ * /api/v1/dashboard/disaster/summary:
+ *   get:
+ *     summary: Get flood risk summary totals
+ *     tags:
+ *       - Disaster
+ *     responses:
+ *       200:
+ *         description: Flood summary totals
+ */
 router.get("/summary", getFloodSummary);
 
 // @route   GET api/v1/dashboard/disaster/flood/summary
 // @desc    Get flood risk summary totals (exposed vs not exposed and risk bands)
+/**
+ * @openapi
+ * /api/v1/dashboard/disaster/flood/summary:
+ *   get:
+ *     summary: Get flood risk summary totals
+ *     tags:
+ *       - Disaster
+ *     responses:
+ *       200:
+ *         description: Flood summary totals
+ */
 router.get("/flood/summary", getFloodSummary);
 
 // @route   GET api/v1/dashboard/disaster/flood/population
 // @desc    Get tabular population exposure by District/TA
+/**
+ * @openapi
+ * /api/v1/dashboard/disaster/flood/population:
+ *   get:
+ *     summary: Get flood exposure by population
+ *     tags:
+ *       - Disaster
+ *     responses:
+ *       200:
+ *         description: Flood population exposure
+ */
 router.get("/flood/population", async (req, res) => {
   const { district, ta, admin_type: adminType = "District" } = req.query;
   const normalizedAdminType = normalizeAdminType(adminType);
@@ -383,6 +434,9 @@ router.get("/flood/population", async (req, res) => {
     appendOptionalTaCondition(conditions, params, "src.ta_name", ta);
     const whereClause = conditions.length
       ? `WHERE ${conditions.join(" AND ")}`
+      : "";
+    const andWhereClause = conditions.length
+      ? `AND ${conditions.join(" AND ")}`
       : "";
 
     const aggregationSql =
@@ -451,8 +505,8 @@ router.get("/flood/population", async (req, res) => {
         END AS exposed_population_pct,
         CASE
           WHEN COALESCE(agg.total_population, 0) = 0 THEN 'unknown'
-          WHEN (agg.high_risk_population * 100.0 / agg.total_population) >= 20 THEN 'high'
-          WHEN (agg.medium_risk_population * 100.0 / agg.total_population) >= 20 THEN 'medium'
+          WHEN (agg.high_risk_population * 100.0 / agg.total_population) >= 5 THEN 'high'
+          WHEN (agg.medium_risk_population * 100.0 / agg.total_population) >= 2 THEN 'medium'
           ELSE 'low'
         END AS risk_level
       FROM (
@@ -471,6 +525,17 @@ router.get("/flood/population", async (req, res) => {
 
 // @route   GET api/v1/dashboard/disaster/flood/facilities
 // @desc    Get flood facility exposure detail (education/health)
+/**
+ * @openapi
+ * /api/v1/dashboard/disaster/flood/facilities:
+ *   get:
+ *     summary: Get flood facility exposure details
+ *     tags:
+ *       - Disaster
+ *     responses:
+ *       200:
+ *         description: Flood facility exposure
+ */
 router.get("/flood/facilities", async (req, res) => {
   const {
     district,
@@ -539,6 +604,17 @@ router.get("/flood/facilities", async (req, res) => {
 
 // @route   GET api/v1/dashboard/disaster/flood/facilities/summary
 // @desc    Get flood facility exposure summary by District/TA and facility type
+/**
+ * @openapi
+ * /api/v1/dashboard/disaster/flood/facilities/summary:
+ *   get:
+ *     summary: Get flood facility exposure summary
+ *     tags:
+ *       - Disaster
+ *     responses:
+ *       200:
+ *         description: Flood facility exposure summary
+ */
 router.get("/flood/facilities/summary", async (req, res) => {
   const {
     district,
@@ -652,6 +728,17 @@ router.get("/flood/facilities/summary", async (req, res) => {
 
 // @route   GET api/v1/dashboard/disaster/flood/facilities/geojson
 // @desc    Get exposed health/education facilities as GeoJSON for map overlays
+/**
+ * @openapi
+ * /api/v1/dashboard/disaster/flood/facilities/geojson:
+ *   get:
+ *     summary: Get exposed facilities as GeoJSON
+ *     tags:
+ *       - Disaster
+ *     responses:
+ *       200:
+ *         description: Exposed facilities GeoJSON
+ */
 router.get("/flood/facilities/geojson", async (req, res) => {
   const {
     district,

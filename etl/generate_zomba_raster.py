@@ -1,3 +1,4 @@
+#import modules
 import os
 import json
 import numpy as np
@@ -10,12 +11,13 @@ import matplotlib.pyplot as plt
 import matplotlib.colors as mcolors
 from rasterio.plot import reshape_as_image
 
+# Denenrate a raster for zomba preview
 def generate_zomba_preview():
     # Database connection and geometry retrieval
     load_dotenv()
     db_url = os.getenv('DATABASE_URL')
     if not db_url:
-        print("Error: DATABASE_URL not found in .env")
+        print("Error: DATABASE_URL not found")
         return
         
     engine = create_engine(db_url)

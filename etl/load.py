@@ -3,6 +3,7 @@ import json
 import logging
 
 import pandas as pd
+import numpy as np
 from geoalchemy2 import Geometry, WKTElement
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy import text
@@ -11,10 +12,10 @@ from shapely import wkt
 
 from pipeline_config import DATASET_CONFIG
 
-
+# Set up logging
 LOGGER = logging.getLogger('etl.load')
 
-
+# Custom exception for load errors 
 class LoadError(Exception):
     def __init__(self, user_message, step_name, original_error=None):
         self.user_message = user_message
@@ -84,10 +85,30 @@ def fetch_admin_unit_lookup(session):
             lookup[(normalized_name, '')] = record
     return {'by_name': lookup, 'by_id': by_id}
 
+#Fetch welfare programs formthe database
+def fetch_welfare_programs(session):
+    query = text("SELECT program_id, program_name FROM welfare_programs")
+    rows = session.execute(query).mappings().all()
+    return {row['program_name'].strip().lower(): row['program_id'] for row in rows}
 
-def fetch_spatial_admin_lookup(session):
-    query = text(
+# Fetch administrative unit geometries from the database to enable spatial lookups during indicator assignment
+def fetch_spatial_admin_lookup(session, bounds=None):
+    params = {}
+    envelope_clause = ""
+
+    if bounds:
+        envelope_clause = """
+        AND d.geom && ST_MakeEnvelope(:min_lon, :min_lat, :max_lon, :max_lat, 4326)
         """
+        params = {
+            'min_lon': float(bounds['min_lon']),
+            'min_lat': float(bounds['min_lat']),
+            'max_lon': float(bounds['max_lon']),
+            'max_lat': float(bounds['max_lat']),
+        }
+
+    query = text(
+        f"""
         SELECT
             d.id AS district_id,
             d.name AS district_name,
@@ -99,10 +120,13 @@ def fetch_spatial_admin_lookup(session):
         LEFT JOIN admin3_units a
             ON a.district_id = d.id
             AND LOWER(a.type) = 'ta'
+            AND a.geom IS NOT NULL
+            {'AND a.geom && ST_MakeEnvelope(:min_lon, :min_lat, :max_lon, :max_lat, 4326)' if bounds else ''}
         WHERE d.geom IS NOT NULL
+        {envelope_clause}
         """
     )
-    rows = session.execute(query).mappings().all()
+    rows = session.execute(query, params).mappings().all()
 
     districts = {}
     ta_units = []
@@ -131,13 +155,13 @@ def fetch_spatial_admin_lookup(session):
         'ta_units': ta_units,
     }
 
-
+# Normalizes text for lookup 
 def _normalize_lookup_text(value):
     if value is None or pd.isna(value):
         return ''
     return str(value).strip().lower()
 
-
+# Coalesce multiple potential column values into a single string for lookup purposes
 def _coalesce_row_values(row, columns):
     for column in columns:
         value = row.get(column)
@@ -147,7 +171,7 @@ def _coalesce_row_values(row, columns):
                 return text
     return None
 
-
+#Find a spatial match for a given point
 def _find_spatial_match(point, polygons):
     if point is None:
         return None
@@ -165,7 +189,7 @@ def _find_spatial_match(point, polygons):
 
     return None
 
-# This function takes a DataFrame and an administrative unit lookup, and attempts to assign TA, ward,
+# Take a DataFrame and an administrative unit lookup, and attempt to assign TA, ward,
 #  and district IDs based on the names and codes in the DataFrame
 def assign_ward_ids(df, admin_lookup, spatial_lookup=None):
     working = df.copy()
@@ -235,10 +259,58 @@ def assign_ward_ids(df, admin_lookup, spatial_lookup=None):
     working['ward_id'] = ward_ids
     working['district_id'] = district_ids
     working['geo_code'] = geo_codes
+    working['geo_code'] = geo_codes
     return working
 
-# This function fetches administrative unit data from the database and returns it as a DataFrame, which can be used
-#  for indicator processing and assignment
+# Loading welfare beneficiary indicator data into the welfare_beneficiary_indicators table,l
+def load_welfare_beneficiary_indicators(session, indicators_df):
+    if indicators_df.empty:
+        return 0
+
+    def _normalize_int(value):
+        if value is None or value is pd.NA:
+            return None
+        if isinstance(value, float) and np.isnan(value):
+            return None
+        try:
+            return int(value)
+        except (TypeError, ValueError):
+            return None
+
+    records = indicators_df.to_dict('records')
+    try:
+        for record in records:
+            # Check if beneficiary_id is present
+            if pd.isna(record.get('beneficiary_id')):
+                continue
+
+            record['beneficiary_id'] = _normalize_int(record.get('beneficiary_id'))
+            record['program_id'] = _normalize_int(record.get('program_id'))
+            record['ta_id'] = _normalize_int(record.get('ta_id'))
+            record['district_id'] = _normalize_int(record.get('district_id'))
+
+            query = text(
+                """
+                INSERT INTO welfare_beneficiary_indicators (
+                    beneficiary_id, program_id, ta_id, district_id,
+                    affected_by_flood, has_school_access, has_health_facility_access
+                ) VALUES (
+                    :beneficiary_id, :program_id, :ta_id, :district_id,
+                    :affected_by_flood, :has_school_access, :has_health_facility_access
+                )
+            """
+            )
+            # Handle potential duplicates or existing records by deleting first if we want to refresh
+            # Or just use a simple insert if it's a new load
+            session.execute(query, record)
+
+        session.commit()
+    except Exception:
+        session.rollback()
+        raise
+    return len(records)
+
+# Fetch administrative unit data from the database and returns it as a DataFrame
 def fetch_admin_units_for_indicators(session):
     query = text(
         """
@@ -269,8 +341,7 @@ def fetch_admin_units_for_indicators(session):
     rows = session.execute(query).mappings().all()
     return pd.DataFrame(rows)
 
-# This function prepares a DataFrame for loading into PostGIS by ensuring 
-# required columns are present, converting geometries to WKT, and sanitizing JSON values
+# Prapre a dataframe for loading int postgis
 def prepare_dataframe_for_load(df, dataset_type):
     working = df.copy()
     load_columns = DATASET_CONFIG[dataset_type]['load_columns']
@@ -302,7 +373,7 @@ def prepare_dataframe_for_load(df, dataset_type):
 
     return working[load_columns]
 
-# This function recursively sanitizes JSON values by converting pandas NA and NaN to None
+# Sanitize JSON values by converting pandas NA and NaN to None
 def _sanitize_json_value(value):
     if value is None or value is pd.NA:
         return None
@@ -324,7 +395,7 @@ def _sanitize_json_value(value):
 
     return value
 
-# this function trim strings
+# Trim strings
 def _coerce_array(value):
     if value is None or pd.isna(value):
         return None
@@ -332,7 +403,7 @@ def _coerce_array(value):
         return value
     return [item.strip() for item in str(value).split(',') if item.strip()]
 
-# This function handles loading a GeoDataFrame into PostGIS, with special handling for boundary d
+# Loading a GeoDataFrame into PostGIS, with special handling for boundary d
 # atasets to load them into normalized tables
 def load_to_postgis(session, gdf, dataset_type, if_exists='append'):
     try:
@@ -385,7 +456,7 @@ def load_to_postgis(session, gdf, dataset_type, if_exists='append'):
             original_error=exc,
         ) from exc
 
-
+# Post-load spatial foreign key enrichment for datasets with point geometries
 def run_post_load_spatial_fk_enrichment(session, dataset_type, started_at, completed_at):
     if dataset_type not in {'education', 'health'}:
         return {'enabled': False, 'updated_rows': 0}
@@ -534,7 +605,7 @@ def run_post_load_spatial_fk_enrichment(session, dataset_type, started_at, compl
             original_error=exc,
         ) from exc
 
-# This function handles loading indicator data into the unified_indicators table
+# Load indicator data into the unified_indicators table
 def load_unified_indicators(session, indicators_df, source_filename=None):
     try:
         if indicators_df is None or indicators_df.empty:
@@ -555,7 +626,7 @@ def load_unified_indicators(session, indicators_df, source_filename=None):
             original_error=exc,
         ) from exc
 
-# This function handles loading WorldPop age and sex data into the worldpop_age_sex table
+# Load WorldPop age and sex data into the worldpop_age_sex table
 def load_worldpop_age_sex(session, age_sex_df):
     try:
         if age_sex_df is None or age_sex_df.empty:
@@ -637,7 +708,7 @@ def load_worldpop_age_sex(session, age_sex_df):
             original_error=exc,
         ) from exc
 
-# This function handles loading analysis results into the analysis_results table,
+# Load analysis results into the analysis_results table,
 def load_analysis_results(session, analysis_df):
     try:
         if analysis_df is None or analysis_df.empty:
@@ -699,7 +770,7 @@ def load_analysis_results(session, analysis_df):
             original_error=exc,
         ) from exc
 
-# This function ensures that the normalized boundary tables (districts and admin3_units) exist in the database
+# Ensure that the normalized boundary tables (districts and admin3_units) exist in the database
 def ensure_normalized_boundary_tables(session):
     session.execute(
         text(
@@ -752,8 +823,7 @@ def ensure_normalized_boundary_tables(session):
     session.execute(text("CREATE INDEX IF NOT EXISTS idx_admin3_units_district_id ON admin3_units(district_id)"))
     session.commit()
 
-# This function handles loading boundary data into normalized tables (districts and admin3_units) with logic to resolve
-#  parent-child relationships  
+# Load boundary data into normalized tables (districts and admin3_units)
 def load_boundaries_normalized(session, gdf):
     ensure_normalized_boundary_tables(session)
     engine = session.bind

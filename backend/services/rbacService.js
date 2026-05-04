@@ -1,9 +1,19 @@
 const db = require("../db");
 const ensureRbacSchema = require("../helpers/rbacSchema");
 
-const DEPARTMENTS = ["education", "health", "welfare", "disaster"];
+const DEPARTMENTS = ["education", "health", "social_welfare", "disaster"];
 const GLOBAL_ACCESS_ROLES = ["super_admin", "admin"];
-const USER_ROLES = ["super_admin", "admin", "department_admin", "analyst", "user"];
+const USER_ROLES = [
+  "super_admin", 
+  "admin", 
+  "education_admin", 
+  "health_admin", 
+  "disaster_admin", 
+  "welfare_admin",
+  "department_admin", 
+  "analyst", 
+  "user"
+];
 
 function normalizeRole(role) {
   return String(role || "").trim().toLowerCase();
@@ -14,7 +24,8 @@ function isGlobalAccessRole(role) {
 }
 
 function normalizeDepartment(department) {
-  return String(department || "").trim().toLowerCase();
+  const normalized = String(department || "").trim().toLowerCase();
+  return normalized === "welfare" ? "social_welfare" : normalized;
 }
 
 function hasPermissionForAction(permission, action) {
@@ -47,7 +58,10 @@ async function fetchUserDepartmentPermissions(userId) {
   const result = await db.query(
     `
       SELECT
-        department,
+        CASE
+          WHEN department = 'welfare' THEN 'social_welfare'
+          ELSE department
+        END AS department,
         can_read,
         can_write,
         can_recompute,
@@ -84,6 +98,13 @@ async function userHasDepartmentAccess(userId, role, department, action = "read"
     return true;
   }
 
+  // Handle departmental roles
+  const normalizedRole = normalizeRole(role);
+  if (normalizedRole === "education_admin" && normalizedDepartment === "education") return true;
+  if (normalizedRole === "health_admin" && normalizedDepartment === "health") return true;
+  if (normalizedRole === "disaster_admin" && normalizedDepartment === "disaster") return true;
+  if (normalizedRole === "welfare_admin" && normalizedDepartment === "social_welfare") return true;
+
   const permissions = await fetchUserDepartmentPermissions(userId);
   const permission = permissions.find(
     (item) => item.department === normalizedDepartment,
@@ -96,14 +117,23 @@ function buildAuthAccessProfile(role, permissions) {
   const normalizedRole = normalizeRole(role);
   const accessibleDepartments = isGlobalAccessRole(normalizedRole)
     ? [...DEPARTMENTS]
-    : permissions
-        .filter((permission) => hasPermissionForAction(permission, "read"))
-        .map((permission) => permission.department);
+    : [
+        ...(normalizedRole === "education_admin" ? ["education"] : []),
+        ...(normalizedRole === "health_admin" ? ["health"] : []),
+        ...(normalizedRole === "disaster_admin" ? ["disaster"] : []),
+        ...(normalizedRole === "welfare_admin" ? ["social_welfare"] : []),
+        ...permissions
+          .filter((permission) => hasPermissionForAction(permission, "read"))
+          .map((permission) => permission.department)
+      ];
+
+  // Ensure uniqueness
+  const uniqueDepts = [...new Set(accessibleDepartments)];
 
   return {
     role: normalizedRole || null,
     is_global_admin: isGlobalAccessRole(normalizedRole),
-    departments: accessibleDepartments,
+    departments: uniqueDepts,
     permissions,
   };
 }
