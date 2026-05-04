@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   UserCheck,
   Heart,
@@ -12,13 +12,20 @@ import { useDistrict } from "../context/DistrictContext";
 import { usePdfExport } from "../hooks/usePdfExport";
 import { buildDashboardPath } from "../lib/query";
 import DataTable from "../components/DataTable";
+import MapPanel from "../components/MapPanel";
 import SharedDistrictSelector from "../components/SharedDistrictSelector";
 import {
+  Bar,
+  BarChart,
+  CartesianGrid,
   PieChart,
   Pie,
   Cell,
+  Rectangle,
   Tooltip,
   ResponsiveContainer,
+  XAxis,
+  YAxis,
 } from "recharts";
 
 const COLORS = ["#4A72E4", "#F4B41A", "#3BB182", "#6974D6", "#D96459"];
@@ -35,6 +42,31 @@ function formatPercent(value) {
 
 function formatDistanceKm(value) {
   return `${Number(value || 0).toFixed(1)} km`;
+}
+
+function formatTaAxisLabel(value) {
+  if (!value) {
+    return "";
+  }
+
+  if (value.length <= 14) {
+    return value;
+  }
+
+  return `${value.slice(0, 14)}...`;
+}
+
+function getTaBarColor(value, maxValue) {
+  if (!Number.isFinite(value) || maxValue <= 0) {
+    return "#cbd5e1";
+  }
+
+  const ratio = value / maxValue;
+
+  if (ratio >= 0.8) return "#dc2626";
+  if (ratio >= 0.55) return "#8b5e3c";
+  if (ratio >= 0.3) return "#2563eb";
+  return "#22c55e";
 }
 
 function renderBooleanPill(value, yesLabel = "Yes", noLabel = "No") {
@@ -104,13 +136,42 @@ function WelfarePage() {
   const { selectedDistrict } = useDistrict();
   const { contentRef, exportPdf } = usePdfExport("Welfare_Integration_Report.pdf");
   const [adminType, setAdminType] = useState("TA");
+  const [selectedTa, setSelectedTa] = useState("");
+  const [areaSearch, setAreaSearch] = useState("");
+  const [beneficiarySearch, setBeneficiarySearch] = useState("");
+  const [selectedProgram, setSelectedProgram] = useState("");
+  const [riskFilter, setRiskFilter] = useState("all");
+  const [serviceFilter, setServiceFilter] = useState("all");
+
+  const baseIntegration = useDashboardData(
+    buildDashboardPath("/dashboard/welfare/integration", {
+      district: selectedDistrict,
+      admin_type: adminType,
+      preview_limit: 15,
+    }),
+  );
+
+  const baseProgramBreakdown =
+    baseIntegration.data?.program_breakdown || [];
+  const selectedProgramId =
+    baseProgramBreakdown.find(
+      (item) => item.program_name === selectedProgram,
+    )?.program_id || "";
 
   const integration = useDashboardData(
     buildDashboardPath("/dashboard/welfare/integration", {
       district: selectedDistrict,
       admin_type: adminType,
+      ta: adminType === "TA" ? selectedTa : undefined,
       program_id: selectedProgramId || undefined,
       preview_limit: 15,
+    }),
+  );
+
+  const taBoundaries = useDashboardData(
+    buildDashboardPath("/dashboard/admin-units", {
+      type: "TA",
+      district: selectedDistrict,
     }),
   );
 
@@ -121,6 +182,13 @@ function WelfarePage() {
   const beneficiaryPreview = integration.data?.beneficiary_preview || [];
   const decisionSignals = integration.data?.decision_signals || [];
   const notes = integration.data?.notes || [];
+  const baseByArea = baseIntegration.data?.by_area || [];
+  const programOptions = baseProgramBreakdown;
+  const scopeLabel = selectedTa
+    ? `TA ${selectedTa}`
+    : selectedDistrict
+      ? selectedDistrict
+      : "all TAs";
 
   const pieData = programBreakdown.map((item) => ({
     name: item.program_name,
@@ -130,7 +198,7 @@ function WelfarePage() {
   const taOptions = useMemo(() => {
     const names = new Set();
 
-    byArea.forEach((row) => {
+    baseByArea.forEach((row) => {
       if (row.admin_unit_name && adminType === "TA") {
         names.add(row.admin_unit_name);
       }
@@ -143,7 +211,85 @@ function WelfarePage() {
     });
 
     return Array.from(names).sort((left, right) => left.localeCompare(right));
-  }, [adminType, beneficiaryPreview, byArea]);
+  }, [adminType, baseByArea, beneficiaryPreview]);
+
+  const taChartData = useMemo(
+    () =>
+      baseByArea
+        .filter((row) => row.admin_unit_name)
+        .map((row) => ({
+          ta: row.admin_unit_name,
+          beneficiaries: Number(row.beneficiary_count || 0),
+          householdReach: Number(row.estimated_household_population || 0),
+          healthAccess: Number(row.health_access_count || 0),
+          schoolAccess: Number(row.school_access_count || 0),
+          floodAffected: Number(row.flood_affected_count || 0),
+        }))
+        .sort((left, right) => right.beneficiaries - left.beneficiaries),
+    [baseByArea],
+  );
+
+  const maxTaBeneficiaries = Math.max(
+    ...taChartData.map((row) => row.beneficiaries),
+    0,
+  );
+
+  const taMetricLookup = useMemo(() => {
+    const lookup = new Map();
+
+    taChartData.forEach((row) => {
+      lookup.set(row.ta.toLowerCase(), row);
+    });
+
+    return lookup;
+  }, [taChartData]);
+
+  const taMapGeojson = useMemo(() => {
+    if (!taBoundaries.data) {
+      return taBoundaries.data;
+    }
+
+    const features = (taBoundaries.data.features || [])
+      .filter((feature) => {
+        const name = feature?.properties?.name || "";
+        return (
+          !selectedTa ||
+          name.toLowerCase() === selectedTa.toLowerCase()
+        );
+      })
+      .map((feature) => {
+        const name = feature?.properties?.name || "";
+        const metrics = taMetricLookup.get(name.toLowerCase()) || {};
+
+        return {
+          ...feature,
+          properties: {
+            ...feature.properties,
+            admin_unit_name: name,
+            beneficiary_count: metrics.beneficiaries || 0,
+            estimated_household_population: metrics.householdReach || 0,
+            health_access_count: metrics.healthAccess || 0,
+            school_access_count: metrics.schoolAccess || 0,
+            flood_affected_count: metrics.floodAffected || 0,
+          },
+        };
+      });
+
+    return {
+      ...taBoundaries.data,
+      features,
+    };
+  }, [selectedTa, taBoundaries.data, taMetricLookup]);
+
+  const selectTa = (taName) => {
+    setSelectedTa(taName || "");
+    setAreaSearch("");
+    setBeneficiarySearch("");
+  };
+
+  useEffect(() => {
+    setSelectedTa("");
+  }, [selectedDistrict, adminType]);
 
   const programNamesLabel = useMemo(() => {
     const names = programBreakdown
@@ -389,6 +535,15 @@ function WelfarePage() {
               </button>
             ))}
           </div>
+
+          {adminType === "TA" && selectedTa ? (
+            <button
+              onClick={() => selectTa("")}
+              className="rounded border border-gray-200 bg-gray-50 px-3 py-2 text-[12px] font-bold text-gray-700 transition-all hover:bg-white"
+            >
+              Clear TA: {selectedTa}
+            </button>
+          ) : null}
         </div>
 
         <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-6 mb-10">
@@ -400,29 +555,184 @@ function WelfarePage() {
                   value: formatWholeNumber(summary.total_beneficiaries),
                   icon: Heart,
                   helper: selectedProgram
-                    ? selectedProgram
-                    : programNamesLabel,
+                    ? `${selectedProgram} in ${scopeLabel}`
+                    : `${programNamesLabel} in ${scopeLabel}`,
                 },
                 {
                   label: "Estimated Household Reach",
                   value: formatWholeNumber(summary.estimated_household_population),
                   icon: UserCheck,
-                  helper: `${formatWholeNumber(summary.beneficiary_records_under_18)} beneficiary records under 18`,
+                  helper: `${formatWholeNumber(summary.beneficiary_records_under_18)} beneficiary records under 18 in ${scopeLabel}`,
                 },
                 {
                   label: "Health Access Coverage",
                   value: formatPercent(summary.health_access_pct),
                   icon: Activity,
-                  helper: `${formatWholeNumber(summary.public_hospital_access_count)} within public hospital reach`,
+                  helper: `${formatWholeNumber(summary.public_hospital_access_count)} within public hospital reach in ${scopeLabel}`,
                 },
                 {
                   label: "Flood-Affected Beneficiaries",
                   value: formatWholeNumber(summary.flood_affected_count),
                   icon: ShieldAlert,
-                  helper: `${formatPercent(summary.flood_affected_pct)} of the selected scope`,
+                  helper: `${formatPercent(summary.flood_affected_pct)} of ${scopeLabel}`,
                 },
               ].map((item) => <StatCard key={item.label} {...item} />)}
         </div>
+
+        {adminType === "TA" ? (
+          <div className="grid grid-cols-1 xl:grid-cols-2 gap-8 mb-10">
+            <div className="border border-gray-100 rounded p-8 shadow-sm bg-white h-[560px] flex flex-col">
+              <div className="mb-5 flex items-start justify-between gap-4">
+                <div>
+                  <h3 className="text-[16px] font-extrabold">
+                    Welfare TA Map
+                  </h3>
+                  <p className="mt-2 text-sm text-gray-500 font-semibold">
+                    {selectedTa
+                      ? `Showing welfare indicators for TA ${selectedTa}.`
+                      : "Click a TA boundary to focus every welfare indicator on that TA."}
+                  </p>
+                </div>
+              </div>
+              <div className="flex-1 rounded overflow-hidden relative border border-gray-50 bg-gray-50">
+                <MapPanel
+                  geojson={taMapGeojson}
+                  metricName="beneficiary_count"
+                  title=""
+                  pointColor="#2563eb"
+                  popupFields={[
+                    { key: "beneficiary_count", label: "Beneficiaries" },
+                    {
+                      key: "estimated_household_population",
+                      label: "Household Reach",
+                    },
+                    { key: "school_access_count", label: "School Access" },
+                    { key: "health_access_count", label: "Health Access" },
+                    { key: "flood_affected_count", label: "Flood Affected" },
+                  ]}
+                  tooltipFields={[
+                    { key: "beneficiary_count", label: "Beneficiaries" },
+                    { key: "health_access_count", label: "Health Access" },
+                    { key: "flood_affected_count", label: "Flood Affected" },
+                  ]}
+                  selectedFeatureName={selectedTa}
+                  onFeatureClick={(feature) =>
+                    selectTa(feature?.properties?.name || "")
+                  }
+                  showLegend
+                  legendTitle="Beneficiaries by TA"
+                  heightClass="h-full w-full"
+                  loading={taBoundaries.loading || baseIntegration.loading}
+                />
+              </div>
+            </div>
+
+            <div className="border border-gray-100 rounded p-8 shadow-sm bg-white h-[560px] flex flex-col">
+              <h3 className="text-[16px] font-extrabold mb-2">
+                Beneficiaries by TA
+              </h3>
+              <p className="text-sm text-gray-500 font-semibold mb-4">
+                {selectedTa
+                  ? `TA ${selectedTa} is highlighted; click another bar to sync the map, records, and insights.`
+                  : "Click a TA bar to focus the map, records, and insights."}
+              </p>
+              <div className="flex-1">
+                {baseIntegration.loading ? (
+                  <div className="h-full w-full animate-pulse rounded bg-gray-50" />
+                ) : !taChartData.length ? (
+                  <div className="h-full flex items-center justify-center text-center text-sm text-gray-500 px-6">
+                    No TA-level welfare records are available for this filter yet.
+                  </div>
+                ) : (
+                  <ResponsiveContainer width="100%" height="100%">
+                    <BarChart
+                      data={taChartData}
+                      margin={{ top: 20, right: 16, left: 12, bottom: 96 }}
+                    >
+                      <CartesianGrid
+                        strokeDasharray="3 3"
+                        vertical={false}
+                        stroke="#f1f5f9"
+                      />
+                      <XAxis
+                        dataKey="ta"
+                        axisLine={false}
+                        tickLine={false}
+                        tick={{
+                          fill: "#64748b",
+                          fontSize: 10,
+                          fontWeight: 700,
+                        }}
+                        tickFormatter={formatTaAxisLabel}
+                        angle={-90}
+                        textAnchor="end"
+                        interval={0}
+                        height={116}
+                      />
+                      <YAxis
+                        axisLine={false}
+                        tickLine={false}
+                        tick={{
+                          fill: "#64748b",
+                          fontSize: 11,
+                          fontWeight: 700,
+                        }}
+                        tickFormatter={(value) =>
+                          Number(value).toLocaleString()
+                        }
+                      />
+                      <Tooltip
+                        formatter={(value) => [
+                          Number(value).toLocaleString(),
+                          "Beneficiaries",
+                        ]}
+                        labelFormatter={(label) => `TA ${label}`}
+                        contentStyle={{
+                          borderRadius: "4px",
+                          border: "none",
+                          boxShadow: "0 4px 6px -1px rgb(0 0 0 / 0.1)",
+                          fontSize: "12px",
+                        }}
+                        cursor={{ fill: "#f8fafc" }}
+                      />
+                      <Bar
+                        dataKey="beneficiaries"
+                        radius={[2, 2, 0, 0]}
+                        barSize={18}
+                        activeBar={<Rectangle fill="#7e22ce" />}
+                        onClick={(entry) => selectTa(entry?.ta || "")}
+                      >
+                        {taChartData.map((entry) => {
+                          const isSelected =
+                            selectedTa &&
+                            entry.ta.toLowerCase() ===
+                              selectedTa.toLowerCase();
+
+                          return (
+                            <Cell
+                              key={`welfare-ta-bar-${entry.ta}`}
+                              cursor="pointer"
+                              fill={
+                                isSelected
+                                  ? "#7e22ce"
+                                  : getTaBarColor(
+                                      entry.beneficiaries,
+                                      maxTaBeneficiaries,
+                                    )
+                              }
+                              stroke={isSelected ? "#111827" : "transparent"}
+                              strokeWidth={isSelected ? 2 : 0}
+                            />
+                          );
+                        })}
+                      </Bar>
+                    </BarChart>
+                  </ResponsiveContainer>
+                )}
+              </div>
+            </div>
+          </div>
+        ) : null}
 
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-6 mb-10">
           {departmentSummary.map((item) => (
@@ -433,7 +743,7 @@ function WelfarePage() {
         <div className="grid grid-cols-1 xl:grid-cols-[1.15fr_0.85fr] gap-8 mb-10">
           <div className="border border-gray-100 rounded p-8 shadow-sm bg-white">
             <h3 className="text-[16px] font-extrabold mb-6">
-              Decision Signals
+              Decision Signals for {scopeLabel}
             </h3>
             <div className="space-y-4">
               {integration.loading ? (
@@ -581,14 +891,14 @@ function WelfarePage() {
               </select>
             </div>
             <p className="mt-3 text-[12px] font-semibold text-gray-500">
-              Showing {formatWholeNumber(filteredByArea.length)} TA records after filtering.
+              Showing {formatWholeNumber(filteredByArea.length)} {selectedTa ? `record for TA ${selectedTa}` : "TA records"} after filtering.
             </p>
           </div>
           <DataTable
             rows={filteredByArea}
             columns={areaColumns}
-            title="TA Decision View"
-            subtitle="Previewing linked social welfare, education, health, and disaster indicators at TA level."
+            title={selectedTa ? `TA ${selectedTa} Decision View` : "TA Decision View"}
+            subtitle={`Previewing linked social welfare, education, health, and disaster indicators for ${scopeLabel}.`}
           />
         </div>
 
@@ -631,14 +941,14 @@ function WelfarePage() {
               </select>
             </div>
             <p className="mt-3 text-[12px] font-semibold text-gray-500">
-              Showing {formatWholeNumber(filteredBeneficiaryPreview.length)} beneficiary preview records after filtering.
+              Showing {formatWholeNumber(filteredBeneficiaryPreview.length)} beneficiary preview records for {scopeLabel} after filtering.
             </p>
           </div>
           <DataTable
             rows={filteredBeneficiaryPreview}
             columns={beneficiaryColumns}
-            title="Beneficiary Preview"
-            subtitle="A record-level sample showing program membership, residence, nearby services, and flood context."
+            title={selectedTa ? `Beneficiary Preview for TA ${selectedTa}` : "Beneficiary Preview"}
+            subtitle={`A record-level sample showing program membership, residence, nearby services, and flood context for ${scopeLabel}.`}
           />
         </div>
 
