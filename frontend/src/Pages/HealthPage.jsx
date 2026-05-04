@@ -49,7 +49,7 @@ function formatDistrictAxisLabel(value) {
 }
 
 function HealthPage() {
-  const { selectedDistrict } = useDistrict();
+  const { selectedDistrict, selectedTa } = useDistrict();
   const { contentRef, exportPdf } = usePdfExport("Health_Report.pdf");
   const districtScope = selectedDistrict || "Zomba";
 
@@ -76,6 +76,7 @@ function HealthPage() {
   const healthIntegration = useDashboardData(
     buildDashboardPath("/dashboard/welfare/integration", {
       district: selectedDistrict,
+      ta: selectedTa,
       admin_type: "District",
     }),
   );
@@ -227,8 +228,10 @@ function HealthPage() {
       <div className="px-8 mt-8">
         <p className="text-[14px] font-semibold text-gray-500 mb-6">
           {selectedDistrict
-            ? `Health infrastructure for ${selectedDistrict}`
-            : "Health infrastructure overview"}
+            ? `Health infrastructure for ${selectedTa || selectedDistrict}`
+            : selectedTa
+              ? `Health infrastructure for ${selectedTa}`
+              : "Health infrastructure overview"}
         </p>
 
         {healthApiErrors.length ? (
@@ -607,8 +610,10 @@ function HealthPage() {
                 </h3>
                 <p className="text-[13px] text-gray-500 font-semibold mt-1">
                   {selectedDistrict
-                    ? `Estimated access split for ${selectedDistrict}`
-                    : "Estimated access split across Zomba"}
+                    ? `Estimated access split for ${selectedTa || selectedDistrict}`
+                    : selectedTa
+                      ? `Estimated access split for ${selectedTa}`
+                      : "Estimated access split across Zomba"}
                 </p>
               </div>
               <div className="text-right">

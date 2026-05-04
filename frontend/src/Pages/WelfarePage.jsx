@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import {
   UserCheck,
   Heart,
@@ -133,10 +133,9 @@ function StatCard({ label, value, icon: Icon, helper }) {
 }
 
 function WelfarePage() {
-  const { selectedDistrict } = useDistrict();
+  const { selectedDistrict, selectedTa, setSelectedTa } = useDistrict();
   const { contentRef, exportPdf } = usePdfExport("Welfare_Integration_Report.pdf");
   const [adminType, setAdminType] = useState("TA");
-  const [selectedTa, setSelectedTa] = useState("");
   const [areaSearch, setAreaSearch] = useState("");
   const [beneficiarySearch, setBeneficiarySearch] = useState("");
   const [selectedProgram, setSelectedProgram] = useState("");
@@ -162,7 +161,7 @@ function WelfarePage() {
     buildDashboardPath("/dashboard/welfare/integration", {
       district: selectedDistrict,
       admin_type: adminType,
-      ta: adminType === "TA" ? selectedTa : undefined,
+      ta: selectedTa,
       program_id: selectedProgramId || undefined,
       preview_limit: 15,
     }),
@@ -286,10 +285,6 @@ function WelfarePage() {
     setAreaSearch("");
     setBeneficiarySearch("");
   };
-
-  useEffect(() => {
-    setSelectedTa("");
-  }, [selectedDistrict, adminType]);
 
   const programNamesLabel = useMemo(() => {
     const names = programBreakdown
@@ -506,8 +501,10 @@ function WelfarePage() {
       <div className="px-8 mt-8">
         <p className="text-[14px] font-semibold text-gray-500 mb-6">
           {selectedDistrict
-            ? `Integrated welfare view for ${selectedDistrict}`
-            : "Integrated welfare decision-support across linked departments"}
+            ? `Integrated welfare view for ${selectedTa || selectedDistrict}`
+            : selectedTa
+              ? `Integrated welfare view for ${selectedTa}`
+              : "Integrated welfare decision-support across linked departments"}
         </p>
 
         <div className="flex flex-wrap gap-4 mb-8">
@@ -536,14 +533,6 @@ function WelfarePage() {
             ))}
           </div>
 
-          {adminType === "TA" && selectedTa ? (
-            <button
-              onClick={() => selectTa("")}
-              className="rounded border border-gray-200 bg-gray-50 px-3 py-2 text-[12px] font-bold text-gray-700 transition-all hover:bg-white"
-            >
-              Clear: {selectedTa}
-            </button>
-          ) : null}
         </div>
 
         <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-6 mb-10">

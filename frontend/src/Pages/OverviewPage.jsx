@@ -1,7 +1,5 @@
 import {
-  useEffect,
   useMemo,
-  useState,
 } from "react";
 import {
   Download,
@@ -72,14 +70,13 @@ function formatTaAxisLabel(value) {
 }
 
 function OverviewPage() {
-  const { selectedDistrict } = useDistrict();
-  const districtScope = selectedDistrict || "Zomba";
-  const [selectedTa, setSelectedTa] = useState("");
+  const { selectedDistrict, selectedTa, setSelectedTa } = useDistrict();
+  const districtScope = selectedDistrict || "";
   const scopeLabel = selectedTa
     ? selectedTa
     : selectedDistrict
       ? selectedDistrict
-      : "Zomba";
+      : "All Districts";
 
   const summary = useDashboardData(
     buildDashboardPath("/dashboard/summary", {
@@ -178,10 +175,6 @@ function OverviewPage() {
     setSelectedTa(taName || "");
   };
 
-  useEffect(() => {
-    setSelectedTa("");
-  }, [selectedDistrict]);
-
   const exposedPopulation = Math.max(
     Math.round(Number(floodSummary.data?.exposed_population || 0)),
     0,
@@ -251,7 +244,7 @@ function OverviewPage() {
             ? `Showing records for ${selectedTa}`
             : selectedDistrict
               ? `Showing ${selectedDistrict} Records`
-              : "Showing Zomba Records"}
+              : "Showing All Districts Records"}
         </p>
 
         {/* Actions Row */}
@@ -271,15 +264,6 @@ function OverviewPage() {
             Download Map
           </button>
           <SharedDistrictSelector />
-          {selectedTa ? (
-            <button
-              onClick={() => selectTa("")}
-              className="rounded border border-gray-200 bg-gray-50 px-3 py-1.5 text-[13px] font-bold text-gray-700 transition-all hover:bg-white"
-            >
-              Clear: {selectedTa}
-            </button>
-          ) : null}
-
         </div>
 
         {/* Stats Row */}

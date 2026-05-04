@@ -56,14 +56,17 @@ function formatTaAxisLabel(value) {
 }
 
 function PopulationPage() {
-  const { selectedDistrict } = useDistrict();
+  const { selectedDistrict, selectedTa, setSelectedTa } = useDistrict();
   const { contentRef, exportPdf } = usePdfExport("Population_Report.pdf");
   const summary = useDashboardData(
-    buildDashboardPath("/dashboard/summary", { district: selectedDistrict }),
+    buildDashboardPath("/dashboard/summary", {
+      district: selectedDistrict,
+      ta: selectedTa,
+    }),
   );
   const districtBoundaries = useDashboardData(
     buildDashboardPath("/dashboard/admin-units", {
-      type: "District",
+      type: selectedDistrict || selectedTa ? "TA" : "District",
       district: selectedDistrict,
     }),
   );
@@ -78,6 +81,7 @@ function PopulationPage() {
   const populationIntegration = useDashboardData(
     buildDashboardPath("/dashboard/welfare/integration", {
       district: selectedDistrict,
+      ta: selectedTa,
       admin_type: "District",
     }),
   );
@@ -112,7 +116,7 @@ function PopulationPage() {
       <div className="mt-8 px-8">
         <p className="mb-6 text-[14px] font-semibold text-gray-500">
           {selectedDistrict
-            ? `Population surface focused on ${selectedDistrict}`
+            ? `Population surface focused on ${selectedTa || selectedDistrict}`
             : "Zomba population surface from the WorldPop raster"}
         </p>
 
@@ -130,14 +134,18 @@ function PopulationPage() {
 
         <div className="mb-8 grid grid-cols-1 gap-6 lg:grid-cols-[minmax(0,1.5fr)_minmax(280px,0.75fr)]">
           <div className="rounded border border-gray-100 bg-white p-8 shadow-sm">
-            <PopulationRasterPanel
-              geojson={districtBoundaries.data}
-              title="WorldPop Population Surface"
+              <PopulationRasterPanel
+                geojson={districtBoundaries.data}
+                title="WorldPop Population Surface"
               subtitle="Rendered directly from the Zomba 2020 GeoTIFF so the map keeps the fine-grained heatmap pattern instead of district-wide color blocks."
               heightClass="h-[620px]"
-              loading={districtBoundaries.loading}
-              metadataUrl="/worldpop/zomba_ppp_2020.preview.json"
-            />
+                loading={districtBoundaries.loading}
+                metadataUrl="/worldpop/zomba_ppp_2020.preview.json"
+                selectedFeatureName={selectedTa}
+                onFeatureClick={(feature) =>
+                  setSelectedTa(feature?.properties?.name || "")
+                }
+              />
           </div>
 
           <div className="rounded border border-gray-100 bg-white p-8 shadow-sm">
@@ -228,7 +236,7 @@ function PopulationPage() {
         <div className="rounded border border-gray-100 bg-white p-8 shadow-sm">
           <h3 className="mb-6 text-[16px] font-extrabold">
             {selectedDistrict
-              ? `Population by TA in ${selectedDistrict}`
+              ? `Population by TA in ${selectedTa || selectedDistrict}`
               : "Population by district"}
           </h3>
           <div className="h-[420px]">
@@ -281,16 +289,34 @@ function PopulationPage() {
                   radius={[2, 2, 0, 0]}
                   barSize={14}
                   activeBar={<Rectangle fill="#7e22ce" />}
+                  onClick={(entry) => {
+                    if (selectedDistrict && entry?.label) {
+                      setSelectedTa(entry.label);
+                    }
+                  }}
                 >
-                  {chartData.map((entry) => (
-                    <Cell
-                      key={`population-bar-${entry.label}`}
-                      fill={getPopulationBarColor(
-                        Number(entry.population),
-                        maxPopulation,
-                      )}
-                    />
-                  ))}
+                  {chartData.map((entry) => {
+                    const isSelected =
+                      selectedTa &&
+                      entry.label.toLowerCase() === selectedTa.toLowerCase();
+
+                    return (
+                      <Cell
+                        key={`population-bar-${entry.label}`}
+                        cursor={selectedDistrict ? "pointer" : "default"}
+                        fill={
+                          isSelected
+                            ? "#7e22ce"
+                            : getPopulationBarColor(
+                                Number(entry.population),
+                                maxPopulation,
+                              )
+                        }
+                        stroke={isSelected ? "#111827" : "transparent"}
+                        strokeWidth={isSelected ? 2 : 0}
+                      />
+                    );
+                  })}
                 </Bar>
               </BarChart>
             </ResponsiveContainer>

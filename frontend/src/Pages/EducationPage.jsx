@@ -155,7 +155,7 @@ function EducationCategoryPieTooltip({ active, payload }) {
 }
 
 function EducationPage() {
-  const { selectedDistrict } = useDistrict();
+  const { selectedDistrict, selectedTa } = useDistrict();
   const [selectedPressureCategories, setSelectedPressureCategories] = useState(
     PRESSURE_FILTER_CATEGORIES,
   );
@@ -164,6 +164,7 @@ function EducationPage() {
   const educationSummary = useDashboardData(
     buildDashboardPath("/dashboard/education/summary", {
       district: selectedDistrict,
+      ta: selectedTa,
       admin_type: "District",
     }),
   );
@@ -406,8 +407,10 @@ function EducationPage() {
       <div className="px-8 mt-8">
         <p className="text-[14px] font-semibold text-gray-500 mb-6">
           {selectedDistrict
-            ? `Education stats for ${selectedDistrict}`
-            : "National Education Overview"}
+            ? `Education stats for ${selectedTa || selectedDistrict}`
+            : selectedTa
+              ? `Education stats for ${selectedTa}`
+              : "National Education Overview"}
         </p>
 
         <div className="flex gap-4 mb-6">
