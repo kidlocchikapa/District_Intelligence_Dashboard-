@@ -312,8 +312,8 @@ export default function AdminDataStewardship({ department, deptConfig }) {
   const toRecord = Math.min(page * 25, meta.total);
 
   return (
-    <div className="flex h-full min-h-[640px] flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
-      <header className="border-b border-slate-200 bg-white">
+    <div className="flex h-full min-h-[640px] flex-col overflow-hidden rounded border border-slate-200 bg-white shadow-none">
+      <header className="bg-white">
         <div className="flex flex-col gap-4 p-4 xl:flex-row xl:items-center xl:justify-between">
           <div className="min-w-0">
             <div className="flex items-center gap-2 text-sm font-bold text-slate-900">
@@ -341,7 +341,7 @@ export default function AdminDataStewardship({ department, deptConfig }) {
           </div>
         </div>
 
-        <div className="flex gap-2 overflow-x-auto border-t border-slate-100 px-4 py-3">
+        <div className="flex gap-2 overflow-x-auto bg-white px-4 pb-4 pt-1">
           {tables.map((table) => (
             <button
               key={table.id}
@@ -351,13 +351,13 @@ export default function AdminDataStewardship({ department, deptConfig }) {
                 setPage(1);
                 setEditingRecord(null);
               }}
-              className={`flex shrink-0 items-center gap-2 rounded-lg px-4 py-2 text-sm font-bold transition-all ${
+              className={`flex shrink-0 items-center gap-2 rounded border px-4 py-2 text-sm font-bold transition-all duration-200 ease-out ${
                 selectedTableId === table.id
-                  ? "bg-slate-900 text-white shadow-md shadow-slate-900/10"
-                  : "border border-slate-200 bg-white text-slate-700 hover:border-slate-300 hover:bg-slate-50"
+                  ? "border-slate-900 bg-white text-slate-950 ring-1 ring-slate-900/10"
+                  : "border-slate-200 bg-white text-slate-600 hover:border-slate-400 hover:text-slate-950"
               }`}
             >
-              <table.icon size={15} className={selectedTableId === table.id ? "text-emerald-300" : "text-slate-500"} />
+              <table.icon size={15} className={selectedTableId === table.id ? "text-emerald-600" : "text-slate-500"} />
               {table.label}
             </button>
           ))}
@@ -378,7 +378,7 @@ export default function AdminDataStewardship({ department, deptConfig }) {
         )}
 
         <table className="w-full min-w-[1500px] border-collapse text-left">
-          <thead className="sticky top-0 z-10 bg-slate-50 shadow-[0_1px_0_0_rgba(226,232,240,1)]">
+          <thead className="sticky top-0 z-10 bg-white">
             <tr>
               {columns.map((col) => (
                 <th key={col} className="px-4 py-3 text-[10px] font-bold uppercase tracking-widest text-slate-500">
@@ -429,7 +429,7 @@ export default function AdminDataStewardship({ department, deptConfig }) {
         </table>
       </main>
 
-      <footer className="flex flex-col gap-3 border-t border-slate-200 bg-slate-50/80 p-4 sm:flex-row sm:items-center sm:justify-between">
+      <footer className="flex flex-col gap-3 border-t border-slate-200 bg-white p-4 sm:flex-row sm:items-center sm:justify-between">
         <div className="text-xs font-medium text-slate-600">
           Showing <span className="font-bold text-slate-900">{fromRecord}</span> to{" "}
           <span className="font-bold text-slate-900">{toRecord}</span> of{" "}

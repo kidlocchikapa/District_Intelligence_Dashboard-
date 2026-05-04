@@ -221,7 +221,7 @@ function AdminPage() {
           <p className="mt-1 text-sm text-slate-500">Manage your department's datasets, run pipeline updates, and monitor system health.</p>
         </div>
 
-        <div className="flex w-full overflow-x-auto bg-slate-100 p-1 rounded-xl lg:w-auto">
+        <div className="flex w-full overflow-x-auto rounded border border-slate-200 bg-white p-1 shadow-none lg:w-auto">
           <TabButton active={activeTab === 'stewardship'} onClick={() => setActiveTab('stewardship')} icon={LayoutDashboard} label="Data Stewardship" />
           <TabButton active={activeTab === 'operations'} onClick={() => setActiveTab('operations')} icon={UploadCloud} label="Operations" />
           <TabButton active={activeTab === 'logs'} onClick={() => setActiveTab('logs')} icon={Terminal} label="System Logs" />
@@ -355,8 +355,10 @@ function TabButton({ active, onClick, icon: Icon, label }) {
   return (
     <button
       onClick={onClick}
-      className={`shrink-0 px-4 py-2.5 md:px-6 rounded-lg text-sm font-bold flex items-center gap-2 transition-all ${
-        active ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-900 hover:bg-white/50'
+      className={`shrink-0 px-4 py-2.5 md:px-6 rounded text-sm font-bold flex items-center gap-2 transition-all duration-200 ease-out ${
+        active
+          ? 'bg-slate-900 text-white'
+          : 'bg-white text-slate-600 hover:bg-slate-50 hover:text-slate-950'
       }`}
     >
       <Icon size={16} />
