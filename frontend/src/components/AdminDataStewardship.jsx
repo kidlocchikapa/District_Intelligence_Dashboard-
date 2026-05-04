@@ -353,11 +353,11 @@ export default function AdminDataStewardship({ department, deptConfig }) {
               }}
               className={`flex shrink-0 items-center gap-2 rounded border px-4 py-2 text-sm font-bold transition-all duration-200 ease-out ${
                 selectedTableId === table.id
-                  ? "border-slate-900 bg-white text-slate-950 ring-1 ring-slate-900/10"
-                  : "border-slate-200 bg-white text-slate-600 hover:border-slate-400 hover:text-slate-950"
+                  ? "border-black bg-black text-white"
+                  : "border-gray-200 bg-gray-100 text-gray-700 hover:border-gray-300 hover:bg-gray-200 hover:text-black"
               }`}
             >
-              <table.icon size={15} className={selectedTableId === table.id ? "text-emerald-600" : "text-slate-500"} />
+              <table.icon size={15} className={selectedTableId === table.id ? "text-white" : "text-gray-600"} />
               {table.label}
             </button>
           ))}
