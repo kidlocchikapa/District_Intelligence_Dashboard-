@@ -43,6 +43,20 @@ const jobs = new Map();
 const recentJobIds = [];
 const MAX_RECENT_JOBS = 25;
 const MAX_JOB_LOGS = 500;
+const DEFAULT_OVERPASS_URL =
+  process.env.OVERPASS_API_URL || "https://overpass-api.de/api/interpreter";
+const DEFAULT_OVERPASS_TIMEOUT = Number(process.env.OVERPASS_TIMEOUT || 180);
+const DEFAULT_OVERPASS_DISTRICTS =
+  process.env.OVERPASS_ROADS_DISTRICTS || "Zomba,Zomba City";
+const DEFAULT_OVERPASS_QUERY =
+  process.env.OVERPASS_ROADS_QUERY ||
+  [
+    "[out:json][timeout:25];",
+    "(",
+    '  way["highway"~"trunk|primary|secondary|tertiary|residential|unclassified"](-15.75,35.10,-15.05,35.80);',
+    ");",
+    "out geom;",
+  ].join("\n");
 
 // Helper function to build ETL arguments based on task type and parameters
 const presetTaskDefinitions = {
@@ -75,21 +89,21 @@ const presetTaskDefinitions = {
       schoolAgeMax,
       childClassMax,
     }) => [
-        {
-          label: "WorldPop age-sex",
-          args: buildEtlArgs({
-            type: "worldpop",
-            sourceType: "worldpop",
-            apiUrl,
-            worldpopYear,
-            worldpopDataset: "wpgpas",
-            worldpopApiKey,
-            schoolAgeMin,
-            schoolAgeMax,
-            childClassMax,
-          }),
-        },
-      ],
+      {
+        label: "WorldPop age-sex",
+        args: buildEtlArgs({
+          type: "worldpop",
+          sourceType: "worldpop",
+          apiUrl,
+          worldpopYear,
+          worldpopDataset: "wpgpas",
+          worldpopApiKey,
+          schoolAgeMin,
+          schoolAgeMax,
+          childClassMax,
+        }),
+      },
+    ],
   },
   education_insights: {
     label: "Recalculate education insights",
@@ -132,6 +146,43 @@ const presetTaskDefinitions = {
       },
     ],
   },
+  road_travel_access: {
+    label: "Recalculate road travel access",
+    description:
+      "Runs pgRouting travel-time calculations from welfare beneficiaries to schools and health facilities.",
+    stages: () => [
+      {
+        label: "Road travel access",
+        args: buildEtlArgs({
+          type: "routing",
+          sourceType: "file",
+        }),
+      },
+    ],
+  },
+  roads_overpass_sync: {
+    label: "Sync roads from Overpass",
+    description:
+      "Fetches OSM road data via Overpass and clips it to the Zomba boundaries.",
+    stages: ({
+      overpassUrl,
+      overpassQuery,
+      overpassTimeout,
+      roadClipDistricts,
+    }) => [
+      {
+        label: "Overpass road sync",
+        args: buildEtlArgs({
+          type: "roads",
+          sourceType: "overpass",
+          overpassUrl,
+          overpassQuery,
+          overpassTimeout,
+          roadClipDistricts,
+        }),
+      },
+    ],
+  },
   disaster_insights: {
     label: "Recalculate disaster insights",
     description: "Runs district disaster vulnerability analysis.",
@@ -160,68 +211,68 @@ const presetTaskDefinitions = {
       adminLevel,
       coverageDistanceKm,
     }) => [
-        {
-          label: "WorldPop totals",
-          args: buildEtlArgs({
-            type: "worldpop",
-            sourceType: "worldpop",
-            apiUrl,
-            worldpopYear,
-            worldpopDataset: "wpgppop",
-            worldpopApiKey,
-          }),
-        },
-        {
-          label: "WorldPop age-sex",
-          args: buildEtlArgs({
-            type: "worldpop",
-            sourceType: "worldpop",
-            apiUrl,
-            worldpopYear,
-            worldpopDataset: "wpgpas",
-            worldpopApiKey,
-            schoolAgeMin,
-            schoolAgeMax,
-            childClassMax,
-          }),
-        },
-        {
-          label: "Education analysis",
-          args: buildEtlArgs({
-            type: "analysis",
-            analysisTypes: [
-              "education_summary",
-              "nearest_school_distance",
-              "school_service_coverage",
-            ],
-            adminLevel,
-            coverageDistanceKm,
-          }),
-        },
-        {
-          label: "Health analysis",
-          args: buildEtlArgs({
-            type: "analysis",
-            worldpopYear,
-            analysisTypes: [
-              "health_summary",
-              "health_population_served",
-              "nearest_health_distance",
-              "health_service_coverage",
-            ],
-            adminLevel,
-            coverageDistanceKm,
-          }),
-        },
-        {
-          label: "Disaster analysis",
-          args: buildEtlArgs({
-            type: "analysis",
-            analysisTypes: ["disaster_vulnerability"],
-            adminLevel,
-          }),
-        },
-      ],
+      {
+        label: "WorldPop totals",
+        args: buildEtlArgs({
+          type: "worldpop",
+          sourceType: "worldpop",
+          apiUrl,
+          worldpopYear,
+          worldpopDataset: "wpgppop",
+          worldpopApiKey,
+        }),
+      },
+      {
+        label: "WorldPop age-sex",
+        args: buildEtlArgs({
+          type: "worldpop",
+          sourceType: "worldpop",
+          apiUrl,
+          worldpopYear,
+          worldpopDataset: "wpgpas",
+          worldpopApiKey,
+          schoolAgeMin,
+          schoolAgeMax,
+          childClassMax,
+        }),
+      },
+      {
+        label: "Education analysis",
+        args: buildEtlArgs({
+          type: "analysis",
+          analysisTypes: [
+            "education_summary",
+            "nearest_school_distance",
+            "school_service_coverage",
+          ],
+          adminLevel,
+          coverageDistanceKm,
+        }),
+      },
+      {
+        label: "Health analysis",
+        args: buildEtlArgs({
+          type: "analysis",
+          worldpopYear,
+          analysisTypes: [
+            "health_summary",
+            "health_population_served",
+            "nearest_health_distance",
+            "health_service_coverage",
+          ],
+          adminLevel,
+          coverageDistanceKm,
+        }),
+      },
+      {
+        label: "Disaster analysis",
+        args: buildEtlArgs({
+          type: "analysis",
+          analysisTypes: ["disaster_vulnerability"],
+          adminLevel,
+        }),
+      },
+    ],
   },
 };
 
@@ -230,6 +281,7 @@ const DATASET_DEPARTMENT_MAP = {
   health: "health",
   welfare: "welfare",
   welfare_beneficiary: "welfare",
+  roads: "welfare",
   disaster: "disaster",
   flood: "disaster",
 };
@@ -237,6 +289,8 @@ const DATASET_DEPARTMENT_MAP = {
 const TASK_DEPARTMENT_MAP = {
   education_insights: "education",
   health_insights: "health",
+  road_travel_access: "welfare",
+  roads_overpass_sync: "welfare",
   disaster_insights: "disaster",
 };
 
@@ -838,6 +892,10 @@ function buildEtlArgs({
   filePath,
   apiUrl,
   apiHeaders,
+  overpassUrl,
+  overpassQuery,
+  overpassTimeout,
+  roadClipDistricts,
   gazetteerPath,
   district,
   programId,
@@ -862,6 +920,22 @@ function buildEtlArgs({
 
   if (apiUrl) {
     args.push("--api-url", apiUrl);
+  }
+
+  if (overpassUrl) {
+    args.push("--overpass-url", overpassUrl);
+  }
+
+  if (overpassQuery) {
+    args.push("--overpass-query", overpassQuery);
+  }
+
+  if (overpassTimeout) {
+    args.push("--overpass-timeout", String(overpassTimeout));
+  }
+
+  if (roadClipDistricts) {
+    args.push("--road-clip-districts", roadClipDistricts);
   }
 
   if (gazetteerPath) {
@@ -1103,6 +1177,90 @@ function queueWorkflow(job, stages) {
   });
 }
 
+function isJobRunningForTask(taskKey) {
+  return Array.from(jobs.values()).some(
+    (job) => job.status === "running" && job.meta?.task === taskKey,
+  );
+}
+
+function getOverpassDefaults() {
+  return {
+    overpassUrl: DEFAULT_OVERPASS_URL,
+    overpassQuery: DEFAULT_OVERPASS_QUERY,
+    overpassTimeout: DEFAULT_OVERPASS_TIMEOUT,
+    roadClipDistricts: DEFAULT_OVERPASS_DISTRICTS,
+  };
+}
+
+function queueOverpassRoadSync(trigger) {
+  if (!DEFAULT_OVERPASS_QUERY) {
+    console.warn("Overpass road sync skipped: query is not configured.");
+    return;
+  }
+  if (isJobRunningForTask("roads_overpass_sync")) {
+    console.log("Overpass road sync skipped: job already running.");
+    return;
+  }
+
+  const job = createJob({
+    label: `Overpass road sync (${trigger})`,
+    kind: "preset",
+    meta: {
+      task: "roads_overpass_sync",
+      trigger,
+    },
+  });
+  const stages = presetTaskDefinitions.roads_overpass_sync.stages(
+    getOverpassDefaults(),
+  );
+  queueWorkflow(job, stages);
+}
+
+let overpassSchedulerStarted = false;
+function startOverpassRoadSchedule() {
+  if (overpassSchedulerStarted) {
+    return;
+  }
+  const dailyAt = process.env.OVERPASS_ROADS_SCHEDULE_AT;
+  if (dailyAt) {
+    const [hourText, minuteText] = String(dailyAt).split(":");
+    const hour = Number(hourText);
+    const minute = Number(minuteText);
+    if (!Number.isFinite(hour) || !Number.isFinite(minute)) {
+      return;
+    }
+
+    overpassSchedulerStarted = true;
+    const scheduleNext = () => {
+      const now = new Date();
+      const next = new Date(now);
+      next.setHours(hour, minute, 0, 0);
+      if (next <= now) {
+        next.setDate(next.getDate() + 1);
+      }
+      const delayMs = next.getTime() - now.getTime();
+      setTimeout(() => {
+        queueOverpassRoadSync("scheduled");
+        scheduleNext();
+      }, delayMs);
+    };
+    scheduleNext();
+    return;
+  }
+
+  const intervalMinutes = Number(
+    process.env.OVERPASS_ROADS_SCHEDULE_MINUTES || 0,
+  );
+  if (!Number.isFinite(intervalMinutes) || intervalMinutes <= 0) {
+    return;
+  }
+
+  overpassSchedulerStarted = true;
+  const intervalMs = intervalMinutes * 60 * 1000;
+  setInterval(() => queueOverpassRoadSync("scheduled"), intervalMs);
+  setTimeout(() => queueOverpassRoadSync("startup"), 5000);
+}
+
 // API endpoint to retrieve available task presets, returning their keys, labels, and descriptions for frontend display
 /**
  * @openapi
@@ -1186,10 +1344,10 @@ router.get("/jobs", auth, async (req, res) => {
     const allowedDepartments = isGlobal
       ? []
       : await getAccessibleDepartmentsForUser(
-        authUser.id,
-        authUser.role,
-        "read",
-      );
+          authUser.id,
+          authUser.role,
+          "read",
+        );
 
     if (jobId) {
       const job = jobs.get(jobId);
@@ -1507,6 +1665,10 @@ router.post("/run-task", auth, async (req, res) => {
     childClassMax = 15,
     adminLevel = "District",
     coverageDistanceKm = 5,
+    overpassUrl = DEFAULT_OVERPASS_URL,
+    overpassQuery = DEFAULT_OVERPASS_QUERY,
+    overpassTimeout = DEFAULT_OVERPASS_TIMEOUT,
+    roadClipDistricts = DEFAULT_OVERPASS_DISTRICTS,
   } = req.body;
 
   const definition = presetTaskDefinitions[task];
@@ -1541,6 +1703,10 @@ router.post("/run-task", auth, async (req, res) => {
     childClassMax,
     adminLevel,
     coverageDistanceKm,
+    overpassUrl,
+    overpassQuery,
+    overpassTimeout,
+    roadClipDistricts,
   });
 
   const job = createJob({
@@ -1563,5 +1729,7 @@ router.post("/run-task", auth, async (req, res) => {
     },
   });
 });
+
+startOverpassRoadSchedule();
 
 module.exports = router;

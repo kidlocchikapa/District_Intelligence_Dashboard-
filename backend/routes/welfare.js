@@ -60,6 +60,21 @@ async function getWelfareProgramIdColumn() {
   return welfareProgramIdColumnPromise;
 }
 
+async function tableExists(tableName) {
+  const result = await db.query(
+    `
+      SELECT EXISTS (
+        SELECT 1
+        FROM information_schema.tables
+        WHERE table_schema = 'public'
+          AND table_name = $1
+      ) AS exists
+    `,
+    [tableName],
+  );
+  return Boolean(result.rows[0]?.exists);
+}
+
 function buildBeneficiaryScopeQuery(programIdColumn, district, ta, programId) {
   const params = [];
   const conditions = [];
@@ -292,6 +307,7 @@ router.get("/integration", async (req, res) => {
 
   try {
     const programIdColumn = await getWelfareProgramIdColumn();
+    const hasTravelTable = await tableExists("beneficiary_facility_travel");
     const scope = buildBeneficiaryScopeQuery(
       programIdColumn,
       district,
@@ -313,6 +329,53 @@ router.get("/integration", async (req, res) => {
       normalizedAdminType === "District" ? "fz.district_name" : "fz.ta_name";
     const floodAdminTypeFilter =
       normalizedAdminType === "District" ? "" : "WHERE fz.ta_id <> 0";
+    const travelCtes = hasTravelTable
+      ? `
+      travel_health AS (
+        SELECT
+          beneficiary_id,
+          facility_id,
+          facility_name,
+          network_distance_km,
+          travel_time_min,
+          routing_status
+        FROM beneficiary_facility_travel
+        WHERE facility_type = 'health'
+      ),
+      travel_school AS (
+        SELECT
+          beneficiary_id,
+          facility_id,
+          facility_name,
+          network_distance_km,
+          travel_time_min,
+          routing_status
+        FROM beneficiary_facility_travel
+        WHERE facility_type = 'school'
+      )
+    `
+      : `
+      travel_health AS (
+        SELECT
+          NULL::integer AS beneficiary_id,
+          NULL::bigint AS facility_id,
+          NULL::text AS facility_name,
+          NULL::double precision AS network_distance_km,
+          NULL::double precision AS travel_time_min,
+          NULL::text AS routing_status
+        WHERE FALSE
+      ),
+      travel_school AS (
+        SELECT
+          NULL::integer AS beneficiary_id,
+          NULL::bigint AS facility_id,
+          NULL::text AS facility_name,
+          NULL::double precision AS network_distance_km,
+          NULL::double precision AS travel_time_min,
+          NULL::text AS routing_status
+        WHERE FALSE
+      )
+    `;
 
     const nearestHealthCte = `
       nearest_health AS (
@@ -378,6 +441,7 @@ router.get("/integration", async (req, res) => {
           LIMIT 1
         ) nh ON TRUE
       ),
+      ${travelCtes},
       education_context AS (
         SELECT
           ar.admin_unit_id,
@@ -504,6 +568,14 @@ router.get("/integration", async (req, res) => {
         nh.facility_name AS nearest_facility_name,
         nh.facility_type AS nearest_facility_type,
         nh.ownership_category AS nearest_facility_ownership_category,
+        ROUND(th.network_distance_km::numeric, 2) AS nearest_health_network_distance_km,
+        ROUND(th.travel_time_min::numeric, 1) AS nearest_health_travel_time_min,
+        th.routing_status AS nearest_health_routing_status,
+        ROUND(ts.network_distance_km::numeric, 2) AS nearest_school_network_distance_km,
+        ROUND(ts.travel_time_min::numeric, 1) AS nearest_school_travel_time_min,
+        ts.facility_name AS nearest_school_name,
+        ts.routing_status AS nearest_school_routing_status,
+        COALESCE(th.routing_status, ts.routing_status, 'not_calculated') AS routing_status,
         ROUND(COALESCE(hosp.distance_km, 0)::numeric, 2) AS nearest_hospital_distance_km,
         hosp.facility_name AS nearest_hospital_name,
         hosp.ownership_category AS nearest_hospital_ownership_category
@@ -512,6 +584,10 @@ router.get("/integration", async (req, res) => {
         ON bs.beneficiary_id = nh.beneficiary_id
       LEFT JOIN nearest_hospital hosp
         ON bs.beneficiary_id = hosp.beneficiary_id
+      LEFT JOIN travel_health th
+        ON bs.beneficiary_id = th.beneficiary_id
+      LEFT JOIN travel_school ts
+        ON bs.beneficiary_id = ts.beneficiary_id
       ORDER BY
         bs.affected_by_flood DESC,
         bs.has_health_facility_access ASC,
@@ -703,6 +779,18 @@ router.get("/integration", async (req, res) => {
           ),
           nearest_hospital_distance_km: toNumber(
             row.nearest_hospital_distance_km,
+          ),
+          nearest_health_network_distance_km: toNumber(
+            row.nearest_health_network_distance_km,
+          ),
+          nearest_health_travel_time_min: toNumber(
+            row.nearest_health_travel_time_min,
+          ),
+          nearest_school_network_distance_km: toNumber(
+            row.nearest_school_network_distance_km,
+          ),
+          nearest_school_travel_time_min: toNumber(
+            row.nearest_school_travel_time_min,
           ),
         })),
         decision_signals: decisionSignals,
