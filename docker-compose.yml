@@ -91,7 +91,10 @@ services:
     restart: unless-stopped
 
   db:
-    image: postgis/postgis:15-3.3
+    build:
+      context: .
+      dockerfile: database/Dockerfile
+    image: district_intelligence_postgis_pgrouting:15-3.3
     container_name: district_intelligent_db
     environment:
       POSTGRES_USER: ${DB_USER:-district_user}
