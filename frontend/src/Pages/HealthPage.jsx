@@ -12,8 +12,8 @@ import {
   BarChart,
   CartesianGrid,
   Cell,
+  ComposedChart,
   Line,
-  LineChart,
   Pie,
   PieChart,
   Rectangle,
@@ -34,6 +34,14 @@ function getFacilityBarColor(value, maxValue) {
   if (ratio >= 0.55) return "#8b5e3c";
   if (ratio >= 0.3) return "#2563eb";
   return "#22c55e";
+}
+
+function getCoverageBarColor(value) {
+  if (!Number.isFinite(value)) {
+    return "#94a3b8";
+  }
+
+  return value < 50 ? "#dc2626" : "#2563eb";
 }
 
 function formatDistrictAxisLabel(value) {
@@ -88,6 +96,12 @@ function HealthPage() {
       admin_type: "TA",
     }),
   );
+  const healthAccessZones = useDashboardData(
+    buildDashboardPath("/dashboard/health/access-zones/geojson", {
+      district: districtScope,
+      buffer_km: 8,
+    }),
+  );
 
   // Health Facility GeoJSON for Map
   const healthLocations = useDashboardData(
@@ -103,6 +117,7 @@ function HealthPage() {
     servedPopulationSummary.error,
     healthLocations.error,
     servedPopulationTrend.error,
+    healthAccessZones.error,
   ].filter(Boolean);
 
   const formatStat = (val) => Number(val).toLocaleString();
@@ -171,8 +186,8 @@ function HealthPage() {
   const accessShare = totalPopulationInAccessView
     ? (accessTotal / totalPopulationInAccessView) * 100
     : 0;
-  const servedPopulationTrendData = Object.values(
-    (servedPopulationTrend.data || []).reduce((accumulator, metric) => {
+  const servedPopulationTrendLookup = (servedPopulationTrend.data || []).reduce(
+    (accumulator, metric) => {
       const key = metric.admin_unit_name || "Unknown";
 
       if (!accumulator[key]) {
@@ -199,9 +214,74 @@ function HealthPage() {
       }
 
       return accumulator;
-    }, {}),
-  ).sort(
-    (left, right) => left.served_population_pct - right.served_population_pct,
+    },
+    {},
+  );
+  const servedPopulationTrendData = Object.values(servedPopulationTrendLookup)
+    .map((row) => {
+      const populationTotal =
+        row.served_population_total + row.unserved_population_total;
+      const servedPct =
+        row.served_population_pct > 0 || populationTotal === 0
+          ? row.served_population_pct
+          : (row.served_population_total / populationTotal) * 100;
+
+      return {
+        ...row,
+        served_population_pct: servedPct,
+      };
+    })
+    .sort(
+      (left, right) => left.served_population_pct - right.served_population_pct,
+    );
+  const accessZoneCoverageLookup = (healthAccessZones.data?.features || [])
+    .filter((feature) => feature?.properties?.zone_type !== "facility_point")
+    .reduce((accumulator, feature) => {
+      const area = feature?.properties?.admin_unit_name || "Unknown";
+      const coveragePct = Number(feature?.properties?.coverage_pct || 0);
+
+      if (
+        selectedTa &&
+        area.trim().toLowerCase() !== selectedTa.trim().toLowerCase()
+      ) {
+        return accumulator;
+      }
+
+      if (!accumulator[area] || coveragePct > accumulator[area].coverage_pct) {
+        accumulator[area] = {
+          area,
+          coverage_pct: coveragePct,
+        };
+      }
+
+      return accumulator;
+    }, {});
+  const accessZoneCoverageTrendData = Object.values(accessZoneCoverageLookup)
+    .map((row) => {
+      const populationCoverage = servedPopulationTrendLookup[row.area] || {};
+
+      return {
+        ...row,
+        served_population_pct: Number(
+          populationCoverage.served_population_pct || 0,
+        ),
+        served_population_total: Number(
+          populationCoverage.served_population_total || 0,
+        ),
+        unserved_population_total: Number(
+          populationCoverage.unserved_population_total || 0,
+        ),
+      };
+    })
+    .sort((left, right) => left.coverage_pct - right.coverage_pct);
+  const coverageTrendData = accessZoneCoverageTrendData.length
+    ? accessZoneCoverageTrendData
+    : servedPopulationTrendData.map((row) => ({
+        ...row,
+        coverage_pct: row.served_population_pct,
+      }));
+  const hasPopulationCoverageTrend = coverageTrendData.some(
+    (row) => row.served_population_pct > 0,
   );
 
   const StatCardSkeleton = () => (
@@ -376,19 +456,19 @@ function HealthPage() {
               Health Service Coverage Trend
             </h3>
             <p className="text-xs text-gray-500 font-semibold mb-4">
-              Served population coverage by TA so weaker health access areas stand out in sequence.
+              Health service coverage by TA so weaker access areas stand out in sequence.
             </p>
             <div className="flex-1 rounded overflow-hidden relative border border-gray-50 bg-gray-50 p-4">
-              {servedPopulationTrend.loading ? (
+              {servedPopulationTrend.loading || healthAccessZones.loading ? (
                 <div className="h-full w-full animate-pulse rounded bg-white" />
-              ) : servedPopulationTrendData.length === 0 ? (
+              ) : coverageTrendData.length === 0 ? (
                 <div className="h-full flex items-center justify-center text-center text-sm text-gray-500 px-6">
                   No TA-level health coverage trend is available for this filter yet.
                 </div>
               ) : (
                 <ResponsiveContainer width="100%" height="100%">
-                  <LineChart
-                    data={servedPopulationTrendData}
+                  <ComposedChart
+                    data={coverageTrendData}
                     margin={{ top: 16, right: 20, left: 4, bottom: 84 }}
                   >
                     <CartesianGrid
@@ -424,7 +504,11 @@ function HealthPage() {
                     />
                     <Tooltip
                       formatter={(value, name, item) => {
-                        if (name === "Coverage") {
+                        if (name === "Service coverage") {
+                          return [`${Number(value).toFixed(1)}%`, name];
+                        }
+
+                        if (name === "Population served") {
                           return [`${Number(value).toFixed(1)}%`, name];
                         }
 
@@ -435,6 +519,7 @@ function HealthPage() {
                         ];
                       }}
                       labelFormatter={(label) => label}
+                      cursor={{ fill: "#eff6ff" }}
                       contentStyle={{
                         borderRadius: "4px",
                         border: "none",
@@ -442,16 +527,31 @@ function HealthPage() {
                         fontSize: "12px",
                       }}
                     />
-                    <Line
-                      type="monotone"
-                      dataKey="served_population_pct"
-                      name="Coverage"
-                      stroke="#2563eb"
-                      strokeWidth={3}
-                      dot={{ r: 3, fill: "#2563eb" }}
-                      activeDot={{ r: 5 }}
-                    />
-                  </LineChart>
+                    <Bar
+                      dataKey="coverage_pct"
+                      name="Service coverage"
+                      radius={[2, 2, 0, 0]}
+                      barSize={16}
+                    >
+                      {coverageTrendData.map((entry) => (
+                        <Cell
+                          key={`health-coverage-bar-${entry.area}`}
+                          fill={getCoverageBarColor(entry.coverage_pct)}
+                        />
+                      ))}
+                    </Bar>
+                    {hasPopulationCoverageTrend ? (
+                      <Line
+                        type="monotone"
+                        dataKey="served_population_pct"
+                        name="Population served"
+                        stroke="#dc2626"
+                        strokeWidth={2}
+                        dot={{ r: 3, fill: "#dc2626" }}
+                        activeDot={{ r: 5 }}
+                      />
+                    ) : null}
+                  </ComposedChart>
                 </ResponsiveContainer>
               )}
             </div>

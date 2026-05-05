@@ -243,6 +243,82 @@ router.get("/served-population", async (req, res) => {
   }
 });
 
+// @route   GET api/v1/dashboard/health/service-coverage
+// @desc    Get ward/district health service coverage percentages
+/**
+ * @openapi
+ * /api/v1/dashboard/health/service-coverage:
+ *   get:
+ *     summary: Get health service coverage metrics
+ *     tags:
+ *       - Health
+ *     responses:
+ *       200:
+ *         description: Service coverage metrics
+ */
+router.get("/service-coverage", async (req, res) => {
+  const { admin_type: adminType = "District", district, ta } = req.query;
+  const normalizedAdminType = normalizeAdminType(adminType);
+
+  try {
+    const conditions = [
+      "ar.analysis_type = 'health_service_coverage'",
+      "ar.metric_name = 'health_service_coverage_pct'",
+      "LOWER(ar.admin_unit_type) = LOWER($1)",
+    ];
+    const params = [normalizedAdminType];
+
+    if (normalizedAdminType === "TA") {
+      appendOptionalTaCondition(conditions, params, "ar.admin_unit_name", ta);
+      appendDistrictNameCondition(conditions, params, "d.name", district);
+    } else {
+      appendDistrictNameCondition(
+        conditions,
+        params,
+        "ar.admin_unit_name",
+        district,
+      );
+    }
+
+    const result = await db.query(
+      `
+            SELECT
+                ar.admin_unit_id,
+                ar.admin_unit_code,
+                ar.admin_unit_name,
+                ar.admin_unit_type,
+                ar.metric_name,
+                ar.metric_value,
+                ar.metric_unit,
+                ar.metadata,
+                ar.calculated_at
+            FROM analysis_results ar
+            LEFT JOIN admin3_units a3
+              ON LOWER(ar.admin_unit_type) IN (LOWER('TA'), LOWER('Village'), LOWER('Admin3'))
+             AND a3.id = ar.admin_unit_id
+            LEFT JOIN districts d
+              ON d.id = a3.district_id
+            WHERE ${conditions.join(" AND ")}
+            ORDER BY ar.metric_value ASC, ar.admin_unit_name ASC
+            `,
+      params,
+    );
+
+    res.json({
+      status: "success",
+      data: result.rows,
+    });
+  } catch (err) {
+    console.error("Health service coverage error", {
+      message: err.message,
+      district,
+      ta,
+      adminType: normalizedAdminType,
+    });
+    res.status(500).send("Server error");
+  }
+});
+
 // @route   GET api/v1/dashboard/health/served-population/geojson
 // @desc    Get ward/district health served population results as GeoJSON
 /**
