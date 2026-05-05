@@ -4,8 +4,8 @@ DO $$
 BEGIN
     CREATE EXTENSION IF NOT EXISTS pgrouting;
 EXCEPTION
-    WHEN undefined_file THEN
-        RAISE NOTICE 'pgRouting extension is not available in this database environment.';
+    WHEN OTHERS THEN
+        RAISE NOTICE 'pgRouting extension is not available in this database environment. Skipping pgRouting installation.';
 END $$;
 
 -- Normalized boundary tables for non-destructive incremental uploads
