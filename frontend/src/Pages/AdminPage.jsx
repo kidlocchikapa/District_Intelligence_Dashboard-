@@ -271,7 +271,7 @@ function AdminPage() {
                 </div>
                 <button className="w-full bg-slate-900 text-white py-3 rounded-xl font-bold hover:bg-slate-800 transition-all flex items-center justify-center gap-2">
                   <UploadCloud size={18} />
-                  Start Ingestion
+                  Import Data 
                 </button>
                 {status && <div className="p-4 bg-slate-50 border border-slate-100 rounded-xl text-xs text-slate-600 leading-relaxed font-mono">{status}</div>}
               </form>
