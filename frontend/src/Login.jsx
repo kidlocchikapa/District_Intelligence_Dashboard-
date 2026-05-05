@@ -37,7 +37,7 @@ export default function Login({ onLogin }) {
   return (
     <div className="login-form-container">
       <div className="login-card">
-        {/* Branding Headerr */}
+        {/* Branding Header7rrrr */}
         <div className="login-branding">
           <img src={logo} alt="Court of Arms" className="login-logo" />
           <div className="login-title-container">
