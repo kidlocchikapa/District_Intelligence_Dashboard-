@@ -54,7 +54,6 @@ function getExposureBarColor(value, maxValue) {
 function DisasterPage() {
   const { selectedDistrict, selectedTa, setSelectedTa } = useDistrict();
   const { contentRef, exportPdf } = usePdfExport("DisasterRisk_Report.pdf");
-  const [selectedTa, setSelectedTa] = useState("");
 
   useEffect(() => {
     setSelectedTa("");

@@ -4,6 +4,7 @@ import { useDistrict } from "../context/DistrictContext";
 import { buildDashboardPath } from "../lib/query";
 import { usePdfExport } from "../hooks/usePdfExport";
 import MapPanel from "../components/MapPanel";
+import PopulationRasterPanel from "../components/PopulationRasterPanel";
 import GlobalHospitalRegistry from "../components/GlobalHospitalRegistry";
 import IntegrationSummaryPanel from "../components/IntegrationSummaryPanel";
 import SharedDistrictSelector from "../components/SharedDistrictSelector";
@@ -46,6 +47,10 @@ function formatDistrictAxisLabel(value) {
   }
 
   return `${value.slice(0, 8)}…`;
+}
+
+function getHealthRasterAsset(assets, key) {
+  return assets?.[key] || "/worldpop/zomba_ppp_2020.preview.json";
 }
 
 function HealthPage() {
@@ -96,6 +101,17 @@ function HealthPage() {
       ta: selectedTa,
     }),
   );
+  const healthCoverageGeojson = useDashboardData(
+    buildDashboardPath("/dashboard/health/served-population/geojson", {
+      district: districtScope,
+      admin_type: selectedTa ? "TA" : "District",
+    }),
+  );
+  const healthRasterMetadata = useDashboardData(
+    buildDashboardPath("/dashboard/health/raster-metadata", {
+      district: districtScope,
+    }),
+  );
 
   const healthApiErrors = [
     healthSummary.error,
@@ -103,6 +119,8 @@ function HealthPage() {
     servedPopulationSummary.error,
     healthLocations.error,
     servedPopulationTrend.error,
+    healthCoverageGeojson.error,
+    healthRasterMetadata.error,
   ].filter(Boolean);
 
   const formatStat = (val) => Number(val).toLocaleString();
@@ -341,6 +359,64 @@ function HealthPage() {
               },
             ]}
           />
+        </div>
+
+        <div className="mb-10">
+          <div className="mb-4">
+            <h3 className="text-[16px] font-extrabold">
+              Beneficiary Travel Access Visualizations
+            </h3>
+            <p className="text-[13px] text-gray-500 font-semibold mt-1">
+              Separate views for 8 km facility buffers, 8 km road-network access, and beneficiary travel time to the nearest health facility.
+            </p>
+          </div>
+          <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
+            <div className="border border-gray-100 rounded p-4 shadow-sm bg-white">
+              <PopulationRasterPanel
+                geojson={healthCoverageGeojson.data}
+                title="8 km Buffer"
+                subtitle="Straight-line facility buffer coverage, used for buffer-based served population estimates."
+                metadataUrl={getHealthRasterAsset(
+                  healthRasterMetadata.data?.assets,
+                  "health_buffer_8km",
+                )}
+                heightClass="h-[320px]"
+                loading={
+                  healthCoverageGeojson.loading || healthRasterMetadata.loading
+                }
+              />
+            </div>
+            <div className="border border-gray-100 rounded p-4 shadow-sm bg-white">
+              <PopulationRasterPanel
+                geojson={healthCoverageGeojson.data}
+                title="8 km Network"
+                subtitle="Beneficiary road-network distance to the nearest health facility, aggregated to a grid."
+                metadataUrl={getHealthRasterAsset(
+                  healthRasterMetadata.data?.assets,
+                  "health_network_8km",
+                )}
+                heightClass="h-[320px]"
+                loading={
+                  healthCoverageGeojson.loading || healthRasterMetadata.loading
+                }
+              />
+            </div>
+            <div className="border border-gray-100 rounded p-4 shadow-sm bg-white">
+              <PopulationRasterPanel
+                geojson={healthCoverageGeojson.data}
+                title="Travel Time"
+                subtitle="Beneficiary travel time to the nearest health facility, aggregated to a grid for household-style access visualization."
+                metadataUrl={getHealthRasterAsset(
+                  healthRasterMetadata.data?.assets,
+                  "health_travel_time",
+                )}
+                heightClass="h-[320px]"
+                loading={
+                  healthCoverageGeojson.loading || healthRasterMetadata.loading
+                }
+              />
+            </div>
+          </div>
         </div>
 
         {/* Map + Coverage Trend Section */}
