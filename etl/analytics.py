@@ -46,11 +46,14 @@ ANALYSIS_TYPES = {
     'education_summary',
     'health_summary',
     'health_population_served',
+    'health_2sfca_access',
     'nearest_school_distance',
     'nearest_health_distance',
     'school_service_coverage',
     'health_service_coverage',
 }
+
+DEFAULT_HEALTH_2SFCA_CATCHMENT_MIN = 60.0
 
 # Fetch administrative units with optional filtering by admin level (e.g., 'ward', 'district')
 def fetch_admin_units_for_analysis(session, admin_level=None):
@@ -172,11 +175,205 @@ def ensure_analysis_geometries(admin_units_gdf):
     return working
 
 
+def _routing_prerequisites_available(session):
+    extension_count = session.execute(
+        text("SELECT COUNT(*) FROM pg_extension WHERE extname IN ('postgis', 'pgrouting')")
+    ).scalar()
+    if int(extension_count or 0) < 2:
+        return False
+
+    tables_ready = session.execute(
+        text(
+            """
+            SELECT
+                to_regclass('public.road_segments') IS NOT NULL
+                AND to_regclass('public.road_vertices') IS NOT NULL AS tables_ready
+            """
+        )
+    ).scalar()
+    if not tables_ready:
+        return False
+
+    edge_count = session.execute(
+        text(
+            """
+            SELECT COUNT(*)
+            FROM road_segments
+            WHERE source IS NOT NULL AND target IS NOT NULL AND cost > 0
+            """
+        )
+    ).scalar()
+    return int(edge_count or 0) > 0
+
+
 # Helper function to extract geometry from a row, whether it's a Series or an object with a geometry attribute
 def get_row_geometry(row):
     if isinstance(row, pd.Series) and 'geometry' in row.index:
         return row['geometry']
     return getattr(row, 'geometry', None)
+
+
+def compute_health_2sfca_access(
+    session,
+    admin_units_gdf,
+    catchment_minutes=DEFAULT_HEALTH_2SFCA_CATCHMENT_MIN,
+    admin_level=None,
+):
+    if admin_units_gdf.empty:
+        raise ValueError('No administrative units available for health_2sfca_access')
+    if not _routing_prerequisites_available(session):
+        raise ValueError('Routing prerequisites missing for health_2sfca_access')
+
+    query = text(
+        """
+        WITH admin_units AS (
+            SELECT
+                id,
+                code,
+                name,
+                type,
+                population_total,
+                geom,
+                ST_PointOnSurface(geom) AS centroid
+            FROM (
+                SELECT
+                    id,
+                    code,
+                    name,
+                    'District'::VARCHAR AS type,
+                    population_total,
+                    geom
+                FROM districts
+                UNION ALL
+                SELECT
+                    id,
+                    code,
+                    name,
+                    CASE
+                        WHEN LOWER(type) = 'ta' THEN 'TA'
+                        ELSE INITCAP(type)
+                    END AS type,
+                    population_total,
+                    geom
+                FROM admin3_units
+            ) admin_units
+            WHERE geom IS NOT NULL
+              AND (:admin_level IS NULL OR LOWER(type) = LOWER(:admin_level))
+        ),
+        admin_nodes AS (
+            SELECT
+                au.id AS admin_unit_id,
+                au.population_total,
+                v.id AS admin_node
+            FROM admin_units au
+            LEFT JOIN LATERAL (
+                SELECT id, geom
+                FROM road_vertices
+                ORDER BY au.centroid <-> geom
+                LIMIT 1
+            ) v ON TRUE
+            WHERE v.id IS NOT NULL
+        ),
+        facility_nodes AS (
+            SELECT
+                hf.id AS facility_id,
+                COALESCE(hf.doctor_count, 0) + COALESCE(hf.nurse_midwife_count, 0) AS staff_count,
+                v.id AS facility_node
+            FROM health_facilities hf
+            LEFT JOIN LATERAL (
+                SELECT id, geom
+                FROM road_vertices
+                ORDER BY hf.geom <-> geom
+                LIMIT 1
+            ) v ON TRUE
+            WHERE hf.geom IS NOT NULL AND v.id IS NOT NULL
+        ),
+        reachable AS (
+            SELECT
+                f.facility_id,
+                f.staff_count,
+                a.admin_unit_id,
+                a.population_total
+            FROM facility_nodes f
+            JOIN LATERAL (
+                SELECT *
+                FROM pgr_drivingDistance(
+                    'SELECT id, source, target, cost, reverse_cost FROM road_segments WHERE source IS NOT NULL AND target IS NOT NULL AND cost > 0',
+                    f.facility_node,
+                    :catchment_minutes,
+                    directed := true
+                )
+            ) dd ON TRUE
+            JOIN admin_nodes a ON a.admin_node = dd.node
+        ),
+        facility_demand AS (
+            SELECT
+                facility_id,
+                staff_count,
+                SUM(population_total) AS catchment_population
+            FROM reachable
+            GROUP BY facility_id, staff_count
+        ),
+        facility_ratio AS (
+            SELECT
+                facility_id,
+                CASE
+                    WHEN catchment_population > 0
+                        THEN staff_count / catchment_population
+                    ELSE 0
+                END AS supply_ratio
+            FROM facility_demand
+        ),
+        admin_access AS (
+            SELECT
+                r.admin_unit_id,
+                SUM(fr.supply_ratio) AS access_score
+            FROM reachable r
+            JOIN facility_ratio fr ON fr.facility_id = r.facility_id
+            GROUP BY r.admin_unit_id
+        )
+        SELECT
+            a.admin_unit_id,
+            COALESCE(aa.access_score, 0) AS access_score
+        FROM admin_nodes a
+        LEFT JOIN admin_access aa ON aa.admin_unit_id = a.admin_unit_id
+        """
+    )
+
+    rows = session.execute(
+        query,
+        {
+            'catchment_minutes': float(catchment_minutes),
+            'admin_level': admin_level,
+        },
+    ).mappings().all()
+
+    access_lookup = {
+        int(row['admin_unit_id']): float(row['access_score'] or 0.0)
+        for row in rows
+    }
+
+    records = []
+    for _, admin_row in admin_units_gdf.iterrows():
+        access_score = access_lookup.get(int(admin_row['id']), 0.0)
+        access_per_1000 = access_score * 1000.0
+        records.append(
+            analysis_record(
+                analysis_type='health_2sfca_access',
+                admin_row=admin_row,
+                metric_name='health_2sfca_access_score',
+                metric_value=float(access_per_1000),
+                metric_unit='staff_per_1000_people',
+                metadata={
+                    'method': '2sfca_classic',
+                    'catchment_minutes': float(catchment_minutes),
+                    'supply_metric': 'doctor_count+nurse_midwife_count',
+                    'travel_metric': 'road_travel_time_min',
+                },
+            )
+        )
+
+    return pd.DataFrame(records)
 
 #calculate the distance from each administrative unit to the nearest facility and return a DataFrame with the results
 def compute_nearest_facility_distance(admin_units_gdf, facilities_gdf, analysis_type, metric_name):
@@ -536,6 +733,7 @@ def run_spatial_analyses(session, analysis_types=None, admin_level=None, coverag
         if (
             'health_summary' in selected_types
             or 'health_population_served' in selected_types
+            or 'health_2sfca_access' in selected_types
             or 'nearest_health_distance' in selected_types
             or 'health_service_coverage' in selected_types
         ):
@@ -567,6 +765,17 @@ def run_spatial_analyses(session, analysis_types=None, admin_level=None, coverag
                         health_gdf=health,
                         raster_path=raster_path,
                         coverage_distance_km=coverage_distance_km,
+                    )
+                )
+            if 'health_2sfca_access' in selected_types:
+                outputs.append(
+                    run_step(
+                        step_name='compute_health_2sfca_access',
+                        user_message_on_error='Could not compute health 2SFCA access metrics.',
+                        fn=compute_health_2sfca_access,
+                        session=session,
+                        admin_units_gdf=admin_units_gdf,
+                        admin_level=admin_level,
                     )
                 )
             if 'nearest_health_distance' in selected_types:

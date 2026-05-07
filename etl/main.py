@@ -10,6 +10,11 @@ import pandas as pd
 from db_utils import get_session, log_etl_run
 from analytics import ANALYSIS_TYPES, run_spatial_analyses
 from flood_exposure import run_flood_exposure_analysis, resolve_population_raster_path
+from health_access import (
+    DEFAULT_HEALTH_ACCESS_DISTANCE_KM,
+    DEFAULT_HEALTH_ACCESS_GRID_SIZE_M,
+    process_health_access_visualizations,
+)
 from ingest import extract_source, load_reference_gazetteer
 from load import (
     assign_ward_ids,
@@ -884,6 +889,8 @@ def resolve_table_name_for_failure(dataset_type):
         return 'flood_zones'
     if dataset_type == 'routing':
         return 'beneficiary_facility_travel'
+    if dataset_type == 'health_access':
+        return 'health_facility_access_metrics'
     if dataset_type == 'analysis':
         return 'analysis_results'
     if dataset_type == 'worldpop':
@@ -894,7 +901,7 @@ def resolve_table_name_for_failure(dataset_type):
 def main():
     setup_logging()
     parser = argparse.ArgumentParser(description='District Intelligence ETL Pipeline')
-    parser.add_argument('--type', required=True, choices=list(DATASET_CONFIG.keys()) + ['flood', 'routing'], help='Dataset type')
+    parser.add_argument('--type', required=True, choices=list(DATASET_CONFIG.keys()) + ['flood', 'routing', 'health_access'], help='Dataset type')
     parser.add_argument('--source-type', default='file', choices=['file', 'api', 'worldpop', 'overpass'], help='Input source type')
     parser.add_argument('--file', help='Path to CSV, Excel, JSON, or GeoTIFF file')
     parser.add_argument('--api-url', help='Remote API endpoint for extraction')
@@ -918,6 +925,7 @@ def main():
     parser.add_argument('--analysis-type', action='append', choices=sorted(ANALYSIS_TYPES), help='Spatial analysis to run')
     parser.add_argument('--admin-level', choices=['District', 'TA', 'Village'], help='Administrative level for analysis')
     parser.add_argument('--coverage-distance-km', type=float, default=5.0, help='Coverage buffer distance in kilometers')
+    parser.add_argument('--grid-size-m', type=float, default=DEFAULT_HEALTH_ACCESS_GRID_SIZE_M, help='Grid size in meters for health access preview rasters')
     parser.add_argument('--program-id', type=int, help='Welfare program id to attach to welfare beneficiary uploads')
     parser.add_argument(
         '--missing-data-strategy',
@@ -1062,6 +1070,27 @@ def main():
                 fn=process_routing_dataset,
                 session=session,
                 strict=True,
+            )
+        elif args.type == 'health_access':
+            selected_district_names = []
+            if args.district:
+                selected_district_names.append(args.district)
+            selected_district_names.extend(selected_group_districts)
+            selected_district_names = sorted({name for name in selected_district_names if name})
+            primary_district = selected_district_names[0] if selected_district_names else None
+            secondary_districts = selected_district_names[1:] if len(selected_district_names) > 1 else []
+            result = run_step(
+                step_name='dispatch_health_access_pipeline',
+                user_message_on_error='Health access visualization pipeline failed. Check beneficiary, road, facility, and WorldPop inputs.',
+                fn=process_health_access_visualizations,
+                session=session,
+                district_name=primary_district,
+                district_names=secondary_districts,
+                raster_path=args.file,
+                api_url=args.api_url,
+                year=args.worldpop_year,
+                coverage_distance_km=args.coverage_distance_km if args.coverage_distance_km != 5.0 else DEFAULT_HEALTH_ACCESS_DISTANCE_KM,
+                grid_size_m=args.grid_size_m,
             )
         else:
             source_type = 'api' if args.source_type == 'api' else 'file'
