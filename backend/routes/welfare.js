@@ -904,7 +904,12 @@ router.get("/", async (req, res) => {
                 'ta_name', a3.name,
                 'has_health_facility_access', COALESCE(wbi.has_health_facility_access, FALSE),
                 'has_school_access', COALESCE(wbi.has_school_access, FALSE),
-                'affected_by_flood', COALESCE(wbi.affected_by_flood, FALSE)
+                'affected_by_flood', COALESCE(wbi.affected_by_flood, FALSE),
+                'nearest_health_facility_id', travel_health.facility_id,
+                'nearest_health_facility_name', travel_health.facility_name,
+                'nearest_health_network_distance_km', ROUND(travel_health.network_distance_km::numeric, 2),
+                'nearest_health_travel_time_min', ROUND(travel_health.travel_time_min::numeric, 1),
+                'nearest_health_routing_status', travel_health.routing_status
             )
           )
         ) AS feature
@@ -913,6 +918,9 @@ router.get("/", async (req, res) => {
           ON wb.program_id = wp.${programIdColumn}
         LEFT JOIN welfare_beneficiary_indicators wbi
           ON wb.id = wbi.beneficiary_id
+        LEFT JOIN beneficiary_facility_travel travel_health
+          ON travel_health.beneficiary_id = wb.id
+         AND travel_health.facility_type = 'health'
         LEFT JOIN districts d
           ON wb.district_id = d.id
         LEFT JOIN admin3_units a3
