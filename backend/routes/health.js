@@ -47,6 +47,15 @@ async function tableExists(tableName) {
 }
 
 function buildRasterSlug(district) {
+  const normalized = String(district || "").trim().toLowerCase();
+  if (
+    normalized === "zomba" ||
+    normalized === "zomba city" ||
+    normalized === "zomba (all)"
+  ) {
+    return "zomba-zomba-city";
+  }
+
   const values = resolveDistrictFilterValues(district);
   const source = values.length ? values : ["malawi"];
   return source
