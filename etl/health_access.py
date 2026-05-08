@@ -24,7 +24,14 @@ from worldpop import DEFAULT_WORLDPOP_YEAR, get_zonal_stats, resolve_worldpop_ra
 LOGGER = logging.getLogger("etl.health_access")
 
 DEFAULT_HEALTH_ACCESS_DISTANCE_KM = 8.0
-DEFAULT_HEALTH_ACCESS_GRID_SIZE_M = 1000.0
+DEFAULT_HEALTH_ACCESS_GRID_SIZE_M = 250.0
+DEFAULT_HEALTH_ACCESS_MIN_RESOLUTION_M = 100.0
+DEFAULT_HEALTH_ACCESS_MAX_PIXELS = 4_000_000
+DEFAULT_HEALTH_ACCESS_GAUSSIAN_SIGMA_PX = 1.4
+DEFAULT_HEALTH_ACCESS_IDW_POWER = 2.0
+DEFAULT_HEALTH_ACCESS_IDW_MAX_SAMPLES = 24
+DEFAULT_HEALTH_ACCESS_RENDER_DPI = 220
+DEFAULT_HEALTH_ACCESS_NODATA = -9999.0
 DEFAULT_PREVIEW_OUTPUT_DIR = os.path.join(
     os.path.dirname(__file__), "..", "frontend", "public", "health-access"
 )
@@ -530,38 +537,250 @@ def _create_analysis_grid(union_gdf, cell_size_m=DEFAULT_HEALTH_ACCESS_GRID_SIZE
     return gpd.GeoDataFrame({"cell_id": cell_ids}, geometry=cells, crs="EPSG:3857")
 
 
-def _rasterize_grid_values(grid_gdf, value_column, fill_value=np.nan):
-    if grid_gdf.empty:
-        raise ValueError("No analysis grid cells available for raster generation.")
+def _resolve_raster_resolution_m(union_proj, requested_resolution_m):
+    geom = union_proj.geometry.iloc[0]
+    minx, miny, maxx, maxy = geom.bounds
+    requested = max(float(requested_resolution_m), DEFAULT_HEALTH_ACCESS_MIN_RESOLUTION_M)
+    width = max(maxx - minx, requested)
+    height = max(maxy - miny, requested)
+    pixel_count = (width / requested) * (height / requested)
+    if pixel_count <= DEFAULT_HEALTH_ACCESS_MAX_PIXELS:
+        return requested
+    scale = math.sqrt(pixel_count / DEFAULT_HEALTH_ACCESS_MAX_PIXELS)
+    return max(requested * scale, requested)
 
-    bounds = grid_gdf.total_bounds
-    minx, miny, maxx, maxy = bounds
-    width = max(int(math.ceil((maxx - minx) / DEFAULT_HEALTH_ACCESS_GRID_SIZE_M)), 1)
-    height = max(int(math.ceil((maxy - miny) / DEFAULT_HEALTH_ACCESS_GRID_SIZE_M)), 1)
+
+def _build_raster_template(union_gdf, resolution_m):
+    union_proj = union_gdf.to_crs("EPSG:3857")
+    geom = union_proj.geometry.iloc[0]
+    resolution_m = _resolve_raster_resolution_m(union_proj, resolution_m)
+    minx, miny, maxx, maxy = geom.bounds
+    width = max(int(math.ceil((maxx - minx) / resolution_m)), 1)
+    height = max(int(math.ceil((maxy - miny) / resolution_m)), 1)
     transform = from_bounds(minx, miny, maxx, maxy, width, height)
-    shapes = [
-        (geom, float(value))
-        for geom, value in zip(grid_gdf.geometry, grid_gdf[value_column])
-        if geom is not None and not geom.is_empty and pd.notna(value)
-    ]
-    array = rasterize(
-        shapes,
+    mask = rasterize(
+        [(geom, 1)],
         out_shape=(height, width),
         transform=transform,
-        fill=np.nan if isinstance(fill_value, float) and math.isnan(fill_value) else fill_value,
-        dtype="float32",
+        fill=0,
+        dtype="uint8",
+        all_touched=True,
+    ).astype(bool)
+    cols = np.arange(width, dtype=np.float32) + 0.5
+    rows = np.arange(height, dtype=np.float32) + 0.5
+    xs = transform.c + cols * transform.a
+    ys = transform.f + rows * transform.e
+    xx, yy = np.meshgrid(xs, ys)
+    return {
+        "projection": union_proj,
+        "geometry": geom,
+        "bounds_3857": [float(minx), float(miny), float(maxx), float(maxy)],
+        "width": width,
+        "height": height,
+        "transform": transform,
+        "mask": mask,
+        "xx": xx,
+        "yy": yy,
+        "resolution_m": float(resolution_m),
+    }
+
+
+def _point_coordinates(geoseries):
+    if geoseries.empty:
+        return np.empty((0, 2), dtype=np.float32)
+    return np.column_stack((geoseries.x.to_numpy(dtype=np.float32), geoseries.y.to_numpy(dtype=np.float32)))
+
+
+def _aggregate_points_to_raster(points_xy, values, template):
+    if len(points_xy) == 0 or len(values) == 0:
+        return np.full((template["height"], template["width"]), np.nan, dtype=np.float32)
+
+    transform = template["transform"]
+    height = template["height"]
+    width = template["width"]
+    cols = np.floor((points_xy[:, 0] - transform.c) / transform.a).astype(int)
+    rows = np.floor((points_xy[:, 1] - transform.f) / transform.e).astype(int)
+    valid = (
+        np.isfinite(values)
+        & (rows >= 0)
+        & (rows < height)
+        & (cols >= 0)
+        & (cols < width)
     )
-    return array, transform
+    if not np.any(valid):
+        return np.full((height, width), np.nan, dtype=np.float32)
+
+    rows = rows[valid]
+    cols = cols[valid]
+    vals = values[valid].astype(np.float32)
+    flat_idx = rows * width + cols
+    sums = np.bincount(flat_idx, weights=vals, minlength=height * width).reshape((height, width))
+    counts = np.bincount(flat_idx, minlength=height * width).reshape((height, width))
+    surface = np.full((height, width), np.nan, dtype=np.float32)
+    populated = counts > 0
+    surface[populated] = (sums[populated] / counts[populated]).astype(np.float32)
+    return surface
+
+
+def _gaussian_kernel1d(sigma_px):
+    sigma_px = max(float(sigma_px), 1e-6)
+    radius = max(int(math.ceil(sigma_px * 3)), 1)
+    x = np.arange(-radius, radius + 1, dtype=np.float32)
+    kernel = np.exp(-(x**2) / (2 * sigma_px**2))
+    kernel /= kernel.sum()
+    return kernel
+
+
+def _convolve_axis(array, kernel, axis):
+    pad = len(kernel) // 2
+    pad_width = [(0, 0)] * array.ndim
+    pad_width[axis] = (pad, pad)
+    padded = np.pad(array, pad_width, mode="edge")
+    return np.apply_along_axis(lambda vec: np.convolve(vec, kernel, mode="valid"), axis, padded)
+
+
+def _gaussian_smooth_masked(array, valid_mask, sigma_px=DEFAULT_HEALTH_ACCESS_GAUSSIAN_SIGMA_PX):
+    if not np.any(valid_mask):
+        return np.full(array.shape, np.nan, dtype=np.float32)
+    kernel = _gaussian_kernel1d(sigma_px)
+    filled = np.where(valid_mask, array, 0.0).astype(np.float32)
+    weights = valid_mask.astype(np.float32)
+    smooth_values = _convolve_axis(_convolve_axis(filled, kernel, axis=1), kernel, axis=0)
+    smooth_weights = _convolve_axis(_convolve_axis(weights, kernel, axis=1), kernel, axis=0)
+    result = np.full(array.shape, np.nan, dtype=np.float32)
+    with np.errstate(invalid="ignore", divide="ignore"):
+        result[smooth_weights > 1e-6] = smooth_values[smooth_weights > 1e-6] / smooth_weights[smooth_weights > 1e-6]
+    return result
+
+
+def _idw_interpolate_surface(seed_surface, template, power=DEFAULT_HEALTH_ACCESS_IDW_POWER, max_samples=DEFAULT_HEALTH_ACCESS_IDW_MAX_SAMPLES):
+    valid_mask = np.isfinite(seed_surface) & template["mask"]
+    if not np.any(valid_mask):
+        return np.full(seed_surface.shape, np.nan, dtype=np.float32)
+
+    source_rows, source_cols = np.where(valid_mask)
+    source_values = seed_surface[valid_mask].astype(np.float32)
+    source_xy = np.column_stack((template["xx"][valid_mask], template["yy"][valid_mask])).astype(np.float32)
+    target_rows, target_cols = np.where(template["mask"] & ~valid_mask)
+    result = seed_surface.copy().astype(np.float32)
+
+    if len(target_rows) == 0:
+        return result
+
+    max_samples = max(1, min(int(max_samples), len(source_values)))
+    chunk_size = 4096
+    for start in range(0, len(target_rows), chunk_size):
+        stop = min(start + chunk_size, len(target_rows))
+        tx = template["xx"][target_rows[start:stop], target_cols[start:stop]].astype(np.float32)
+        ty = template["yy"][target_rows[start:stop], target_cols[start:stop]].astype(np.float32)
+        dx = source_xy[:, 0][None, :] - tx[:, None]
+        dy = source_xy[:, 1][None, :] - ty[:, None]
+        distances = np.sqrt(dx * dx + dy * dy)
+        nearest_idx = np.argpartition(distances, max_samples - 1, axis=1)[:, :max_samples]
+        nearest_dist = np.take_along_axis(distances, nearest_idx, axis=1)
+        nearest_vals = source_values[nearest_idx]
+        nearest_dist = np.maximum(nearest_dist, 1.0)
+        weights = 1.0 / np.power(nearest_dist, power)
+        interpolated = np.sum(weights * nearest_vals, axis=1) / np.sum(weights, axis=1)
+        result[target_rows[start:stop], target_cols[start:stop]] = interpolated.astype(np.float32)
+    return result
+
+
+def _nearest_distance_surface(points_xy, template):
+    if len(points_xy) == 0:
+        return np.full((template["height"], template["width"]), np.nan, dtype=np.float32)
+
+    mask_rows, mask_cols = np.where(template["mask"])
+    target_x = template["xx"][mask_rows, mask_cols].astype(np.float32)
+    target_y = template["yy"][mask_rows, mask_cols].astype(np.float32)
+    result = np.full((template["height"], template["width"]), np.nan, dtype=np.float32)
+    chunk_size = 4096
+    for start in range(0, len(target_x), chunk_size):
+        stop = min(start + chunk_size, len(target_x))
+        tx = target_x[start:stop]
+        ty = target_y[start:stop]
+        dx = points_xy[:, 0][None, :] - tx[:, None]
+        dy = points_xy[:, 1][None, :] - ty[:, None]
+        nearest = np.sqrt(dx * dx + dy * dy).min(axis=1)
+        result[mask_rows[start:stop], mask_cols[start:stop]] = nearest.astype(np.float32)
+    return result
+
+
+def _clip_and_normalize(array, mask, clip_percentile=95):
+    result = np.full(array.shape, np.nan, dtype=np.float32)
+    valid = np.isfinite(array) & mask
+    if not np.any(valid):
+        return result, None
+    values = array[valid].astype(np.float32)
+    clip_max = float(np.percentile(values, clip_percentile)) if len(values) > 1 else float(values[0])
+    clip_max = clip_max if clip_max > 0 else 1.0
+    clipped = np.clip(array, 0.0, clip_max)
+    result[valid] = (clipped[valid] / clip_max).astype(np.float32)
+    return result, clip_max
+
+
+def _mask_array(array, mask):
+    result = np.full(array.shape, np.nan, dtype=np.float32)
+    valid = np.isfinite(array) & mask
+    result[valid] = array[valid].astype(np.float32)
+    return result
+
+
+def _write_geotiff(array, transform, output_tif, crs="EPSG:3857"):
+    valid = np.isfinite(array)
+    raster = np.where(valid, array, DEFAULT_HEALTH_ACCESS_NODATA).astype(np.float32)
+    base_profile = {
+        "height": raster.shape[0],
+        "width": raster.shape[1],
+        "count": 1,
+        "dtype": "float32",
+        "crs": crs,
+        "transform": transform,
+        "nodata": DEFAULT_HEALTH_ACCESS_NODATA,
+    }
+    try:
+        with rasterio.open(
+            output_tif,
+            "w",
+            driver="COG",
+            compress="deflate",
+            blocksize=256,
+            overview_resampling="average",
+            resampling="nearest",
+            **base_profile,
+        ) as dst:
+            dst.write(raster, 1)
+    except Exception:
+        with rasterio.open(
+            output_tif,
+            "w",
+            driver="GTiff",
+            compress="deflate",
+            predictor=2,
+            tiled=True,
+            blockxsize=256,
+            blockysize=256,
+            **base_profile,
+        ) as dst:
+            dst.write(raster, 1)
 
 
 def _write_preview_png(array, colors, output_png):
-    cmap = mcolors.ListedColormap(colors)
-    rgba = cmap(np.nan_to_num(array, nan=0.0))
-    rgba[np.isnan(array), 3] = 0
-    plt.imsave(output_png, rgba)
+    cmap = mcolors.LinearSegmentedColormap.from_list("health_access", colors, N=256)
+    rgba = cmap(np.clip(np.nan_to_num(array, nan=0.0), 0.0, 1.0))
+    rgba[np.isnan(array), 3] = 0.0
+    height, width = array.shape
+    fig_width = max(width / DEFAULT_HEALTH_ACCESS_RENDER_DPI, 1.0)
+    fig_height = max(height / DEFAULT_HEALTH_ACCESS_RENDER_DPI, 1.0)
+    fig = plt.figure(figsize=(fig_width, fig_height), dpi=DEFAULT_HEALTH_ACCESS_RENDER_DPI, frameon=False)
+    ax = fig.add_axes([0, 0, 1, 1])
+    ax.imshow(rgba, interpolation="bicubic")
+    ax.axis("off")
+    fig.savefig(output_png, dpi=DEFAULT_HEALTH_ACCESS_RENDER_DPI, transparent=True)
+    plt.close(fig)
 
 
-def _save_preview_metadata(output_json, image_name, bounds, legend_label, low_label, high_label, colors, render):
+def _save_preview_metadata(output_json, image_name, bounds, legend_label, low_label, high_label, colors, render, geotiff_name=None):
     metadata = {
         "image": image_name,
         "bounds": bounds,
@@ -573,6 +792,8 @@ def _save_preview_metadata(output_json, image_name, bounds, legend_label, low_la
         },
         "render": render,
     }
+    if geotiff_name:
+        metadata["geotiff"] = geotiff_name
     with open(output_json, "w", encoding="utf-8") as handle:
         json.dump(metadata, handle, indent=2)
 
@@ -596,109 +817,117 @@ def generate_health_access_previews(
     facilities = fetch_health_facility_scope(session, district_names=selected_districts)
     beneficiary_network = fetch_beneficiary_network_scope(session, district_names=selected_districts)
 
-    grid = _create_analysis_grid(union_gdf, cell_size_m=float(grid_size_m))
-    if grid.empty:
-        raise ValueError("Could not create an analysis grid for the selected district scope.")
-    grid["centroid"] = grid.geometry.centroid
-
-    facilities_proj = facilities.to_crs("EPSG:3857") if not facilities.empty else _empty_geodataframe("EPSG:3857")
-    if not facilities_proj.empty:
-        buffer_union = facilities_proj.geometry.buffer(float(coverage_distance_km) * 1000.0).unary_union
-        grid["buffer_covered"] = grid["centroid"].apply(
-            lambda point: 1.0 if buffer_union is not None and not buffer_union.is_empty and point.within(buffer_union) else 0.0
-        )
-    else:
-        grid["buffer_covered"] = 0.0
-
-    network_grid = grid[["cell_id", "geometry"]].copy()
-    travel_grid = grid[["cell_id", "geometry"]].copy()
-    network_grid["network_distance_km"] = np.nan
-    travel_grid["travel_time_min"] = np.nan
-
-    if not beneficiary_network.empty:
-        beneficiary_network_proj = beneficiary_network.to_crs("EPSG:3857")
-        beneficiary_geom_col = beneficiary_network_proj.geometry.name
-        grid_geom_col = grid.geometry.name
-        join_cols = [
-            "beneficiary_id",
-            "network_distance_km",
-            "travel_time_min",
-            "has_health_facility_access",
-            beneficiary_geom_col,
-        ]
-        joined = gpd.sjoin(
-            beneficiary_network_proj[join_cols],
-            grid[["cell_id", grid_geom_col]],
-            how="left",
-            predicate="intersects",
-        )
-        if not joined.empty:
-            network_means = joined.groupby("cell_id")["network_distance_km"].mean()
-            travel_means = joined.groupby("cell_id")["travel_time_min"].mean()
-            network_grid["network_distance_km"] = network_grid["cell_id"].map(network_means)
-            travel_grid["travel_time_min"] = travel_grid["cell_id"].map(travel_means)
-
     os.makedirs(output_dir, exist_ok=True)
     slug = _slugify_districts(selected_districts)
     bounds = _leaflet_bounds_from_union(union_gdf)
+    template = _build_raster_template(union_gdf, float(grid_size_m))
+    district_mask = template["mask"]
+    smoothing_sigma = max(1.0, 750.0 / template["resolution_m"]) * DEFAULT_HEALTH_ACCESS_GAUSSIAN_SIGMA_PX
+
+    facilities_proj = facilities.to_crs("EPSG:3857") if not facilities.empty else _empty_geodataframe("EPSG:3857")
+    facility_xy = _point_coordinates(facilities_proj.geometry) if not facilities_proj.empty else np.empty((0, 2), dtype=np.float32)
+    if len(facility_xy):
+        facility_distance_m = _nearest_distance_surface(facility_xy, template)
+        buffer_surface = np.clip(1.0 - (facility_distance_m / (float(coverage_distance_km) * 1000.0)), 0.0, 1.0)
+        buffer_surface = _gaussian_smooth_masked(buffer_surface, district_mask, sigma_px=smoothing_sigma)
+        buffer_surface = _mask_array(np.clip(buffer_surface, 0.0, 1.0), district_mask)
+    else:
+        buffer_surface = np.full((template["height"], template["width"]), np.nan, dtype=np.float32)
+
+    network_surface = np.full((template["height"], template["width"]), np.nan, dtype=np.float32)
+    travel_surface = np.full((template["height"], template["width"]), np.nan, dtype=np.float32)
+    if not beneficiary_network.empty:
+        beneficiary_network_proj = beneficiary_network.to_crs("EPSG:3857")
+        beneficiary_xy = _point_coordinates(beneficiary_network_proj.geometry)
+
+        network_seed = _aggregate_points_to_raster(
+            beneficiary_xy,
+            pd.to_numeric(beneficiary_network_proj["network_distance_km"], errors="coerce").to_numpy(dtype=np.float32),
+            template,
+        )
+        network_surface = _idw_interpolate_surface(network_seed, template)
+        network_surface = _gaussian_smooth_masked(network_surface, district_mask, sigma_px=smoothing_sigma)
+        network_surface = _mask_array(network_surface, district_mask)
+
+        travel_seed = _aggregate_points_to_raster(
+            beneficiary_xy,
+            pd.to_numeric(beneficiary_network_proj["travel_time_min"], errors="coerce").to_numpy(dtype=np.float32),
+            template,
+        )
+        travel_surface = _idw_interpolate_surface(travel_seed, template)
+        travel_surface = _gaussian_smooth_masked(travel_surface, district_mask, sigma_px=smoothing_sigma)
+        travel_surface = _mask_array(travel_surface, district_mask)
 
     products = [
         {
-            "frame": grid,
-            "column": "buffer_covered",
+            "surface": buffer_surface,
             "name": f"{slug}.health_buffer_8km.preview",
-            "colors": ["#f2f0e6", "#2f6f3e"],
-            "legend_label": "8 km facility buffer coverage",
-            "low_label": "Outside buffer",
-            "high_label": "Inside buffer",
-            "render": {"transform": "binary", "coverageDistanceKm": float(coverage_distance_km)},
+            "colors": ["#b91c1c", "#ef4444", "#f59e0b", "#84cc16", "#166534"],
+            "legend_label": "Health facility accessibility within 8 km",
+            "low_label": "Lower access",
+            "high_label": "Higher access",
+            "render": {
+                "transform": "continuous",
+                "coverageDistanceKm": float(coverage_distance_km),
+                "surfaceMethod": "nearest-facility-distance",
+                "resolutionM": float(template["resolution_m"]),
+                "smoothed": True,
+                "maskedToDistrict": True,
+            },
         },
         {
-            "frame": network_grid,
-            "column": "network_distance_km",
+            "surface": network_surface,
             "name": f"{slug}.health_network_8km.preview",
-            "colors": ["#0f766e", "#22c55e", "#fde047", "#f97316", "#b91c1c"],
+            "colors": ["#0d7a73", "#2fb47c", "#9bd93c", "#f9e721", "#f89c20", "#d63f1a"],
             "legend_label": "Mean beneficiary road distance to nearest health facility",
             "low_label": "Near",
             "high_label": "Far",
-            "render": {"transform": "linear", "coverageDistanceKm": float(coverage_distance_km)},
+            "render": {
+                "transform": "linear",
+                "coverageDistanceKm": float(coverage_distance_km),
+                "surfaceMethod": "idw",
+                "resolutionM": float(template["resolution_m"]),
+                "smoothed": True,
+                "maskedToDistrict": True,
+            },
         },
         {
-            "frame": travel_grid,
-            "column": "travel_time_min",
+            "surface": travel_surface,
             "name": f"{slug}.health_travel_time.preview",
-            "colors": ["#1d4ed8", "#38bdf8", "#fde047", "#fb7185", "#7e22ce"],
+            "colors": ["#2056a8", "#2f89c5", "#7bc8b4", "#f2d06b", "#e97b56", "#b32d3c"],
             "legend_label": "Mean beneficiary travel time to nearest health facility",
             "low_label": "Fast",
             "high_label": "Slow",
-            "render": {"transform": "linear", "unit": "minutes"},
+            "render": {
+                "transform": "linear",
+                "unit": "minutes",
+                "surfaceMethod": "idw",
+                "resolutionM": float(template["resolution_m"]),
+                "smoothed": True,
+                "maskedToDistrict": True,
+            },
         },
     ]
 
     generated = []
     for product in products:
-        frame = product["frame"].copy()
-        values = frame[product["column"]]
-        if values.notna().any():
-            valid = values.dropna().astype(float)
-            if product["column"] == "buffer_covered":
-                normalized = values.astype(float)
-            else:
-                upper = np.percentile(valid, 95) if len(valid) > 1 else max(float(valid.iloc[0]), 1.0)
-                upper = upper if upper > 0 else 1.0
-                normalized = values.astype(float) / upper
-                normalized = normalized.clip(lower=0.0, upper=1.0)
-                product["render"]["clipMax"] = float(upper)
-            frame["_normalized"] = normalized
+        surface = product["surface"]
+        if product["render"]["transform"] == "continuous":
+            normalized = _mask_array(np.clip(surface, 0.0, 1.0), district_mask)
         else:
-            frame["_normalized"] = np.nan
+            normalized, upper = _clip_and_normalize(surface, district_mask)
+            if upper is not None:
+                product["render"]["clipMax"] = float(upper)
 
-        array, _ = _rasterize_grid_values(frame, "_normalized")
+        normalized = _mask_array(normalized, district_mask)
         png_name = f"{product['name']}.png"
         json_name = f"{product['name']}.json"
+        tif_name = f"{product['name']}.tif"
         png_path = os.path.join(output_dir, png_name)
         json_path = os.path.join(output_dir, json_name)
-        _write_preview_png(array, product["colors"], png_path)
+        tif_path = os.path.join(output_dir, tif_name)
+        _write_preview_png(normalized, product["colors"], png_path)
+        _write_geotiff(normalized, template["transform"], tif_path)
         _save_preview_metadata(
             json_path,
             png_name,
@@ -708,8 +937,9 @@ def generate_health_access_previews(
             product["high_label"],
             product["colors"],
             product["render"],
+            geotiff_name=tif_name,
         )
-        generated.append({"png": png_path, "json": json_path})
+        generated.append({"png": png_path, "json": json_path, "tif": tif_path})
 
     return generated
 
