@@ -50,6 +50,7 @@ const RECOMPUTE_DEFINITION = {
     analysisTypes: [
       "health_summary",
       "health_population_served",
+      "health_2sfca_access",
       "nearest_health_distance",
       "health_service_coverage",
     ],

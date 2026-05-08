@@ -127,7 +127,7 @@ const presetTaskDefinitions = {
   health_insights: {
     label: "Recalculate health insights",
     description:
-      "Runs facility summary, service coverage, population served, and distance analyses.",
+      "Runs facility summary, service coverage, population served, 2SFCA, and distance analyses.",
     stages: ({ worldpopYear, adminLevel, coverageDistanceKm }) => [
       {
         label: "Health analysis",
@@ -137,6 +137,7 @@ const presetTaskDefinitions = {
           analysisTypes: [
             "health_summary",
             "health_population_served",
+            "health_2sfca_access",
             "nearest_health_distance",
             "health_service_coverage",
           ],
@@ -257,6 +258,7 @@ const presetTaskDefinitions = {
           analysisTypes: [
             "health_summary",
             "health_population_served",
+            "health_2sfca_access",
             "nearest_health_distance",
             "health_service_coverage",
           ],
