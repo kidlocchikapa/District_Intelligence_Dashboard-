@@ -2,7 +2,7 @@
 import argparse
 import logging
 import os
-from datetime import datetime
+from datetime import datetime, timezone
 
 import pandas as pd
 
@@ -1153,8 +1153,8 @@ def main():
                     'failed_step': exc.step_name,
                     'original_error': str(exc.original_error) if exc.original_error else None,
                 },
-                started_at=datetime.utcnow(),
-                completed_at=datetime.utcnow(),
+                started_at=datetime.now(timezone.utc),
+                completed_at=datetime.now(timezone.utc),
             )
         except Exception as log_error:
             log_step('log_etl_failure', f'failed to save ETL failure log: {log_error}', level='warning')
@@ -1183,8 +1183,8 @@ def main():
                 status='Failed',
                 error='Unexpected internal error in ETL pipeline.',
                 metadata={'district': args.district, 'original_error': str(exc)},
-                started_at=datetime.utcnow(),
-                completed_at=datetime.utcnow(),
+                started_at=datetime.now(timezone.utc),
+                completed_at=datetime.now(timezone.utc),
             )
         except Exception as log_error:
             log_step('log_etl_failure', f'failed to save ETL failure log: {log_error}', level='warning')

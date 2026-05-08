@@ -2,13 +2,14 @@ import json
 import logging
 import math
 import os
-from datetime import datetime
+from datetime import datetime, timezone
 
 import geopandas as gpd
 import matplotlib.colors as mcolors
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
+import rasterio
 from geoalchemy2 import Geometry, WKTElement
 from sqlalchemy.dialects.postgresql import JSONB
 from rasterio.features import rasterize
@@ -27,6 +28,16 @@ DEFAULT_HEALTH_ACCESS_GRID_SIZE_M = 1000.0
 DEFAULT_PREVIEW_OUTPUT_DIR = os.path.join(
     os.path.dirname(__file__), "..", "frontend", "public", "health-access"
 )
+DISTRICT_GROUPS = {
+    "zomba": ["Zomba", "Zomba City"],
+    "zomba city": ["Zomba", "Zomba City"],
+    "zomba (all)": ["Zomba", "Zomba City"],
+    "zomba_all": ["Zomba", "Zomba City"],
+}
+SPECIAL_DISTRICT_IDS = {
+    "zomba": 20,
+    "zomba city": 31,
+}
 
 
 def log_step(step_name, message, level="info"):
@@ -57,11 +68,21 @@ def run_step(step_name, user_message_on_error, fn, *args, **kwargs):
 
 def _normalize_district_names(district_name=None, district_names=None):
     names = []
+
+    def _expand_name(value):
+        normalized = str(value or "").strip()
+        if not normalized:
+            return []
+        group = DISTRICT_GROUPS.get(normalized.lower())
+        if group:
+            return group
+        return [normalized]
+
     if district_name:
-        names.append(str(district_name).strip())
+        names.extend(_expand_name(district_name))
     for item in district_names or []:
         if item:
-            names.append(str(item).strip())
+            names.extend(_expand_name(item))
     seen = []
     for item in names:
         if item and item not in seen:
@@ -89,6 +110,29 @@ def _district_scope_predicate(column_expression, names):
 
 def _empty_geodataframe(crs="EPSG:4326"):
     return gpd.GeoDataFrame({"geometry": []}, geometry="geometry", crs=crs)
+
+
+def _resolve_district_scope(session, district_names=None):
+    names = district_names or []
+    if not names:
+        return {"district_names": [], "district_ids": []}
+
+    query = text(
+        """
+        SELECT id, name
+        FROM districts
+        WHERE name = ANY(:district_names)
+        """
+    )
+    rows = session.execute(query, {"district_names": names}).mappings().all()
+    ids_by_name = {str(row["name"]).strip().lower(): int(row["id"]) for row in rows}
+    resolved_ids = []
+    for name in names:
+        key = str(name).strip().lower()
+        district_id = ids_by_name.get(key, SPECIAL_DISTRICT_IDS.get(key))
+        if district_id is not None and district_id not in resolved_ids:
+            resolved_ids.append(int(district_id))
+    return {"district_names": names, "district_ids": resolved_ids}
 
 
 def ensure_health_access_tables(session):
@@ -138,14 +182,22 @@ def fetch_district_union(session, district_names=None):
 
 def fetch_health_facility_scope(session, district_names=None):
     names = district_names or []
-    where_clause, params = _district_scope_predicate("d.name", names)
+    scope = _resolve_district_scope(session, names)
+    district_ids = scope["district_ids"]
     query = text(
         f"""
+        WITH district_union AS (
+            SELECT ST_Union(geom) AS geom
+            FROM districts
+            {"WHERE id = ANY(:district_ids)" if district_ids else ""}
+        )
         SELECT
             hf.id AS facility_id,
             COALESCE(hf.name, '') AS facility_name,
             hf.type AS facility_type,
             hf.ownership,
+            hf.district_id,
+            hf.ta_id,
             hf.doctor_count,
             hf.nurse_midwife_count,
             d.name AS district_name,
@@ -156,17 +208,65 @@ def fetch_health_facility_scope(session, district_names=None):
           ON d.id = hf.district_id
         LEFT JOIN admin3_units a3
           ON a3.id = hf.ta_id
+        CROSS JOIN district_union du
         WHERE hf.geom IS NOT NULL
-        {"AND d.name = ANY(:district_names)" if names else ""}
+        {"AND hf.district_id = ANY(:district_ids)" if district_ids else ""}
+        {"AND du.geom IS NOT NULL AND ST_Intersects(hf.geom, du.geom)" if district_ids else ""}
         """
     )
-    return gpd.read_postgis(query, session.bind, geom_col="geom", params=params or None)
+    params = {"district_ids": district_ids} if district_ids else None
+    facilities = gpd.read_postgis(query, session.bind, geom_col="geom", params=params)
+
+    if district_ids:
+        invalid_query = text(
+            """
+            WITH district_union AS (
+                SELECT ST_Union(geom) AS geom
+                FROM districts
+                WHERE id = ANY(:district_ids)
+            )
+            SELECT
+                hf.id AS facility_id,
+                COALESCE(hf.name, '') AS facility_name,
+                d.name AS district_name
+            FROM health_facilities hf
+            LEFT JOIN districts d
+              ON d.id = hf.district_id
+            CROSS JOIN district_union du
+            WHERE hf.geom IS NOT NULL
+              AND hf.district_id = ANY(:district_ids)
+              AND (du.geom IS NULL OR NOT ST_Intersects(hf.geom, du.geom))
+            ORDER BY hf.name
+            """
+        )
+        invalid_rows = session.execute(invalid_query, {"district_ids": district_ids}).mappings().all()
+        if invalid_rows:
+            preview = ", ".join(row["facility_name"] for row in invalid_rows[:5] if row["facility_name"]) or "unnamed facilities"
+            if len(invalid_rows) > 5:
+                preview = f"{preview}, +{len(invalid_rows) - 5} more"
+            log_step(
+                "fetch_health_facility_scope",
+                (
+                    f"excluded {len(invalid_rows)} facility record(s) whose geometry fell outside "
+                    f"the combined district geometry despite matching district_id. Examples: {preview}"
+                ),
+                level="warning",
+            )
+
+    return facilities
 
 
 def fetch_beneficiary_scope(session, district_names=None):
     names = district_names or []
+    scope = _resolve_district_scope(session, names)
+    district_ids = scope["district_ids"]
     query = text(
         f"""
+        WITH district_union AS (
+            SELECT ST_Union(geom) AS geom
+            FROM districts
+            {"WHERE id = ANY(:district_ids)" if district_ids else ""}
+        )
         SELECT
             wb.id AS beneficiary_id,
             wb.household_size,
@@ -178,22 +278,31 @@ def fetch_beneficiary_scope(session, district_names=None):
           ON d.id = wb.district_id
         LEFT JOIN admin3_units a3
           ON a3.id = wb.ta_id
+        CROSS JOIN district_union du
         WHERE wb.geom IS NOT NULL
-        {"AND d.name = ANY(:district_names)" if names else ""}
+        {"AND wb.district_id = ANY(:district_ids)" if district_ids else ""}
+        {"AND du.geom IS NOT NULL AND ST_Intersects(wb.geom, du.geom)" if district_ids else ""}
         """
     )
     return gpd.read_postgis(
         query,
         session.bind,
         geom_col="geom",
-        params={"district_names": names} if names else None,
+        params={"district_ids": district_ids} if district_ids else None,
     )
 
 
 def fetch_beneficiary_network_scope(session, district_names=None):
     names = district_names or []
+    scope = _resolve_district_scope(session, names)
+    district_ids = scope["district_ids"]
     query = text(
         f"""
+        WITH district_union AS (
+            SELECT ST_Union(geom) AS geom
+            FROM districts
+            {"WHERE id = ANY(:district_ids)" if district_ids else ""}
+        )
         SELECT
             wb.id AS beneficiary_id,
             wb.household_size,
@@ -220,14 +329,49 @@ def fetch_beneficiary_network_scope(session, district_names=None):
         LEFT JOIN beneficiary_facility_travel travel
           ON travel.beneficiary_id = wb.id
          AND travel.facility_type = 'health'
+        CROSS JOIN district_union du
         WHERE wb.geom IS NOT NULL
-        {"AND d.name = ANY(:district_names)" if names else ""}
+        {"AND wb.district_id = ANY(:district_ids)" if district_ids else ""}
+        {"AND du.geom IS NOT NULL AND ST_Intersects(wb.geom, du.geom)" if district_ids else ""}
         """
     )
     params = {"distance_km": DEFAULT_HEALTH_ACCESS_DISTANCE_KM}
-    if names:
-        params["district_names"] = names
+    if district_ids:
+        params["district_ids"] = district_ids
     return gpd.read_postgis(query, session.bind, geom_col="geom", params=params)
+
+
+def _compute_worldpop_buffer_sums(raster_path, buffer_gdf):
+    if not raster_path or buffer_gdf.empty:
+        return [0.0] * len(buffer_gdf)
+
+    with rasterio.open(raster_path) as src:
+        raster_bounds_geom = box(*src.bounds)
+        overlap_gdf = buffer_gdf.to_crs(src.crs)
+        overlap_mask = overlap_gdf.geometry.intersects(raster_bounds_geom)
+
+    sums = pd.Series(0.0, index=buffer_gdf.index, dtype="float64")
+    overlapping = buffer_gdf.loc[overlap_mask].copy()
+    if not overlapping.empty:
+        overlapping_sums = get_zonal_stats(raster_path, overlapping, stat="sum")
+        sums.loc[overlapping.index] = [float(value or 0.0) for value in overlapping_sums]
+
+    non_overlapping = buffer_gdf.loc[~overlap_mask]
+    if not non_overlapping.empty:
+        names = non_overlapping.get("facility_name", pd.Series(dtype="object")).fillna("").tolist()
+        preview = ", ".join(name for name in names[:5] if name) or "unnamed facilities"
+        if len(names) > 5:
+            preview = f"{preview}, +{len(names) - 5} more"
+        log_step(
+            "refresh_health_facility_access_metrics",
+            (
+                f"{len(non_overlapping)} facility buffer(s) did not overlap the raster extent; "
+                f"defaulted their WorldPop buffer population to 0. Examples: {preview}"
+            ),
+            level="warning",
+        )
+
+    return sums.tolist()
 
 
 def refresh_health_facility_access_metrics(
@@ -254,7 +398,7 @@ def refresh_health_facility_access_metrics(
         crs="EPSG:3857",
     ).to_crs("EPSG:4326")
 
-    worldpop_sums = get_zonal_stats(raster_path, buffer_gdf, stat="sum") if raster_path else [0] * len(buffer_gdf)
+    worldpop_sums = _compute_worldpop_buffer_sums(raster_path, buffer_gdf)
     facilities["worldpop_population_within_buffer"] = [
         float(value or 0.0) for value in worldpop_sums
     ]
@@ -262,9 +406,16 @@ def refresh_health_facility_access_metrics(
     buffer_count_lookup = {}
     if not beneficiaries.empty:
         beneficiaries_proj = beneficiaries.to_crs("EPSG:3857")
+        beneficiary_geom_col = beneficiaries_proj.geometry.name
+        buffer_proj = gpd.GeoDataFrame(
+            buffer_gdf[["facility_id"]].copy(),
+            geometry=buffer_gdf.geometry,
+            crs=buffer_gdf.crs,
+        ).to_crs("EPSG:3857")
+        buffer_geom_col = buffer_proj.geometry.name
         buffer_join = gpd.sjoin(
-            beneficiaries_proj[["beneficiary_id", "geometry"]],
-            gpd.GeoDataFrame(buffer_gdf[["facility_id"]], geometry=buffer_gdf.geometry).to_crs("EPSG:3857"),
+            beneficiaries_proj[["beneficiary_id", beneficiary_geom_col]],
+            buffer_proj[["facility_id", buffer_geom_col]],
             how="inner",
             predicate="intersects",
         )
@@ -466,16 +617,18 @@ def generate_health_access_previews(
 
     if not beneficiary_network.empty:
         beneficiary_network_proj = beneficiary_network.to_crs("EPSG:3857")
+        beneficiary_geom_col = beneficiary_network_proj.geometry.name
+        grid_geom_col = grid.geometry.name
         join_cols = [
             "beneficiary_id",
             "network_distance_km",
             "travel_time_min",
             "has_health_facility_access",
-            "geometry",
+            beneficiary_geom_col,
         ]
         joined = gpd.sjoin(
             beneficiary_network_proj[join_cols],
-            grid[["cell_id", "geometry"]],
+            grid[["cell_id", grid_geom_col]],
             how="left",
             predicate="intersects",
         )
@@ -571,7 +724,7 @@ def process_health_access_visualizations(
     coverage_distance_km=DEFAULT_HEALTH_ACCESS_DISTANCE_KM,
     grid_size_m=DEFAULT_HEALTH_ACCESS_GRID_SIZE_M,
 ):
-    started_at = datetime.utcnow()
+    started_at = datetime.now(timezone.utc)
     selected_districts = _normalize_district_names(district_name, district_names)
     resolved_worldpop = None
     if not raster_path:
@@ -637,7 +790,7 @@ def process_health_access_visualizations(
         status="Success",
         metadata=metadata,
         started_at=started_at,
-        completed_at=datetime.utcnow(),
+        completed_at=datetime.now(timezone.utc),
     )
     return {
         "dataset_type": "health_access",
