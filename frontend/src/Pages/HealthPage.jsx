@@ -101,10 +101,10 @@ function HealthPage() {
       ta: selectedTa,
     }),
   );
-  const healthCoverageGeojson = useDashboardData(
+  const healthCoverageTaGeojson = useDashboardData(
     buildDashboardPath("/dashboard/health/served-population/geojson", {
       district: districtScope,
-      admin_type: selectedTa ? "TA" : "District",
+      admin_type: "TA",
     }),
   );
   const healthRasterMetadata = useDashboardData(
@@ -119,7 +119,7 @@ function HealthPage() {
     servedPopulationSummary.error,
     healthLocations.error,
     servedPopulationTrend.error,
-    healthCoverageGeojson.error,
+    healthCoverageTaGeojson.error,
     healthRasterMetadata.error,
   ].filter(Boolean);
 
@@ -373,47 +373,50 @@ function HealthPage() {
           <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
             <div className="border border-gray-100 rounded p-4 shadow-sm bg-white">
               <PopulationRasterPanel
-                geojson={healthCoverageGeojson.data}
+                geojson={healthCoverageTaGeojson.data}
                 title="8 km Buffer"
-                subtitle="Straight-line facility buffer coverage, used for buffer-based served population estimates."
+                subtitle="Continuous 8 km facility-access surface clipped to the combined Zomba and Zomba City geometry."
                 metadataUrl={getHealthRasterAsset(
                   healthRasterMetadata.data?.assets,
                   "health_buffer_8km",
                 )}
                 heightClass="h-[320px]"
                 loading={
-                  healthCoverageGeojson.loading || healthRasterMetadata.loading
+                  healthCoverageTaGeojson.loading || healthRasterMetadata.loading
                 }
+                selectedFeatureName={selectedTa}
               />
             </div>
             <div className="border border-gray-100 rounded p-4 shadow-sm bg-white">
               <PopulationRasterPanel
-                geojson={healthCoverageGeojson.data}
+                geojson={healthCoverageTaGeojson.data}
                 title="8 km Network"
-                subtitle="Beneficiary road-network distance to the nearest health facility, aggregated to a grid."
+                subtitle="Smoothed beneficiary road-network distance surface with TA boundaries shown for local context."
                 metadataUrl={getHealthRasterAsset(
                   healthRasterMetadata.data?.assets,
                   "health_network_8km",
                 )}
                 heightClass="h-[320px]"
                 loading={
-                  healthCoverageGeojson.loading || healthRasterMetadata.loading
+                  healthCoverageTaGeojson.loading || healthRasterMetadata.loading
                 }
+                selectedFeatureName={selectedTa}
               />
             </div>
             <div className="border border-gray-100 rounded p-4 shadow-sm bg-white">
               <PopulationRasterPanel
-                geojson={healthCoverageGeojson.data}
+                geojson={healthCoverageTaGeojson.data}
                 title="Travel Time"
-                subtitle="Beneficiary travel time to the nearest health facility, aggregated to a grid for household-style access visualization."
+                subtitle="Smoothed beneficiary travel-time surface with TA boundaries and hover labels."
                 metadataUrl={getHealthRasterAsset(
                   healthRasterMetadata.data?.assets,
                   "health_travel_time",
                 )}
                 heightClass="h-[320px]"
                 loading={
-                  healthCoverageGeojson.loading || healthRasterMetadata.loading
+                  healthCoverageTaGeojson.loading || healthRasterMetadata.loading
                 }
+                selectedFeatureName={selectedTa}
               />
             </div>
           </div>

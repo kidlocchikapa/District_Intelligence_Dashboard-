@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import "leaflet/dist/leaflet.css";
+import L from "leaflet";
 import { GeoJSON, ImageOverlay, MapContainer, ZoomControl, useMap } from "react-leaflet";
 import { useDistrict } from "../context/DistrictContext";
 import { getGeoBounds } from "../lib/geo";
@@ -63,6 +64,7 @@ function PopulationRasterPanel({
   }, [metadataUrl]);
 
   const defaultBounds = metadata?.bounds;
+  const legend = metadata?.legend || null;
   const features = geojson?.features || [];
   const activeBounds = useMemo(() => {
     if (!metadata) {
@@ -178,6 +180,13 @@ function PopulationRasterPanel({
     );
   }
 
+  function legendBackground(colors = []) {
+    if (!Array.isArray(colors) || !colors.length) {
+      return "linear-gradient(90deg, #e5e7eb, #9ca3af)";
+    }
+    return `linear-gradient(90deg, ${colors.join(", ")})`;
+  }
+
   return (
     <div className={wrapperClassName}>
       {hasHeader ? (
@@ -218,28 +227,37 @@ function PopulationRasterPanel({
                 const isHovered = featureName === hoveredDistrict;
 
                 return {
-                  color: isSelected ? "#111827" : "#6d7a65",
+                  color: isSelected ? "#111827" : "#5f6d5b",
                   weight:
                     isSelected || features.length === 1 || isHovered
-                      ? 2.5
-                      : 1,
-                  opacity: isSelected ? 0.9 : 0.6,
+                      ? 2.7
+                      : 1.35,
+                  opacity: isSelected ? 0.95 : 0.82,
                   fillColor:
-                    isSelected || isHovered ? "#6d7a65" : "transparent",
-                  fillOpacity: isSelected ? 0.16 : isHovered ? 0.1 : 0,
+                    isSelected || isHovered ? "#5f6d5b" : "transparent",
+                  fillOpacity: isSelected ? 0.08 : isHovered ? 0.05 : 0,
                 };
               }}
               onEachFeature={(feature, layer) => {
+                const name = getFeatureName(feature);
+                if (name) {
+                  layer.bindTooltip(String(name), {
+                    sticky: true,
+                    direction: "top",
+                    opacity: 0.96,
+                    className: "health-ta-tooltip",
+                    offset: L.point(0, -6),
+                  });
+                }
                 layer.on({
                   mouseover: (e) => {
-                    const name = getFeatureName(feature);
                     setHoveredDistrict(name);
                     setHoveredFeature(feature);
                     const layer = e.target;
                     layer.setStyle({
                       weight: 3,
-                      opacity: 0.8,
-                      fillOpacity: 0.15
+                      opacity: 0.95,
+                      fillOpacity: 0.08
                     });
                   },
                   mouseout: (e) => {
@@ -247,13 +265,12 @@ function PopulationRasterPanel({
                     setHoveredFeature(null);
                     const layer = e.target;
                     layer.setStyle({
-                      weight: features.length === 1 ? 2.5 : 1,
-                      opacity: 0.6,
+                      weight: features.length === 1 ? 2.5 : 1.35,
+                      opacity: 0.82,
                       fillOpacity: 0
                     });
                   },
                   click: (e) => {
-                    const name = getFeatureName(feature);
                     const featureType = getFeatureType(feature);
                     if (typeof onFeatureClick === "function") {
                       onFeatureClick(feature, e);
@@ -279,6 +296,25 @@ function PopulationRasterPanel({
              </div>
           </div>
         )}
+
+        {legend ? (
+          <div className="pointer-events-none absolute right-4 bottom-4 z-[401] w-[190px] rounded-2xl border border-white/80 bg-white/92 px-4 py-3 shadow-md backdrop-blur-md">
+            <p className="text-[10px] font-bold uppercase tracking-[0.15em] text-slate/50">
+              Legend
+            </p>
+            <p className="mt-1 text-[12px] font-semibold leading-5 text-slate">
+              {legend.label || title || "Raster surface"}
+            </p>
+            <div
+              className="mt-3 h-3 w-full rounded-full border border-slate-200/80"
+              style={{ background: legendBackground(legend.colors) }}
+            />
+            <div className="mt-2 flex items-center justify-between text-[10px] font-bold uppercase tracking-[0.12em] text-slate/55">
+              <span>{legend.lowLabel || "Low"}</span>
+              <span>{legend.highLabel || "High"}</span>
+            </div>
+          </div>
+        ) : null}
 
         {hoveredFeature ? (
           <div className="pointer-events-none absolute inset-x-4 bottom-4 flex items-end justify-start gap-4 z-[401]">
