@@ -557,6 +557,7 @@ router.get("/raster-metadata", async (req, res) => {
         health_buffer_8km: `/health-access/${slug}.health_buffer_8km.preview.json`,
         health_network_8km: `/health-access/${slug}.health_network_8km.preview.json`,
         health_travel_time: `/health-access/${slug}.health_travel_time.preview.json`,
+        health_2sfca: `/health-access/${slug}.health_2sfca.preview.json`,
       },
     },
   });

@@ -374,8 +374,8 @@ function HealthPage() {
             <div className="border border-gray-100 rounded p-4 shadow-sm bg-white">
               <PopulationRasterPanel
                 geojson={healthCoverageTaGeojson.data}
-                title="8 km Buffer"
-                subtitle="Continuous 8 km facility-access surface clipped to the combined Zomba and Zomba City geometry."
+                title="Access in 8 Km radius"
+                subtitle="Population served in 8 Km radius"
                 metadataUrl={getHealthRasterAsset(
                   healthRasterMetadata.data?.assets,
                   "health_buffer_8km",
@@ -390,8 +390,8 @@ function HealthPage() {
             <div className="border border-gray-100 rounded p-4 shadow-sm bg-white">
               <PopulationRasterPanel
                 geojson={healthCoverageTaGeojson.data}
-                title="8 km Network"
-                subtitle="Smoothed beneficiary road-network distance surface with TA boundaries shown for local context."
+                title="8 km Road distance "
+                subtitle="Beneficiary road-network distance to healthy facility"
                 metadataUrl={getHealthRasterAsset(
                   healthRasterMetadata.data?.assets,
                   "health_network_8km",
@@ -406,11 +406,11 @@ function HealthPage() {
             <div className="border border-gray-100 rounded p-4 shadow-sm bg-white">
               <PopulationRasterPanel
                 geojson={healthCoverageTaGeojson.data}
-                title="Travel Time"
-                subtitle="Smoothed beneficiary travel-time surface with TA boundaries and hover labels."
+                title="2SFCA Access Score"
+                subtitle="Healthcare staff per 1,000 people (interpolated from TA centroids)."
                 metadataUrl={getHealthRasterAsset(
                   healthRasterMetadata.data?.assets,
-                  "health_travel_time",
+                  "health_2sfca",
                 )}
                 heightClass="h-[320px]"
                 loading={
