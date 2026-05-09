@@ -208,9 +208,12 @@ def _routing_prerequisites_available(session):
 
 # Helper function to extract geometry from a row, whether it's a Series or an object with a geometry attribute
 def get_row_geometry(row):
-    if isinstance(row, pd.Series) and 'geometry' in row.index:
-        return row['geometry']
-    return getattr(row, 'geometry', None)
+    if isinstance(row, pd.Series):
+        if 'geometry' in row.index:
+            return row['geometry']
+        if 'geom' in row.index:
+            return row['geom']
+    return getattr(row, 'geometry', getattr(row, 'geom', None))
 
 
 def compute_health_2sfca_access(
@@ -319,7 +322,7 @@ def compute_health_2sfca_access(
                 facility_id,
                 CASE
                     WHEN catchment_population > 0
-                        THEN staff_count / catchment_population
+                        THEN CAST(staff_count AS FLOAT) / NULLIF(catchment_population, 0)
                     ELSE 0
                 END AS supply_ratio
             FROM facility_demand

@@ -20,6 +20,8 @@ from sqlalchemy import text
 from db_utils import log_etl_run
 from roads import recompute_beneficiary_facility_travel
 from worldpop import DEFAULT_WORLDPOP_YEAR, get_zonal_stats, resolve_worldpop_raster
+from analytics import compute_health_2sfca_access, fetch_admin_units_for_analysis
+from load import load_analysis_results
 
 LOGGER = logging.getLogger("etl.health_access")
 
@@ -483,7 +485,7 @@ def refresh_health_facility_access_metrics(
     frame = pd.DataFrame(records)
     if frame.empty:
         return 0
-
+    
     if district_names:
         session.execute(
             text(
@@ -858,6 +860,46 @@ def generate_health_access_previews(
         travel_surface = _gaussian_smooth_masked(travel_surface, district_mask, sigma_px=smoothing_sigma)
         travel_surface = _mask_array(travel_surface, district_mask)
 
+    sfca_surface = np.full((template["height"], template["width"]), np.nan, dtype=np.float32)
+    admin_units_gdf = fetch_admin_units_for_analysis(session, admin_level='TA')
+    if not union_gdf.empty and not admin_units_gdf.empty:
+        union_geom = union_gdf.to_crs(admin_units_gdf.crs).geometry.iloc[0]
+        intersecting_admin_units = admin_units_gdf[admin_units_gdf.intersects(union_geom)].copy()
+        if not intersecting_admin_units.empty:
+            sfca_df = run_step(
+                "compute_health_2sfca_preview",
+                "Failed to compute 2SFCA for preview raster.",
+                compute_health_2sfca_access,
+                session=session,
+                admin_units_gdf=intersecting_admin_units,
+                admin_level='TA'
+            )
+            if not sfca_df.empty and session:
+                run_step(
+                    "save_health_2sfca_results",
+                    "Could not save 2SFCA analysis results to database.",
+                    load_analysis_results,
+                    session=session,
+                    analysis_df=sfca_df
+                )
+            if not sfca_df.empty:
+                sfca_gdf = gpd.GeoDataFrame(sfca_df, geometry='geom', crs=admin_units_gdf.crs).to_crs("EPSG:3857")
+                sfca_gdf = sfca_gdf[~sfca_gdf.geometry.isna() & ~sfca_gdf.geometry.is_empty].copy()
+                sfca_gdf.geometry = sfca_gdf.geometry.centroid
+                sfca_xy = _point_coordinates(sfca_gdf.geometry)
+                sfca_vals = pd.to_numeric(sfca_gdf["metric_value"], errors="coerce").to_numpy(dtype=np.float32)
+                
+                valid_mask = np.isfinite(sfca_vals)
+                if np.any(valid_mask):
+                    sfca_seed = _aggregate_points_to_raster(
+                        sfca_xy[valid_mask],
+                        sfca_vals[valid_mask],
+                        template,
+                    )
+                    sfca_surface = _idw_interpolate_surface(sfca_seed, template)
+                    sfca_surface = _gaussian_smooth_masked(sfca_surface, district_mask, sigma_px=smoothing_sigma)
+                    sfca_surface = _mask_array(sfca_surface, district_mask)
+
     products = [
         {
             "surface": buffer_surface,
@@ -901,6 +943,21 @@ def generate_health_access_previews(
             "render": {
                 "transform": "linear",
                 "unit": "minutes",
+                "surfaceMethod": "idw",
+                "resolutionM": float(template["resolution_m"]),
+                "smoothed": True,
+                "maskedToDistrict": True,
+            },
+        },
+        {
+            "surface": sfca_surface,
+            "name": f"{slug}.health_2sfca.preview",
+            "colors": ["#b32d3c", "#e97b56", "#f2d06b", "#7bc8b4", "#2f89c5", "#2056a8"],
+            "legend_label": "2SFCA Access Score (staff per 1,000 people)",
+            "low_label": "Low Access",
+            "high_label": "High Access",
+            "render": {
+                "transform": "linear",
                 "surfaceMethod": "idw",
                 "resolutionM": float(template["resolution_m"]),
                 "smoothed": True,
