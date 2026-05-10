@@ -127,7 +127,7 @@ const presetTaskDefinitions = {
   health_insights: {
     label: "Recalculate health insights",
     description:
-      "Runs facility summary, service coverage, population served, and distance analyses.",
+      "Runs facility summary, service coverage, population served, 2SFCA, and distance analyses.",
     stages: ({ worldpopYear, adminLevel, coverageDistanceKm }) => [
       {
         label: "Health analysis",
@@ -137,6 +137,7 @@ const presetTaskDefinitions = {
           analysisTypes: [
             "health_summary",
             "health_population_served",
+            "health_2sfca_access",
             "nearest_health_distance",
             "health_service_coverage",
           ],
@@ -257,6 +258,7 @@ const presetTaskDefinitions = {
           analysisTypes: [
             "health_summary",
             "health_population_served",
+            "health_2sfca_access",
             "nearest_health_distance",
             "health_service_coverage",
           ],
@@ -599,8 +601,51 @@ router.patch(
       await ensureUsersTable();
       await ensureRbacSchema();
 
+      if (Object.prototype.hasOwnProperty.call(value, "email")) {
+        const emailCheck = await db.query(
+          "SELECT id FROM users WHERE email = $1 AND id <> $2 LIMIT 1",
+          [value.email, userId],
+        );
+
+        if (emailCheck.rowCount) {
+          return res.status(409).json({
+            status: "error",
+            message: "Email already registered",
+          });
+        }
+      }
+
+      if (Object.prototype.hasOwnProperty.call(value, "username")) {
+        const usernameCheck = await db.query(
+          "SELECT id FROM users WHERE username = $1 AND id <> $2 LIMIT 1",
+          [value.username, userId],
+        );
+
+        if (usernameCheck.rowCount) {
+          return res.status(409).json({
+            status: "error",
+            message: "Username already in use",
+          });
+        }
+      }
+
       const updateFields = [];
       const params = [];
+
+      if (Object.prototype.hasOwnProperty.call(value, "fullName")) {
+        params.push(value.fullName);
+        updateFields.push(`full_name = $${params.length}`);
+      }
+
+      if (Object.prototype.hasOwnProperty.call(value, "username")) {
+        params.push(value.username);
+        updateFields.push(`username = $${params.length}`);
+      }
+
+      if (Object.prototype.hasOwnProperty.call(value, "email")) {
+        params.push(value.email);
+        updateFields.push(`email = $${params.length}`);
+      }
 
       if (Object.prototype.hasOwnProperty.call(value, "role")) {
         params.push(value.role);

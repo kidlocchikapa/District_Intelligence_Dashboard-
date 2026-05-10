@@ -1,12 +1,12 @@
 import { useEffect, useState } from "react";
 import Modal from "../components/Modal";
 import { fetchJson, postJson, patchJson, deleteJson } from "../lib/api";
-import { 
-  Plus, 
-  RotateCw, 
-  Filter, 
-  Columns, 
-  MoreHorizontal, 
+import {
+  Plus,
+  RotateCw,
+  Filter,
+  Columns,
+  MoreHorizontal,
   ArrowUpDown,
   Search,
   UserPlus,
@@ -15,7 +15,7 @@ import {
   CheckCircle2,
   XCircle,
   Pencil,
-  Trash2
+  Trash2,
 } from "lucide-react";
 
 const USER_ROLES = [
@@ -37,13 +37,16 @@ export default function SuperAdminPage() {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [openMenuId, setOpenMenuId] = useState(null);
+  const [editingUserId, setEditingUserId] = useState(null);
+  const [editDraft, setEditDraft] = useState(null);
+  const [rowBusyId, setRowBusyId] = useState(null);
 
   useEffect(() => {
     loadUsers();
 
     const handleGlobalClick = () => setOpenMenuId(null);
-    window.addEventListener('click', handleGlobalClick);
-    return () => window.removeEventListener('click', handleGlobalClick);
+    window.addEventListener("click", handleGlobalClick);
+    return () => window.removeEventListener("click", handleGlobalClick);
   }, []);
 
   async function loadUsers() {
@@ -63,7 +66,7 @@ export default function SuperAdminPage() {
     event.preventDefault();
     const formData = new FormData(event.target);
     const data = Object.fromEntries(formData.entries());
-    
+
     try {
       setUserFormBusy(true);
       await postJson("/admin/users", data);
@@ -81,7 +84,7 @@ export default function SuperAdminPage() {
 
   async function handleDeleteUser(userId) {
     if (!window.confirm("Are you sure you want to delete this user?")) return;
-    
+
     try {
       console.log("Deleting user:", userId);
       const res = await deleteJson(`/admin/users/${userId}`);
@@ -95,17 +98,82 @@ export default function SuperAdminPage() {
     }
   }
 
+  function startEdit(user) {
+    setOpenMenuId(null);
+    setEditingUserId(user.id);
+    setEditDraft({
+      username: user.username || "",
+      fullName: user.fullName || "",
+      email: user.email || "",
+      role: user.role || "user",
+      isActive: Boolean(user.isActive),
+    });
+  }
+
+  function cancelEdit() {
+    setEditingUserId(null);
+    setEditDraft(null);
+    setRowBusyId(null);
+  }
+
+  function updateDraftField(field, value) {
+    setEditDraft((prev) => ({
+      ...(prev || {}),
+      [field]: value,
+    }));
+  }
+
+  async function handleSaveEdit(userId) {
+    if (!editDraft) return;
+
+    const payload = {
+      ...editDraft,
+      username: editDraft.username.trim(),
+      fullName: editDraft.fullName.trim(),
+      email: editDraft.email.trim().toLowerCase(),
+    };
+
+    try {
+      setRowBusyId(userId);
+      const response = await patchJson(`/admin/users/${userId}`, payload);
+      const updatedUser = response?.data || response?.user || response;
+
+      setUsers((prev) =>
+        prev.map((user) => (user.id === userId ? updatedUser : user)),
+      );
+      setStatus("User updated successfully");
+      cancelEdit();
+      setTimeout(() => setStatus(""), 3000);
+    } catch (error) {
+      console.error("Update user error:", error);
+      setStatus(error.response?.data?.message || "Failed to update user");
+    } finally {
+      setRowBusyId(null);
+    }
+  }
+
   async function toggleUserStatus(user) {
     try {
-      console.log("Toggling status for user:", user.id, "Current status:", user.isActive);
-      const res = await patchJson(`/admin/users/${user.id}`, { isActive: !user.isActive });
+      console.log(
+        "Toggling status for user:",
+        user.id,
+        "Current status:",
+        user.isActive,
+      );
+      const res = await patchJson(`/admin/users/${user.id}`, {
+        isActive: !user.isActive,
+      });
       console.log("Patch response:", res);
-      setStatus(`User ${user.isActive ? 'deactivated' : 'activated'} successfully`);
+      setStatus(
+        `User ${user.isActive ? "deactivated" : "activated"} successfully`,
+      );
       loadUsers();
       setTimeout(() => setStatus(""), 3000);
     } catch (error) {
       console.error("Update status error:", error);
-      setStatus(error.response?.data?.message || "Failed to update user status");
+      setStatus(
+        error.response?.data?.message || "Failed to update user status",
+      );
     }
   }
 
@@ -113,10 +181,15 @@ export default function SuperAdminPage() {
     <div className="p-6 max-w-[1600px] mx-auto space-y-6">
       <div className="flex items-end justify-between mb-2">
         <div>
-          <h1 className="text-2xl font-bold text-slate-900 tracking-tight">User Management</h1>
-          <p className="mt-1 text-sm text-slate-500">Manage all registered users and their access roles across the platform.</p>
+          <h1 className="text-2xl font-bold text-slate-900 tracking-tight">
+            User Management
+          </h1>
+          <p className="mt-1 text-sm text-slate-500">
+            Manage all registered users and their access roles across the
+            platform.
+          </p>
         </div>
-        
+
         {status && (
           <div className="animate-in fade-in slide-in-from-top-2 duration-300 rounded-lg border border-emerald-100 bg-emerald-50 px-4 py-2 text-xs font-medium text-emerald-700">
             {status}
@@ -135,7 +208,7 @@ export default function SuperAdminPage() {
               <Columns size={16} className="text-slate-400" />
               Columns
             </button>
-            <button 
+            <button
               onClick={() => setIsModalOpen(true)}
               className="flex items-center gap-2 rounded-lg bg-slate-900 px-6 py-2 text-sm font-bold text-white hover:bg-slate-800 transition-all active:scale-[0.98] shadow-md shadow-slate-200"
             >
@@ -146,16 +219,19 @@ export default function SuperAdminPage() {
 
           <div className="flex items-center gap-4">
             <div className="text-[11px] font-medium text-slate-400 uppercase tracking-wider">
-              {users.length} users • {isLoading ? 'loading...' : 'uptodate'}
+              {users.length} users • {isLoading ? "loading..." : "uptodate"}
             </div>
             <div className="h-4 w-px bg-slate-200" />
             <div className="flex items-center gap-1">
-              <button 
+              <button
                 onClick={loadUsers}
                 className="rounded-lg p-2 text-slate-400 hover:bg-slate-100 hover:text-slate-600 transition-colors"
                 title="Refresh Table"
               >
-                <RotateCw size={16} className={isLoading ? "animate-spin" : ""} />
+                <RotateCw
+                  size={16}
+                  className={isLoading ? "animate-spin" : ""}
+                />
               </button>
               <button className="rounded-lg p-2 text-slate-400 hover:bg-slate-100 hover:text-slate-600 transition-colors">
                 <MoreHorizontal size={16} />
@@ -169,7 +245,10 @@ export default function SuperAdminPage() {
             <thead>
               <tr className="border-b border-slate-100 bg-slate-50/30">
                 <th className="w-12 px-4 py-3">
-                  <input type="checkbox" className="rounded border-slate-300 text-slate-900 focus:ring-slate-900 h-4 w-4" />
+                  <input
+                    type="checkbox"
+                    className="rounded border-slate-300 text-slate-900 focus:ring-slate-900 h-4 w-4"
+                  />
                 </th>
                 <th className="w-16 px-4 py-3 text-[11px] font-bold text-slate-400 uppercase tracking-widest text-center">
                   #
@@ -213,96 +292,215 @@ export default function SuperAdminPage() {
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-50">
-              {users.map((user, idx) => (
-                <tr key={user.id} className="group hover:bg-slate-50/50 transition-colors">
-                  <td className="px-4 py-4">
-                    <input type="checkbox" className="rounded border-slate-300 text-slate-900 focus:ring-slate-900 h-4 w-4" />
-                  </td>
-                  <td className="px-4 py-4 text-sm font-mono text-slate-400 text-center">
-                    {idx + 1}
-                  </td>
-                  <td className="px-2 py-4 text-sm font-medium text-slate-600 whitespace-nowrap">
-                    {user.username || 'n/a'}
-                  </td>
-                  <td className="px-4 py-4">
-                    <div className="flex items-center gap-3">
-                      <div className="h-8 w-8 rounded-full bg-slate-100 flex items-center justify-center text-xs font-bold text-slate-600 ring-1 ring-white">
-                        {user.fullName.charAt(0)}
+              {users.map((user, idx) => {
+                const isEditing = editingUserId === user.id;
+                const isRowBusy = rowBusyId === user.id;
+                const draft = isEditing ? editDraft : null;
+
+                return (
+                  <tr
+                    key={user.id}
+                    className="group hover:bg-slate-50/50 transition-colors"
+                  >
+                    <td className="px-4 py-4">
+                      <input
+                        type="checkbox"
+                        className="rounded border-slate-300 text-slate-900 focus:ring-slate-900 h-4 w-4"
+                      />
+                    </td>
+                    <td className="px-4 py-4 text-sm font-mono text-slate-400 text-center">
+                      {idx + 1}
+                    </td>
+                    <td className="px-2 py-4 text-sm font-medium text-slate-600 whitespace-nowrap">
+                      {isEditing ? (
+                        <input
+                          value={draft?.username ?? ""}
+                          onChange={(event) =>
+                            updateDraftField("username", event.target.value)
+                          }
+                          className="w-full min-w-[140px] rounded-lg border border-slate-200 bg-white px-2 py-1 text-sm text-slate-700 focus:border-slate-900 focus:ring-2 focus:ring-slate-900/10 outline-none"
+                        />
+                      ) : (
+                        user.username || "n/a"
+                      )}
+                    </td>
+                    <td className="px-4 py-4">
+                      <div className="flex items-center gap-3">
+                        <div className="h-8 w-8 rounded-full bg-slate-100 flex items-center justify-center text-xs font-bold text-slate-600 ring-1 ring-white">
+                          {user.fullName.charAt(0)}
+                        </div>
+                        {isEditing ? (
+                          <input
+                            value={draft?.fullName ?? ""}
+                            onChange={(event) =>
+                              updateDraftField("fullName", event.target.value)
+                            }
+                            className="w-full min-w-[200px] rounded-lg border border-slate-200 bg-white px-2 py-1 text-sm text-slate-900 font-semibold focus:border-slate-900 focus:ring-2 focus:ring-slate-900/10 outline-none"
+                          />
+                        ) : (
+                          <div className="text-sm font-bold text-slate-900 whitespace-nowrap">
+                            {user.fullName}
+                          </div>
+                        )}
                       </div>
-                      <div className="text-sm font-bold text-slate-900 whitespace-nowrap">{user.fullName}</div>
-                    </div>
-                  </td>
-                  <td className="px-2 py-4 text-sm text-slate-600 whitespace-nowrap">
-                    {user.email}
-                  </td>
-                  <td className="px-4 py-4 whitespace-nowrap">
-                    <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider border ${user.role === 'super_admin'
-                        ? 'bg-amber-50 text-amber-700 border-amber-100'
-                        : user.role.includes('admin')
-                          ? 'bg-indigo-50 text-indigo-700 border-indigo-100'
-                          : 'bg-slate-50 text-slate-600 border-slate-100'
-                      }`}>
-                      {user.role.replace('_', ' ')}
-                    </span>
-                  </td>
-                  <td className="px-2 py-4 text-sm text-slate-500 font-medium whitespace-nowrap">
-                    {user.createdAt ? new Date(user.createdAt).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }) : 'n/a'}
-                  </td>
-                  <td className="px-2 py-4 text-center">
-                    <button 
-                      onClick={() => toggleUserStatus(user)}
-                      className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-lg text-[11px] font-bold uppercase tracking-wider transition-all duration-200 border ${user.isActive
-                          ? 'bg-emerald-50 text-emerald-700 border-emerald-100 hover:bg-emerald-100'
-                          : 'bg-rose-50 text-rose-700 border-rose-100 hover:bg-rose-100'
-                        }`}
-                    >
-                      {user.isActive ? (
-                        <>
-                          <CheckCircle2 size={12} />
-                          Active
-                        </>
+                    </td>
+                    <td className="px-2 py-4 text-sm text-slate-600 whitespace-nowrap">
+                      {isEditing ? (
+                        <input
+                          type="email"
+                          value={draft?.email ?? ""}
+                          onChange={(event) =>
+                            updateDraftField("email", event.target.value)
+                          }
+                          className="w-full min-w-[220px] rounded-lg border border-slate-200 bg-white px-2 py-1 text-sm text-slate-700 focus:border-slate-900 focus:ring-2 focus:ring-slate-900/10 outline-none"
+                        />
+                      ) : (
+                        user.email
+                      )}
+                    </td>
+                    <td className="px-4 py-4 whitespace-nowrap">
+                      {isEditing ? (
+                        <select
+                          value={draft?.role ?? "user"}
+                          onChange={(event) =>
+                            updateDraftField("role", event.target.value)
+                          }
+                          className="w-full min-w-[180px] rounded-lg border border-slate-200 bg-white px-2 py-1 text-xs font-semibold text-slate-700 uppercase tracking-wider focus:border-slate-900 focus:ring-2 focus:ring-slate-900/10 outline-none"
+                        >
+                          {USER_ROLES.map((role) => (
+                            <option key={role.value} value={role.value}>
+                              {role.label}
+                            </option>
+                          ))}
+                        </select>
+                      ) : (
+                        <span
+                          className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider border ${
+                            user.role === "super_admin"
+                              ? "bg-amber-50 text-amber-700 border-amber-100"
+                              : user.role.includes("admin")
+                                ? "bg-indigo-50 text-indigo-700 border-indigo-100"
+                                : "bg-slate-50 text-slate-600 border-slate-100"
+                          }`}
+                        >
+                          {user.role.replace("_", " ")}
+                        </span>
+                      )}
+                    </td>
+                    <td className="px-2 py-4 text-sm text-slate-500 font-medium whitespace-nowrap">
+                      {user.createdAt
+                        ? new Date(user.createdAt).toLocaleDateString("en-GB", {
+                            day: "2-digit",
+                            month: "short",
+                            year: "numeric",
+                          })
+                        : "n/a"}
+                    </td>
+                    <td className="px-2 py-4 text-center">
+                      {isEditing ? (
+                        <button
+                          onClick={() =>
+                            updateDraftField("isActive", !draft?.isActive)
+                          }
+                          className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-lg text-[11px] font-bold uppercase tracking-wider transition-all duration-200 border ${
+                            draft?.isActive
+                              ? "bg-emerald-50 text-emerald-700 border-emerald-100 hover:bg-emerald-100"
+                              : "bg-rose-50 text-rose-700 border-rose-100 hover:bg-rose-100"
+                          }`}
+                        >
+                          {draft?.isActive ? (
+                            <>
+                              <CheckCircle2 size={12} />
+                              Active
+                            </>
+                          ) : (
+                            <>
+                              <XCircle size={12} />
+                              Inactive
+                            </>
+                          )}
+                        </button>
+                      ) : (
+                        <button
+                          onClick={() => toggleUserStatus(user)}
+                          className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-lg text-[11px] font-bold uppercase tracking-wider transition-all duration-200 border ${
+                            user.isActive
+                              ? "bg-emerald-50 text-emerald-700 border-emerald-100 hover:bg-emerald-100"
+                              : "bg-rose-50 text-rose-700 border-rose-100 hover:bg-rose-100"
+                          }`}
+                        >
+                          {user.isActive ? (
+                            <>
+                              <CheckCircle2 size={12} />
+                              Active
+                            </>
+                          ) : (
+                            <>
+                              <XCircle size={12} />
+                              Inactive
+                            </>
+                          )}
+                        </button>
+                      )}
+                    </td>
+                    <td className="px-4 py-4 text-right whitespace-nowrap relative">
+                      {isEditing ? (
+                        <div className="flex items-center justify-end gap-2">
+                          <button
+                            onClick={cancelEdit}
+                            disabled={isRowBusy}
+                            className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-[11px] font-bold uppercase tracking-wider text-slate-600 hover:bg-slate-50 disabled:opacity-50"
+                          >
+                            Cancel
+                          </button>
+                          <button
+                            onClick={() => handleSaveEdit(user.id)}
+                            disabled={isRowBusy}
+                            className="rounded-lg bg-slate-900 px-3 py-1.5 text-[11px] font-bold uppercase tracking-wider text-white hover:bg-slate-800 disabled:opacity-50"
+                          >
+                            {isRowBusy ? "Saving..." : "Save"}
+                          </button>
+                        </div>
                       ) : (
                         <>
-                          <XCircle size={12} />
-                          Inactive
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setOpenMenuId(
+                                openMenuId === user.id ? null : user.id,
+                              );
+                            }}
+                            className="text-slate-400 hover:text-slate-900 transition-colors p-1.5 rounded-lg hover:bg-slate-100"
+                            title="User Actions"
+                          >
+                            <MoreHorizontal size={18} />
+                          </button>
+
+                          {openMenuId === user.id && (
+                            <div className="absolute right-4 top-12 z-[60] w-40 rounded-xl bg-white shadow-2xl ring-1 ring-slate-200 py-1.5 animate-in fade-in zoom-in duration-150 origin-top-right">
+                              <button
+                                className="flex w-full items-center gap-3 px-4 py-2 text-[11px] font-bold text-slate-700 hover:bg-slate-50 transition-colors uppercase tracking-wider"
+                                onClick={() => startEdit(user)}
+                              >
+                                <Pencil size={14} className="text-slate-400" />
+                                Edit User
+                              </button>
+                              <div className="my-1 h-px bg-slate-100" />
+                              <button
+                                className="flex w-full items-center gap-3 px-4 py-2 text-[11px] font-bold text-rose-600 hover:bg-rose-50 transition-colors uppercase tracking-wider"
+                                onClick={() => handleDeleteUser(user.id)}
+                              >
+                                <Trash2 size={14} className="text-rose-400" />
+                                Delete User
+                              </button>
+                            </div>
+                          )}
                         </>
                       )}
-                    </button>
-                  </td>
-                  <td className="px-4 py-4 text-right whitespace-nowrap relative">
-                    <button 
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setOpenMenuId(openMenuId === user.id ? null : user.id);
-                      }}
-                      className="text-slate-400 hover:text-slate-900 transition-colors p-1.5 rounded-lg hover:bg-slate-100"
-                      title="User Actions"
-                    >
-                      <MoreHorizontal size={18} />
-                    </button>
-
-                    {openMenuId === user.id && (
-                      <div className="absolute right-4 top-12 z-[60] w-40 rounded-xl bg-white shadow-2xl ring-1 ring-slate-200 py-1.5 animate-in fade-in zoom-in duration-150 origin-top-right">
-                        <button 
-                          className="flex w-full items-center gap-3 px-4 py-2 text-[11px] font-bold text-slate-700 hover:bg-slate-50 transition-colors uppercase tracking-wider"
-                          onClick={() => alert("Edit functionality coming soon!")}
-                        >
-                          <Pencil size={14} className="text-slate-400" />
-                          Edit User
-                        </button>
-                        <div className="my-1 h-px bg-slate-100" />
-                        <button 
-                          className="flex w-full items-center gap-3 px-4 py-2 text-[11px] font-bold text-rose-600 hover:bg-rose-50 transition-colors uppercase tracking-wider"
-                          onClick={() => handleDeleteUser(user.id)}
-                        >
-                          <Trash2 size={14} className="text-rose-400" />
-                          Delete User
-                        </button>
-                      </div>
-                    )}
-                  </td>
-                </tr>
-              ))}
+                    </td>
+                  </tr>
+                );
+              })}
               {users.length === 0 && !isLoading && (
                 <tr>
                   <td colSpan="9" className="px-6 py-20 text-center">
@@ -310,8 +508,12 @@ export default function SuperAdminPage() {
                       <div className="h-12 w-12 rounded-2xl bg-slate-50 flex items-center justify-center text-slate-300">
                         <Search size={24} />
                       </div>
-                      <div className="text-sm font-semibold text-slate-900">No users found</div>
-                      <p className="text-xs text-slate-500 max-w-[200px] mx-auto">Try refreshing the page or add a new user to the system.</p>
+                      <div className="text-sm font-semibold text-slate-900">
+                        No users found
+                      </div>
+                      <p className="text-xs text-slate-500 max-w-[200px] mx-auto">
+                        Try refreshing the page or add a new user to the system.
+                      </p>
                     </div>
                   </td>
                 </tr>
@@ -330,81 +532,97 @@ export default function SuperAdminPage() {
               </select>
             </div>
           </div>
-          
+
           <div className="flex items-center gap-2">
-            <button className="rounded-lg border border-slate-200 bg-white p-1.5 text-slate-400 hover:bg-slate-50 disabled:opacity-50 transition-colors" disabled>
+            <button
+              className="rounded-lg border border-slate-200 bg-white p-1.5 text-slate-400 hover:bg-slate-50 disabled:opacity-50 transition-colors"
+              disabled
+            >
               <ChevronLeft size={14} />
             </button>
             <div className="text-xs font-bold text-slate-900 px-2">1 of 1</div>
-            <button className="rounded-lg border border-slate-200 bg-white p-1.5 text-slate-400 hover:bg-slate-50 disabled:opacity-50 transition-colors" disabled>
+            <button
+              className="rounded-lg border border-slate-200 bg-white p-1.5 text-slate-400 hover:bg-slate-50 disabled:opacity-50 transition-colors"
+              disabled
+            >
               <ChevronRight size={14} />
             </button>
           </div>
         </div>
       </div>
 
-      <Modal 
-        isOpen={isModalOpen} 
+      <Modal
+        isOpen={isModalOpen}
         onClose={() => setIsModalOpen(false)}
         title="Register New User"
       >
         <form onSubmit={handleCreateUser} className="space-y-5">
           <div className="grid gap-4 sm:grid-cols-2">
             <div className="space-y-1.5">
-              <label className="text-xs font-bold text-slate-500 uppercase tracking-widest">Full Name</label>
-              <input 
-                name="fullName" 
-                required 
+              <label className="text-xs font-bold text-slate-500 uppercase tracking-widest">
+                Full Name
+              </label>
+              <input
+                name="fullName"
+                required
                 placeholder="John Doe"
-                className="w-full rounded-xl border border-slate-200 bg-slate-50/50 px-4 py-2.5 text-sm text-slate-900 focus:bg-white focus:ring-2 focus:ring-slate-900/5 focus:border-slate-900 transition-all outline-none" 
+                className="w-full rounded-xl border border-slate-200 bg-slate-50/50 px-4 py-2.5 text-sm text-slate-900 focus:bg-white focus:ring-2 focus:ring-slate-900/5 focus:border-slate-900 transition-all outline-none"
               />
             </div>
             <div className="space-y-1.5">
-              <label className="text-xs font-bold text-slate-500 uppercase tracking-widest">Email Address</label>
-              <input 
-                name="email" 
-                type="email" 
-                required 
+              <label className="text-xs font-bold text-slate-500 uppercase tracking-widest">
+                Email Address
+              </label>
+              <input
+                name="email"
+                type="email"
+                required
                 placeholder="john@district.gov.mw"
-                className="w-full rounded-xl border border-slate-200 bg-slate-50/50 px-4 py-2.5 text-sm text-slate-900 focus:bg-white focus:ring-2 focus:ring-slate-900/5 focus:border-slate-900 transition-all outline-none" 
+                className="w-full rounded-xl border border-slate-200 bg-slate-50/50 px-4 py-2.5 text-sm text-slate-900 focus:bg-white focus:ring-2 focus:ring-slate-900/5 focus:border-slate-900 transition-all outline-none"
               />
             </div>
           </div>
 
           <div className="space-y-1.5">
-            <label className="text-xs font-bold text-slate-500 uppercase tracking-widest">Password</label>
-            <input 
-              name="password" 
-              type="password" 
-              required 
+            <label className="text-xs font-bold text-slate-500 uppercase tracking-widest">
+              Password
+            </label>
+            <input
+              name="password"
+              type="password"
+              required
               placeholder="••••••••••••"
-              className="w-full rounded-xl border border-slate-200 bg-slate-50/50 px-4 py-2.5 text-sm text-slate-900 focus:bg-white focus:ring-2 focus:ring-slate-900/5 focus:border-slate-900 transition-all outline-none" 
+              className="w-full rounded-xl border border-slate-200 bg-slate-50/50 px-4 py-2.5 text-sm text-slate-900 focus:bg-white focus:ring-2 focus:ring-slate-900/5 focus:border-slate-900 transition-all outline-none"
             />
           </div>
 
           <div className="space-y-1.5">
-            <label className="text-xs font-bold text-slate-500 uppercase tracking-widest">System Role</label>
-            <select 
-              name="role" 
-              required 
+            <label className="text-xs font-bold text-slate-500 uppercase tracking-widest">
+              System Role
+            </label>
+            <select
+              name="role"
+              required
               className="w-full rounded-xl border border-slate-200 bg-slate-50/50 px-4 py-2.5 text-sm text-slate-900 focus:bg-white focus:ring-2 focus:ring-slate-900/5 focus:border-slate-900 transition-all outline-none appearance-none cursor-pointer"
             >
-              {USER_ROLES.map(role => (
-                <option key={role.value} value={role.value}>{role.label}</option>
+              {USER_ROLES.map((role) => (
+                <option key={role.value} value={role.value}>
+                  {role.label}
+                </option>
               ))}
             </select>
           </div>
 
           <div className="flex gap-3 pt-2">
-            <button 
+            <button
               type="button"
               onClick={() => setIsModalOpen(false)}
               className="flex-1 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-bold text-slate-700 hover:bg-slate-50 transition-all"
             >
               Cancel
             </button>
-            <button 
-              disabled={userFormBusy} 
+            <button
+              disabled={userFormBusy}
               className="flex-[2] rounded-xl bg-slate-900 px-4 py-2.5 text-sm font-bold text-white hover:bg-slate-800 transition-all active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
             >
               {userFormBusy ? (

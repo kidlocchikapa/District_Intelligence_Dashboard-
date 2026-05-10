@@ -58,6 +58,29 @@ def run_step(step_name, user_message_on_error, fn, *args, **kwargs):
     log_step(step_name, 'completed')
     return result
 
+
+def safe_run_step(step_name, user_message_on_error, fn, *args, **kwargs):
+    step_runner = globals().get('run_step')
+    if callable(step_runner):
+        return step_runner(step_name, user_message_on_error, fn, *args, **kwargs)
+
+    # Fall back to direct execution so extraction can still proceed if a stale
+    # runtime copy of this module is missing the shared step wrapper.
+    log_step(step_name, 'started')
+    try:
+        result = fn(*args, **kwargs)
+    except IngestError:
+        raise
+    except Exception as exc:
+        log_step(step_name, f"failed: {exc}", level='error')
+        raise IngestError(
+            user_message=user_message_on_error,
+            step_name=step_name,
+            original_error=exc,
+        ) from exc
+    log_step(step_name, 'completed')
+    return result
+
 # normalize column names by converting to lowercase, replacing non-alphanumeric characters with underscores,
 # and collapsing multiple underscores
 def normalize_column_name(name):
@@ -295,7 +318,7 @@ def extract_source(
     if source_type == 'file':
         if not file_path:
             raise ValueError('file_path is required for file extraction')
-        return run_step(
+        return safe_run_step(
             step_name='extract_source_file',
             user_message_on_error='Could not read the provided file. Verify file path and format.',
             fn=read_file,
@@ -305,7 +328,7 @@ def extract_source(
     if source_type == 'api':
         if not api_url:
             raise ValueError('api_url is required for API extraction')
-        return run_step(
+        return safe_run_step(
             step_name='extract_source_api',
             user_message_on_error='Could not fetch data from API. Check URL, headers, and network access.',
             fn=extract_from_api,
@@ -314,7 +337,7 @@ def extract_source(
         )
 
     if source_type == 'overpass':
-        return run_step(
+        return safe_run_step(
             step_name='extract_source_overpass',
             user_message_on_error='Could not fetch data from Overpass API. Check query and network access.',
             fn=extract_from_overpass,
@@ -355,14 +378,14 @@ def load_reference_gazetteer(session, gazetteer_path=None):
     try:
         if gazetteer_path and os.path.exists(gazetteer_path):
             log_step('load_reference_gazetteer', f'using gazetteer file: {gazetteer_path}')
-            return run_step(
+            return safe_run_step(
                 step_name='load_reference_gazetteer_from_file',
                 user_message_on_error='Could not read gazetteer file. Verify the file path and format.',
                 fn=read_file,
                 file_path=gazetteer_path,
             )
 
-        gazetteer_df = run_step(
+        gazetteer_df = safe_run_step(
             step_name='load_reference_gazetteer_from_db',
             user_message_on_error='Could not load gazetteer reference data from the database.',
             fn=read_table,
@@ -384,7 +407,7 @@ def load_reference_gazetteer(session, gazetteer_path=None):
                 ]
             )
 
-        return run_step(
+        return safe_run_step(
             step_name='prepare_gazetteer_dataframe',
             user_message_on_error='Gazetteer data was loaded but could not be normalized.',
             fn=prepare_dataframe,

@@ -44,8 +44,29 @@ function formatDistanceKm(value) {
   return `${Number(value || 0).toFixed(1)} km`;
 }
 
-function formatMinutes(value) {
-  return `${Number(value || 0).toFixed(0)} min`;
+function formatTaAxisLabel(value) {
+  if (!value) {
+    return "";
+  }
+
+  if (value.length <= 14) {
+    return value;
+  }
+
+  return `${value.slice(0, 14)}...`;
+}
+
+function getTaBarColor(value, maxValue) {
+  if (!Number.isFinite(value) || maxValue <= 0) {
+    return "#cbd5e1";
+  }
+
+  const ratio = value / maxValue;
+
+  if (ratio >= 0.8) return "#dc2626";
+  if (ratio >= 0.55) return "#8b5e3c";
+  if (ratio >= 0.3) return "#2563eb";
+  return "#22c55e";
 }
 
 function renderBooleanPill(value, yesLabel = "Yes", noLabel = "No") {
