@@ -18,6 +18,7 @@ from pipeline_config import DATASET_CONFIG
 LOGGER = logging.getLogger('etl.roads')
 
 DEFAULT_SPEED_KMH = 30.0
+HEALTH_ACCESS_DISTANCE_KM = 8.0
 HEALTH_ACCESS_TIME_MIN = 60.0
 SCHOOL_ACCESS_TIME_MIN = 45.0
 
@@ -503,7 +504,8 @@ def compute_facility_travel(session, facility_type, candidate_limit=8):
                 ROW_NUMBER() OVER (
                     PARTITION BY beneficiary_id
                     ORDER BY
-                        CASE WHEN travel_time_min IS NULL THEN 1 ELSE 0 END,
+                        CASE WHEN network_distance_km IS NULL THEN 1 ELSE 0 END,
+                        network_distance_km ASC NULLS LAST,
                         travel_time_min ASC NULLS LAST,
                         straight_line_distance_km ASC NULLS LAST
                 ) AS route_rank
@@ -586,14 +588,19 @@ def update_welfare_access_from_travel(session):
             """
             UPDATE welfare_beneficiary_indicators wbi
             SET
-                has_health_facility_access = COALESCE(travel.travel_time_min <= :threshold, FALSE),
+                has_health_facility_access = COALESCE(
+                    travel.routing_status = 'routed'
+                    AND travel.network_distance_km IS NOT NULL
+                    AND travel.network_distance_km <= :threshold,
+                    FALSE
+                ),
                 updated_at = CURRENT_TIMESTAMP
             FROM beneficiary_facility_travel travel
             WHERE travel.beneficiary_id = wbi.beneficiary_id
               AND travel.facility_type = 'health'
             """
         ),
-        {'threshold': HEALTH_ACCESS_TIME_MIN},
+        {'threshold': HEALTH_ACCESS_DISTANCE_KM},
     ).rowcount
     school_update = session.execute(
         text(

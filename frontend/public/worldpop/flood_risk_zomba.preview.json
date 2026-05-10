@@ -1,0 +1,23 @@
+{
+  "image": "flood_risk_zomba.png",
+  "bounds": [
+    [
+      -15.684327274999816,
+      35.003983926000046
+    ],
+    [
+      -15.196727879999912,
+      35.853439
+    ]
+  ],
+  "legend": {
+    "label": "Flood Risk Surface",
+    "lowLabel": "Low Risk",
+    "highLabel": "High Risk",
+    "colors": [
+      "#16a34a",
+      "#f59e0b",
+      "#dc2626"
+    ]
+  }
+}
