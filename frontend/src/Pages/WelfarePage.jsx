@@ -470,6 +470,22 @@ function WelfarePage() {
           : "N/A",
     },
     {
+      key: "nearest_health_travel_time_min",
+      label: "Health Road Travel",
+      render: (value, row) =>
+        row.nearest_health_routing_status === "routed"
+          ? `${formatMinutes(value)} (${formatDistanceKm(row.nearest_health_network_distance_km)})`
+          : "N/A",
+    },
+    {
+      key: "nearest_school_travel_time_min",
+      label: "School Road Travel",
+      render: (value, row) =>
+        row.nearest_school_routing_status === "routed"
+          ? `${formatMinutes(value)} (${formatDistanceKm(row.nearest_school_network_distance_km)})`
+          : "N/A",
+    },
+    {
       key: "nearest_hospital_name",
       label: "Nearest Hospital",
       render: (value, row) =>
