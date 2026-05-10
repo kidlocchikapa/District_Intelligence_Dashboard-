@@ -28,6 +28,7 @@ function PopulationRasterPanel({
   onFeatureClick,
   selectedFeatureName,
   featureNameResolver,
+  customTooltipMetrics,
 }) {
   const { selectedDistrict, setSelectedDistrict } = useDistrict();
   const [metadata, setMetadata] = useState(null);
@@ -345,46 +346,61 @@ function PopulationRasterPanel({
                         {formatStat(focusProperties.population_density, 1)}
                       </p>
                     </div>
-                    {focusProperties.beneficiary_count !== undefined ? (
-                      <div>
-                        <p className="uppercase tracking-[0.12em] text-slate/40">
-                          Beneficiaries
-                        </p>
-                        <p className="mt-1 text-[14px] font-black text-slate">
-                          {formatStat(focusProperties.beneficiary_count)}
-                        </p>
-                      </div>
-                    ) : null}
-                    {focusProperties.flood_affected_count !== undefined ? (
-                      <div>
-                        <p className="uppercase tracking-[0.12em] text-slate/40">
-                          Flood Affected
-                        </p>
-                        <p className="mt-1 text-[14px] font-black text-slate">
-                          {formatStat(focusProperties.flood_affected_count)}
-                        </p>
-                      </div>
-                    ) : null}
-                    {focusProperties.exposed_population !== undefined ? (
-                      <div>
-                        <p className="uppercase tracking-[0.12em] text-slate/40">
-                          Flood Exposed
-                        </p>
-                        <p className="mt-1 text-[14px] font-black text-slate">
-                          {formatStat(focusProperties.exposed_population)}
-                        </p>
-                      </div>
-                    ) : null}
-                    {focusProperties.exposed_population_pct !== undefined ? (
-                      <div>
-                        <p className="uppercase tracking-[0.12em] text-slate/40">
-                          Exposure %
-                        </p>
-                        <p className="mt-1 text-[14px] font-black text-slate">
-                          {formatStat(focusProperties.exposed_population_pct, 1)}%
-                        </p>
-                      </div>
-                    ) : null}
+                    {customTooltipMetrics ? customTooltipMetrics.map(metric => (
+                      focusProperties[metric.key] !== undefined ? (
+                        <div key={metric.key}>
+                          <p className="uppercase tracking-[0.12em] text-slate/40">
+                            {metric.label}
+                          </p>
+                          <p className="mt-1 text-[14px] font-black text-slate">
+                            {metric.format === 'pct' ? `${formatStat(focusProperties[metric.key], 1)}%` : formatStat(focusProperties[metric.key], metric.digits || 0)}
+                          </p>
+                        </div>
+                      ) : null
+                    )) : (
+                      <>
+                        {focusProperties.beneficiary_count !== undefined ? (
+                          <div>
+                            <p className="uppercase tracking-[0.12em] text-slate/40">
+                              Beneficiaries
+                            </p>
+                            <p className="mt-1 text-[14px] font-black text-slate">
+                              {formatStat(focusProperties.beneficiary_count)}
+                            </p>
+                          </div>
+                        ) : null}
+                        {focusProperties.flood_affected_count !== undefined ? (
+                          <div>
+                            <p className="uppercase tracking-[0.12em] text-slate/40">
+                              Flood Affected
+                            </p>
+                            <p className="mt-1 text-[14px] font-black text-slate">
+                              {formatStat(focusProperties.flood_affected_count)}
+                            </p>
+                          </div>
+                        ) : null}
+                        {focusProperties.exposed_population !== undefined ? (
+                          <div>
+                            <p className="uppercase tracking-[0.12em] text-slate/40">
+                              Flood Exposed
+                            </p>
+                            <p className="mt-1 text-[14px] font-black text-slate">
+                              {formatStat(focusProperties.exposed_population)}
+                            </p>
+                          </div>
+                        ) : null}
+                        {focusProperties.exposed_population_pct !== undefined ? (
+                          <div>
+                            <p className="uppercase tracking-[0.12em] text-slate/40">
+                              Exposure %
+                            </p>
+                            <p className="mt-1 text-[14px] font-black text-slate">
+                              {formatStat(focusProperties.exposed_population_pct, 1)}%
+                            </p>
+                          </div>
+                        ) : null}
+                      </>
+                    )}
                   </div>
                 </div>
               ) : (

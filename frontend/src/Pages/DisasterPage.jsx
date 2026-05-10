@@ -24,7 +24,7 @@ import { usePdfExport } from "../hooks/usePdfExport";
 import IntegrationSummaryPanel from "../components/IntegrationSummaryPanel";
 import SharedDistrictSelector from "../components/SharedDistrictSelector";
 import { buildDashboardPath } from "../lib/query";
-import FloodRiskRasterPanel from "../components/FloodRiskRasterPanel";
+import PopulationRasterPanel from "../components/PopulationRasterPanel";
 
 function formatTaAxisLabel(value) {
   if (!value) {
@@ -112,9 +112,23 @@ function DisasterPage() {
   const floodRiskZones = useDashboardData(
     buildDashboardPath("/dashboard/disaster/flood", {
       district: disasterDistrictFilter,
-      ta: selectedTa,
       admin_type: "TA",
-      ta: selectedTa,
+    }),
+  );
+  
+  const educationFacilityExposureSummaryTA = useDashboardData(
+    buildDashboardPath("/dashboard/disaster/flood/facilities/summary", {
+      district: disasterDistrictFilter,
+      admin_type: "TA",
+      facility_type: "education",
+    }),
+  );
+
+  const healthFacilityExposureSummaryTA = useDashboardData(
+    buildDashboardPath("/dashboard/disaster/flood/facilities/summary", {
+      district: disasterDistrictFilter,
+      admin_type: "TA",
+      facility_type: "health",
     }),
   );
   const taFloodExposure = useDashboardData(
@@ -131,6 +145,41 @@ function DisasterPage() {
       admin_type: "District",
     }),
   );
+
+  const augmentedGeojson = useMemo(() => {
+    if (!floodRiskZones.data || !floodRiskZones.data.features) {
+      return floodRiskZones.data;
+    }
+
+    const eduMap = new Map();
+    (educationFacilityExposureSummaryTA.data || []).forEach((row) => {
+      eduMap.set(row.admin_unit_name, row.exposed_facilities || 0);
+    });
+
+    const healthMap = new Map();
+    (healthFacilityExposureSummaryTA.data || []).forEach((row) => {
+      healthMap.set(row.admin_unit_name, row.exposed_facilities || 0);
+    });
+
+    return {
+      ...floodRiskZones.data,
+      features: floodRiskZones.data.features.map((feature) => {
+        const taName = feature.properties?.admin_unit_name;
+        return {
+          ...feature,
+          properties: {
+            ...feature.properties,
+            exposed_schools: eduMap.get(taName) || 0,
+            exposed_health_facilities: healthMap.get(taName) || 0,
+          },
+        };
+      }),
+    };
+  }, [
+    floodRiskZones.data,
+    educationFacilityExposureSummaryTA.data,
+    healthFacilityExposureSummaryTA.data,
+  ]);
 
   const exposedTaChartData = useMemo(
     () =>
@@ -363,12 +412,21 @@ function DisasterPage() {
                   </span>
                 </div>
               ) : (
-                <FloodRiskRasterPanel
-                  geojson={floodRiskZones.data}
-                  title="Flood Risk Raster Surface"
-                  subtitle="Rasterized directly from database flood risk classes (low, medium, high)."
+                <PopulationRasterPanel
+                  geojson={augmentedGeojson}
+                  title="High-Resolution Flood Risk Map"
+                  subtitle="Rasterized surface detailing flood exposure intensity across the district."
                   heightClass="h-full w-full"
-                  loading={floodRiskZones.loading}
+                  rasterMetadataPath={
+                    disasterDistrictFilter
+                      ? `/worldpop/flood_risk_${disasterDistrictFilter.toLowerCase().replace(/ /g, "_").replace(/[()]/g, "")}.preview.json`
+                      : "/worldpop/flood_risk_zomba.preview.json"
+                  }
+                  loading={
+                    floodRiskZones.loading ||
+                    educationFacilityExposureSummaryTA.loading ||
+                    healthFacilityExposureSummaryTA.loading
+                  }
                   selectedAreaName={selectedTa}
                   onSelectArea={(feature) => {
                     const nextTa = feature?.properties?.admin_unit_name || "";
@@ -376,6 +434,34 @@ function DisasterPage() {
                       setSelectedTa(nextTa);
                     }
                   }}
+                  customTooltipMetrics={[
+                    {
+                      label: "Total Pop",
+                      key: "total_population",
+                      format: "number",
+                    },
+                    {
+                      label: "Exposed Pop",
+                      key: "exposed_population",
+                      format: "number",
+                    },
+                    {
+                      label: "Exposed Area",
+                      key: "exposed_area_sq_km",
+                      format: "number",
+                      suffix: " sq/km",
+                    },
+                    {
+                      label: "Exposed Schools",
+                      key: "exposed_schools",
+                      format: "number",
+                    },
+                    {
+                      label: "Exposed Health",
+                      key: "exposed_health_facilities",
+                      format: "number",
+                    },
+                  ]}
                 />
               )}
             </div>
