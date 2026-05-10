@@ -221,6 +221,7 @@ def compute_health_2sfca_access(
     admin_units_gdf,
     catchment_minutes=DEFAULT_HEALTH_2SFCA_CATCHMENT_MIN,
     admin_level=None,
+    is_flooded=False,
 ):
     if admin_units_gdf.empty:
         raise ValueError('No administrative units available for health_2sfca_access')
@@ -301,7 +302,8 @@ def compute_health_2sfca_access(
             JOIN LATERAL (
                 SELECT *
                 FROM pgr_drivingDistance(
-                    'SELECT id, source, target, cost, reverse_cost FROM road_segments WHERE source IS NOT NULL AND target IS NOT NULL AND cost > 0',
+                    'SELECT id, source, target, cost, reverse_cost FROM road_segments WHERE source IS NOT NULL AND target IS NOT NULL AND cost > 0' 
+                    || CASE WHEN :is_flooded THEN ' AND id NOT IN (SELECT rs.id FROM road_segments rs, flood_risk_polygons fz WHERE rs.geom && fz.geom AND ST_Intersects(rs.geom, fz.geom))' ELSE '' END,
                     f.facility_node,
                     :catchment_minutes,
                     directed := true
@@ -348,6 +350,7 @@ def compute_health_2sfca_access(
         {
             'catchment_minutes': float(catchment_minutes),
             'admin_level': admin_level,
+            'is_flooded': bool(is_flooded),
         },
     ).mappings().all()
 
@@ -433,6 +436,218 @@ def compute_service_coverage(admin_units_gdf, facilities_gdf, analysis_type, met
             )
         )
 
+    return pd.DataFrame(records)
+
+
+# Compute an integrated vulnerability index by combining healthcare access scores with welfare beneficiary density
+def compute_integrated_vulnerability(session, admin_units_gdf):
+    if admin_units_gdf.empty:
+        return pd.DataFrame()
+
+    # 1. Fetch latest Health Access Scores (2SFCA) from the database
+    health_query = text("""
+        SELECT admin_unit_id, metric_value 
+        FROM analysis_results 
+        WHERE analysis_type = 'health_2sfca_access' 
+        AND LOWER(admin_unit_type) = 'ta'
+    """)
+    health_scores = {
+        int(row['admin_unit_id']): float(row['metric_value'] or 0.0) 
+        for row in session.execute(health_query).mappings()
+    }
+    
+    # 2. Fetch Welfare Beneficiary Counts per TA
+    welfare_query = text("""
+        SELECT ta_id, COUNT(*) as beneficiary_count
+        FROM welfare_beneficiary
+        WHERE ta_id IS NOT NULL
+        GROUP BY ta_id
+    """)
+    welfare_counts = {
+        int(row['ta_id']): int(row['beneficiary_count'] or 0) 
+        for row in session.execute(welfare_query).mappings()
+    }
+    
+    # 3. Calculate raw vulnerability components
+    raw_data = []
+    for _, row in admin_units_gdf.iterrows():
+        admin_id = int(row['id'])
+        population = float(row.get('population_total') or 1.0)
+        h_score = health_scores.get(admin_id, 0.0)
+        w_count = welfare_counts.get(admin_id, 0)
+        
+        # Poverty Density: Beneficiaries per person
+        w_density = w_count / population if population > 0 else 0
+        
+        raw_data.append({
+            'admin_id': admin_id,
+            'h_score': h_score,
+            'w_density': w_density,
+            'admin_row': row
+        })
+        
+    df_raw = pd.DataFrame(raw_data)
+    if df_raw.empty:
+        return pd.DataFrame()
+
+    # 4. Normalize and combine metrics (Min-Max normalization)
+    h_max = df_raw['h_score'].max() or 1.0
+    w_max = df_raw['w_density'].max() or 1.0
+    
+    records = []
+    for _, entry in df_raw.iterrows():
+        # Scale to 0-1
+        norm_h = entry['h_score'] / h_max
+        norm_w = entry['w_density'] / w_max
+        
+        # Integrated Score: High Poverty AND Low Health Access = High Priority
+        # (1 - norm_h) makes Low Access a high number (vulnerability)
+        vulnerability_score = (1.0 - norm_h) * norm_w * 100.0
+        
+        records.append(
+            analysis_record(
+                analysis_type='health_welfare_vulnerability',
+                admin_row=entry['admin_row'],
+                metric_name='vulnerability_index',
+                metric_value=float(vulnerability_score),
+                metric_unit='priority_score',
+                metadata={
+                    'normalized_health_access': float(norm_h),
+                    'normalized_poverty_density': float(norm_w),
+                    'raw_health_score': float(entry['h_score']),
+                    'raw_beneficiary_count': int(welfare_counts.get(entry['admin_id'], 0))
+                }
+            )
+        )
+            
+    return pd.DataFrame(records)
+
+# Identify areas at risk of healthcare isolation by comparing normal access with simulated flooded access
+def compute_flood_isolation_index(session, admin_units_gdf):
+    if admin_units_gdf.empty:
+        return pd.DataFrame()
+
+    # 1. Compute baseline (Normal) access
+    df_normal = compute_health_2sfca_access(session, admin_units_gdf, is_flooded=False)
+    
+    # 2. Compute "Flooded" access (excluding segments in flood zones)
+    df_flooded = compute_health_2sfca_access(session, admin_units_gdf, is_flooded=True)
+    
+    # Create lookups for easy comparison
+    normal_scores = {
+        int(row['admin_unit_id']): float(row['metric_value']) 
+        for _, row in df_normal.iterrows()
+    }
+    flooded_scores = {
+        int(row['admin_unit_id']): float(row['metric_value']) 
+        for _, row in df_flooded.iterrows()
+    }
+    
+    records = []
+    for _, admin_row in admin_units_gdf.iterrows():
+        admin_id = int(admin_row['id'])
+        score_normal = normal_scores.get(admin_id, 0.0)
+        score_flooded = flooded_scores.get(admin_id, 0.0)
+        
+        # Isolation Score: How much of the normal access is LOST?
+        loss = score_normal - score_flooded
+        isolation_index = (loss / score_normal * 100.0) if score_normal > 0 else 0.0
+        isolation_index = max(0.0, min(100.0, isolation_index))
+        
+        records.append(
+            analysis_record(
+                analysis_type='health_flood_isolation',
+                admin_row=admin_row,
+                metric_name='flood_isolation_index',
+                metric_value=float(isolation_index),
+                metric_unit='percent_access_loss',
+                metadata={
+                    'score_normal': float(score_normal),
+                    'score_flooded': float(score_flooded),
+                    'access_loss_raw': float(loss),
+                    'scenario': '100yr_flood_road_closure'
+                }
+            )
+        )
+        
+    return pd.DataFrame(records)
+
+# Identify schools that lack nearby healthcare facilities by calculating the distance to the nearest health center
+def compute_school_health_gap(session, admin_units_gdf):
+    if admin_units_gdf.empty:
+        return pd.DataFrame()
+
+    # 1. Fetch school and health facility locations
+    schools_query = text("""
+        SELECT school_id, school_name, geom, COALESCE(student_enrollment_total, 0) as enrolment 
+        FROM education_facilities 
+        WHERE geom IS NOT NULL
+    """)
+    health_query = text("SELECT id, name, geom FROM health_facilities WHERE geom IS NOT NULL")
+    
+    schools_rows = session.execute(schools_query).mappings().all()
+    health_rows = session.execute(health_query).mappings().all()
+    
+    if not schools_rows or not health_rows:
+        return pd.DataFrame()
+
+    # 2. Use PostGIS to find the nearest health facility for each school
+    gap_query = text("""
+        WITH school_gaps AS (
+            SELECT 
+                s.school_id,
+                s.school_name,
+                s.student_enrollment_total as enrolment,
+                s.geom as school_geom,
+                ST_Distance(s.geom::geography, h.geom::geography) / 1000.0 as distance_km
+            FROM education_facilities s
+            CROSS JOIN LATERAL (
+                SELECT geom 
+                FROM health_facilities 
+                ORDER BY s.geom <-> geom 
+                LIMIT 1
+            ) h
+            WHERE s.geom IS NOT NULL
+        )
+        SELECT 
+            au.id as admin_unit_id,
+            SUM(sg.enrolment) as total_enrolment,
+            AVG(sg.distance_km) as avg_distance_to_health,
+            COUNT(sg.school_id) as school_count
+        FROM admin3_units au
+        JOIN school_gaps sg ON ST_Within(sg.school_geom, au.geom)
+        WHERE LOWER(au.type) = 'ta'
+        GROUP BY au.id
+    """)
+    
+    gap_data = {
+        int(row['admin_unit_id']): {
+            'avg_distance': float(row['avg_distance_to_health']),
+            'student_count': int(row['total_enrolment'] or 0)
+        }
+        for row in session.execute(gap_query).mappings()
+    }
+    
+    records = []
+    for _, admin_row in admin_units_gdf.iterrows():
+        admin_id = int(admin_row['id'])
+        stats = gap_data.get(admin_id, {'avg_distance': 0.0, 'student_count': 0})
+        
+        # Metric: Average distance to healthcare for schools in this TA
+        records.append(
+            analysis_record(
+                analysis_type='school_health_gap',
+                admin_row=admin_row,
+                metric_name='avg_school_to_health_dist_km',
+                metric_value=float(stats['avg_distance']),
+                metric_unit='km',
+                metadata={
+                    'student_enrolment_affected': int(stats['student_count']),
+                    'school_count': int(stats.get('school_count', 0))
+                }
+            )
+        )
+            
     return pd.DataFrame(records)
 
 #Calculate the population served by health facilities within a specified adminstrative unit

@@ -558,6 +558,9 @@ router.get("/raster-metadata", async (req, res) => {
         health_network_8km: `/health-access/${slug}.health_network_8km.preview.json`,
         health_travel_time: `/health-access/${slug}.health_travel_time.preview.json`,
         health_2sfca: `/health-access/${slug}.health_2sfca.preview.json`,
+        health_welfare_vulnerability: `/health-access/${slug}.health_welfare_vulnerability.preview.json`,
+        health_flood_isolation: `/health-access/${slug}.health_flood_isolation.preview.json`,
+        health_school_gap: `/health-access/${slug}.health_school_gap.preview.json`,
       },
     },
   });
@@ -1189,6 +1192,55 @@ router.get("/drilldown", async (req, res) => {
       ta,
     });
     res.status(500).send("Server error");
+  }
+});
+
+// @route   GET api/v1/dashboard/health/analytics/ta
+// @desc    Get aggregated TA-level deep-dive analytics
+router.get("/analytics/ta", async (req, res) => {
+  const { district } = req.query;
+  try {
+    const query = `
+      SELECT 
+          admin_unit_name,
+          MAX(CASE WHEN analysis_type = 'health_welfare_vulnerability' THEN metric_value END) as vulnerability_score,
+          MAX(CASE WHEN analysis_type = 'health_welfare_vulnerability' THEN (metadata->>'raw_beneficiary_count')::numeric END) as beneficiary_count,
+          MAX(CASE WHEN analysis_type = 'health_flood_isolation' THEN metric_value END) as flood_isolation_risk,
+          MAX(CASE WHEN analysis_type = 'school_health_gap' THEN (metadata->>'student_enrolment_affected')::numeric END) as student_enrolment_affected,
+          MAX(CASE WHEN analysis_type = 'school_health_gap' THEN metric_value END) as avg_distance_to_health
+      FROM analysis_results
+      WHERE analysis_type IN ('health_welfare_vulnerability', 'health_flood_isolation', 'school_health_gap')
+        AND LOWER(admin_unit_type) = 'ta'
+      GROUP BY admin_unit_name
+      ORDER BY vulnerability_score DESC NULLS LAST;
+    `;
+    const result = await db.query(query);
+    res.json({ status: "success", data: result.rows });
+  } catch (err) {
+    console.error("TA Analytics Error:", err);
+    res.status(500).json({ status: "error", message: "Server error" });
+  }
+});
+
+// @route   GET api/v1/dashboard/health/analytics/facility
+// @desc    Get Facility-level deep-dive analytics (Burden)
+router.get("/analytics/facility", async (req, res) => {
+  try {
+    const query = `
+      SELECT 
+        hf.name as facility_name,
+        COALESCE(hf.doctor_count, 0) + COALESCE(hf.nurse_midwife_count, 0) as staff_count,
+        hf.beds_count,
+        COALESCE(am.worldpop_population_within_buffer, 0) as catchment_population
+      FROM health_facilities hf
+      LEFT JOIN health_facility_access_metrics am ON hf.id = am.facility_id AND am.coverage_distance_km = 8
+      WHERE hf.geom IS NOT NULL
+    `;
+    const result = await db.query(query);
+    res.json({ status: "success", data: result.rows });
+  } catch (err) {
+    console.error("Facility Analytics Error:", err);
+    res.status(500).json({ status: "error", message: "Server error" });
   }
 });
 

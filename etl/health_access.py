@@ -20,7 +20,13 @@ from sqlalchemy import text
 from db_utils import log_etl_run
 from roads import recompute_beneficiary_facility_travel
 from worldpop import DEFAULT_WORLDPOP_YEAR, get_zonal_stats, resolve_worldpop_raster
-from analytics import compute_health_2sfca_access, fetch_admin_units_for_analysis
+from analytics import (
+    compute_health_2sfca_access,
+    compute_integrated_vulnerability,
+    compute_flood_isolation_index,
+    compute_school_health_gap,
+    fetch_admin_units_for_analysis,
+)
 from load import load_analysis_results
 
 LOGGER = logging.getLogger("etl.health_access")
@@ -900,6 +906,108 @@ def generate_health_access_previews(
                     sfca_surface = _gaussian_smooth_masked(sfca_surface, district_mask, sigma_px=smoothing_sigma)
                     sfca_surface = _mask_array(sfca_surface, district_mask)
 
+            # Integrated Vulnerability (Health Access + Welfare Poverty)
+            vuln_df = run_step(
+                "compute_integrated_vulnerability",
+                "Failed to compute integrated health-welfare vulnerability.",
+                compute_integrated_vulnerability,
+                session=session,
+                admin_units_gdf=intersecting_admin_units
+            )
+            
+            vuln_surface = np.full((template["height"], template["width"]), np.nan, dtype=np.float32)
+            if not vuln_df.empty:
+                # Save to DB
+                run_step(
+                    "save_vulnerability_results",
+                    "Could not save vulnerability analysis results.",
+                    load_analysis_results,
+                    session=session,
+                    analysis_df=vuln_df
+                )
+                
+                # Rasterize
+                vuln_gdf = gpd.GeoDataFrame(vuln_df, geometry='geom', crs=admin_units_gdf.crs).to_crs("EPSG:3857")
+                vuln_gdf = vuln_gdf[~vuln_gdf.geometry.isna() & ~vuln_gdf.geometry.is_empty].copy()
+                vuln_gdf.geometry = vuln_gdf.geometry.centroid
+                vuln_xy = _point_coordinates(vuln_gdf.geometry)
+                vuln_vals = pd.to_numeric(vuln_gdf["metric_value"], errors="coerce").to_numpy(dtype=np.float32)
+                
+                v_mask = np.isfinite(vuln_vals)
+                if np.any(v_mask):
+                    v_seed = _aggregate_points_to_raster(vuln_xy[v_mask], vuln_vals[v_mask], template)
+                    v_surface = _idw_interpolate_surface(v_seed, template)
+                    v_surface = _gaussian_smooth_masked(v_surface, district_mask, sigma_px=smoothing_sigma)
+                    vuln_surface = _mask_array(v_surface, district_mask)
+
+            # Flood Isolation Simulation (Access Loss during disasters)
+            flood_df = run_step(
+                "compute_flood_isolation",
+                "Failed to compute simulated flood isolation.",
+                compute_flood_isolation_index,
+                session=session,
+                admin_units_gdf=intersecting_admin_units
+            )
+            
+            flood_surface = np.full((template["height"], template["width"]), np.nan, dtype=np.float32)
+            if not flood_df.empty:
+                # Save to DB
+                run_step(
+                    "save_flood_isolation_results",
+                    "Could not save flood isolation analysis results.",
+                    load_analysis_results,
+                    session=session,
+                    analysis_df=flood_df
+                )
+                
+                # Rasterize
+                flood_gdf = gpd.GeoDataFrame(flood_df, geometry='geom', crs=admin_units_gdf.crs).to_crs("EPSG:3857")
+                flood_gdf = flood_gdf[~flood_gdf.geometry.isna() & ~flood_gdf.geometry.is_empty].copy()
+                flood_gdf.geometry = flood_gdf.geometry.centroid
+                flood_xy = _point_coordinates(flood_gdf.geometry)
+                flood_vals = pd.to_numeric(flood_gdf["metric_value"], errors="coerce").to_numpy(dtype=np.float32)
+                
+                f_mask = np.isfinite(flood_vals)
+                if np.any(f_mask):
+                    f_seed = _aggregate_points_to_raster(flood_xy[f_mask], flood_vals[f_mask], template)
+                    f_surface = _idw_interpolate_surface(f_seed, template)
+                    f_surface = _gaussian_smooth_masked(f_surface, district_mask, sigma_px=smoothing_sigma)
+                    flood_surface = _mask_array(f_surface, district_mask)
+
+            # School-Health Synergy (Education + Health)
+            school_df = run_step(
+                "compute_school_health_gap",
+                "Failed to compute school-health synergy gap.",
+                compute_school_health_gap,
+                session=session,
+                admin_units_gdf=intersecting_admin_units
+            )
+            
+            school_surface = np.full((template["height"], template["width"]), np.nan, dtype=np.float32)
+            if not school_df.empty:
+                # Save to DB
+                run_step(
+                    "save_school_health_results",
+                    "Could not save school health analysis results.",
+                    load_analysis_results,
+                    session=session,
+                    analysis_df=school_df
+                )
+                
+                # Rasterize
+                school_gdf = gpd.GeoDataFrame(school_df, geometry='geom', crs=admin_units_gdf.crs).to_crs("EPSG:3857")
+                school_gdf = school_gdf[~school_gdf.geometry.isna() & ~school_gdf.geometry.is_empty].copy()
+                school_gdf.geometry = school_gdf.geometry.centroid
+                school_xy = _point_coordinates(school_gdf.geometry)
+                school_vals = pd.to_numeric(school_gdf["metric_value"], errors="coerce").to_numpy(dtype=np.float32)
+                
+                s_mask = np.isfinite(school_vals)
+                if np.any(s_mask):
+                    s_seed = _aggregate_points_to_raster(school_xy[s_mask], school_vals[s_mask], template)
+                    s_surface = _idw_interpolate_surface(s_seed, template)
+                    s_surface = _gaussian_smooth_masked(s_surface, district_mask, sigma_px=smoothing_sigma)
+                    school_surface = _mask_array(s_surface, district_mask)
+
     products = [
         {
             "surface": buffer_surface,
@@ -956,6 +1064,51 @@ def generate_health_access_previews(
             "legend_label": "2SFCA Access Score (staff per 1,000 people)",
             "low_label": "Low Access",
             "high_label": "High Access",
+            "render": {
+                "transform": "linear",
+                "surfaceMethod": "idw",
+                "resolutionM": float(template["resolution_m"]),
+                "smoothed": True,
+                "maskedToDistrict": True,
+            },
+        },
+        {
+            "surface": vuln_surface,
+            "name": f"{slug}.health_welfare_vulnerability.preview",
+            "colors": ["#fde68a", "#fbbf24", "#f59e0b", "#d97706", "#b45309", "#78350f"],
+            "legend_label": "Integrated Vulnerability (Low Access + High Poverty)",
+            "low_label": "Lower Priority",
+            "high_label": "Highest Priority",
+            "render": {
+                "transform": "linear",
+                "surfaceMethod": "idw",
+                "resolutionM": float(template["resolution_m"]),
+                "smoothed": True,
+                "maskedToDistrict": True,
+            },
+        },
+        {
+            "surface": flood_surface,
+            "name": f"{slug}.health_flood_isolation.preview",
+            "colors": ["#f0f9ff", "#bae6fd", "#7dd3fc", "#38bdf8", "#0284c7", "#1e3a8a", "#ef4444"],
+            "legend_label": "% Healthcare Access Lost During Flood",
+            "low_label": "Resilient",
+            "high_label": "High Isolation Risk",
+            "render": {
+                "transform": "linear",
+                "surfaceMethod": "idw",
+                "resolutionM": float(template["resolution_m"]),
+                "smoothed": True,
+                "maskedToDistrict": True,
+            },
+        },
+        {
+            "surface": school_surface,
+            "name": f"{slug}.health_school_gap.preview",
+            "colors": ["#f0fdf4", "#dcfce7", "#86efac", "#22c55e", "#16a34a", "#15803d", "#14532d"],
+            "legend_label": "Avg Distance: School to Nearest Health (km)",
+            "low_label": "Well Served",
+            "high_label": "Underserved Schools",
             "render": {
                 "transform": "linear",
                 "surfaceMethod": "idw",
