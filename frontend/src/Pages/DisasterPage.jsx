@@ -6,7 +6,7 @@ import {
   Map as MapIcon,
   Download,
 } from "lucide-react";
-import { useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   Bar,
   BarChart,
@@ -24,7 +24,7 @@ import { usePdfExport } from "../hooks/usePdfExport";
 import IntegrationSummaryPanel from "../components/IntegrationSummaryPanel";
 import SharedDistrictSelector from "../components/SharedDistrictSelector";
 import { buildDashboardPath } from "../lib/query";
-import FloodRiskRasterPanel from "../components/FloodRiskRasterPanel";
+import PopulationRasterPanel from "../components/PopulationRasterPanel";
 
 function formatTaAxisLabel(value) {
   if (!value) {
@@ -55,6 +55,10 @@ function DisasterPage() {
   const { selectedDistrict, selectedTa, setSelectedTa } = useDistrict();
   const { contentRef, exportPdf } = usePdfExport("DisasterRisk_Report.pdf");
 
+  useEffect(() => {
+    setSelectedTa("");
+  }, [selectedDistrict]);
+
   const disasterDistrictFilter = useMemo(() => {
     const normalized = String(selectedDistrict || "")
       .trim()
@@ -74,6 +78,8 @@ function DisasterPage() {
 
     return selectedDistrict;
   }, [selectedDistrict]);
+
+  const scopeLabel = selectedDistrict ? selectedDistrict : "Zomba + Zomba City";
 
   // Summary Aggregates
   const disasterSummary = useDashboardData(
@@ -106,14 +112,30 @@ function DisasterPage() {
   const floodRiskZones = useDashboardData(
     buildDashboardPath("/dashboard/disaster/flood", {
       district: disasterDistrictFilter,
-      ta: selectedTa,
       admin_type: "TA",
+    }),
+  );
+  
+  const educationFacilityExposureSummaryTA = useDashboardData(
+    buildDashboardPath("/dashboard/disaster/flood/facilities/summary", {
+      district: disasterDistrictFilter,
+      admin_type: "TA",
+      facility_type: "education",
+    }),
+  );
+
+  const healthFacilityExposureSummaryTA = useDashboardData(
+    buildDashboardPath("/dashboard/disaster/flood/facilities/summary", {
+      district: disasterDistrictFilter,
+      admin_type: "TA",
+      facility_type: "health",
     }),
   );
   const taFloodExposure = useDashboardData(
     buildDashboardPath("/dashboard/disaster/flood/population", {
       district: disasterDistrictFilter,
       admin_type: "TA",
+      ta: selectedTa,
     }),
   );
   const disasterIntegration = useDashboardData(
@@ -123,6 +145,41 @@ function DisasterPage() {
       admin_type: "District",
     }),
   );
+
+  const augmentedGeojson = useMemo(() => {
+    if (!floodRiskZones.data || !floodRiskZones.data.features) {
+      return floodRiskZones.data;
+    }
+
+    const eduMap = new Map();
+    (educationFacilityExposureSummaryTA.data || []).forEach((row) => {
+      eduMap.set(row.admin_unit_name, row.exposed_facilities || 0);
+    });
+
+    const healthMap = new Map();
+    (healthFacilityExposureSummaryTA.data || []).forEach((row) => {
+      healthMap.set(row.admin_unit_name, row.exposed_facilities || 0);
+    });
+
+    return {
+      ...floodRiskZones.data,
+      features: floodRiskZones.data.features.map((feature) => {
+        const taName = feature.properties?.admin_unit_name;
+        return {
+          ...feature,
+          properties: {
+            ...feature.properties,
+            exposed_schools: eduMap.get(taName) || 0,
+            exposed_health_facilities: healthMap.get(taName) || 0,
+          },
+        };
+      }),
+    };
+  }, [
+    floodRiskZones.data,
+    educationFacilityExposureSummaryTA.data,
+    healthFacilityExposureSummaryTA.data,
+  ]);
 
   const exposedTaChartData = useMemo(
     () =>
@@ -135,7 +192,9 @@ function DisasterPage() {
           riskLevel: row.risk_level,
         }))
         .filter((row) => row.exposedPopulation > 0)
-        .sort((left, right) => right.exposedPopulation - left.exposedPopulation),
+        .sort(
+          (left, right) => right.exposedPopulation - left.exposedPopulation,
+        ),
     [taFloodExposure.data],
   );
 
@@ -153,6 +212,10 @@ function DisasterPage() {
     healthFacilityExposureSummary.data || []
   ).reduce((sum, row) => sum + Number(row.exposed_facilities || 0), 0);
 
+  const beneficiariesAffected = Number(
+    disasterIntegration.data?.summary?.flood_affected_count || 0,
+  );
+
   const formatStat = (val, withUnit = "") => {
     const num = Number(val);
     if (!Number.isFinite(num)) return withUnit ? `0 ${withUnit}` : "0";
@@ -168,6 +231,40 @@ function DisasterPage() {
       <div className="h-8 w-24 bg-gray-200 rounded"></div>
     </div>
   );
+
+  const statsLoading =
+    disasterSummary.loading ||
+    educationFacilityExposureSummary.loading ||
+    healthFacilityExposureSummary.loading ||
+    disasterIntegration.loading;
+
+  const statCards = [
+    {
+      label: "Total Population Affected",
+      value: formatStat(disasterSummary.data?.exposed_population),
+      icon: Users,
+    },
+    {
+      label: "Schools Affected",
+      value: formatStat(schoolsExposed),
+      icon: School,
+    },
+    {
+      label: "Health Facilities Affected",
+      value: formatStat(healthFacilitiesExposed),
+      icon: Hospital,
+    },
+    {
+      label: "Area Exposed",
+      value: formatStat(disasterSummary.data?.exposed_area_sq_km, "sq/km"),
+      icon: MapIcon,
+    },
+    {
+      label: "Beneficiaries Affected",
+      value: formatStat(beneficiariesAffected),
+      icon: Users,
+    },
+  ];
 
   const ChartSkeleton = () => (
     <div className="h-full w-full flex flex-col gap-4 animate-pulse">
@@ -207,6 +304,21 @@ function DisasterPage() {
               : "Risk analysis for All Districts"}
         </p>
 
+        {selectedTa ? (
+          <div className="mb-4 flex items-center gap-3 text-xs font-semibold text-gray-600">
+            <span className="rounded-full bg-gray-100 px-3 py-1">
+              {scopeLabel} 0 {selectedTa}
+            </span>
+            <button
+              type="button"
+              onClick={() => setSelectedTa("")}
+              className="rounded-full border border-gray-200 px-3 py-1 text-[11px] font-bold uppercase tracking-wide text-gray-500 hover:text-black hover:border-gray-300"
+            >
+              Clear TA
+            </button>
+          </div>
+        ) : null}
+
         {/* Actions Row */}
         <div className="flex gap-4 mb-8">
           <button
@@ -217,49 +329,26 @@ function DisasterPage() {
             Download PDF
           </button>
           <SharedDistrictSelector />
-
         </div>
 
         {/* Stats Row */}
-        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-6 mb-10">
-          {disasterSummary.loading
-            ? [...Array(4)].map((_, i) => <StatCardSkeleton key={i} />)
-            : [
-                {
-                  label: "Total Population Exposed",
-                  value: formatStat(disasterSummary.data?.exposed_population),
-                  icon: Users,
-                },
-                {
-                  label: "Schools Exposed",
-                  value: formatStat(schoolsExposed),
-                  icon: School,
-                },
-                {
-                  label: "Health Facilities Exposed",
-                  value: formatStat(healthFacilitiesExposed),
-                  icon: Hospital,
-                },
-                {
-                  label: "Area Exposed",
-                  value: formatStat(
-                    disasterSummary.data?.exposed_area_sq_km,
-                    "sq/km",
-                  ),
-                  icon: MapIcon,
-                },
-              ].map((stat, i) => (
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-5 gap-4 mb-10">
+          {statsLoading
+            ? [...Array(statCards.length)].map((_, i) => (
+                <StatCardSkeleton key={i} />
+              ))
+            : statCards.map((stat, i) => (
                 <div
                   key={i}
-                  className="border border-gray-100 rounded p-6 shadow-md bg-white group hover:shadow-lg transition-all active:scale-95"
+                  className="border border-gray-100 rounded p-4 shadow-md bg-white group hover:shadow-lg transition-all active:scale-95"
                 >
                   <div className="flex justify-between items-start">
-                    <span className="text-[14px] text-gray-500 font-bold group-hover:text-black">
+                    <span className="text-[12px] text-gray-500 font-bold group-hover:text-black">
                       {stat.label}
                     </span>
-                    <stat.icon className="h-5 w-5 text-gray-300 group-hover:text-black" />
+                    <stat.icon className="h-4 w-4 text-gray-300 group-hover:text-black" />
                   </div>
-                  <div className="mt-4 text-[32px] font-extrabold tracking-tight">
+                  <div className="mt-3 text-[26px] font-extrabold tracking-tight">
                     {stat.value}
                   </div>
                 </div>
@@ -323,30 +412,76 @@ function DisasterPage() {
                   </span>
                 </div>
               ) : (
-                <FloodRiskRasterPanel
-                  geojson={floodRiskZones.data}
-                  title="Flood Risk Raster Surface"
-                  subtitle="Rasterized directly from database flood risk classes (low, medium, high)."
+                <PopulationRasterPanel
+                  geojson={augmentedGeojson}
+                  title="High-Resolution Flood Risk Map"
+                  subtitle="Rasterized surface detailing flood exposure intensity across the district."
                   heightClass="h-full w-full"
-                  loading={floodRiskZones.loading}
+                  rasterMetadataPath={
+                    disasterDistrictFilter
+                      ? `/worldpop/flood_risk_${disasterDistrictFilter.toLowerCase().replace(/ /g, "_").replace(/[()]/g, "")}.preview.json`
+                      : "/worldpop/flood_risk_zomba.preview.json"
+                  }
+                  loading={
+                    floodRiskZones.loading ||
+                    educationFacilityExposureSummaryTA.loading ||
+                    healthFacilityExposureSummaryTA.loading
+                  }
+                  selectedAreaName={selectedTa}
+                  onSelectArea={(feature) => {
+                    const nextTa = feature?.properties?.admin_unit_name || "";
+                    if (nextTa && nextTa !== selectedTa) {
+                      setSelectedTa(nextTa);
+                    }
+                  }}
+                  customTooltipMetrics={[
+                    {
+                      label: "Total Pop",
+                      key: "total_population",
+                      format: "number",
+                    },
+                    {
+                      label: "Exposed Pop",
+                      key: "exposed_population",
+                      format: "number",
+                    },
+                    {
+                      label: "Exposed Area",
+                      key: "exposed_area_sq_km",
+                      format: "number",
+                      suffix: " sq/km",
+                    },
+                    {
+                      label: "Exposed Schools",
+                      key: "exposed_schools",
+                      format: "number",
+                    },
+                    {
+                      label: "Exposed Health",
+                      key: "exposed_health_facilities",
+                      format: "number",
+                    },
+                  ]}
                 />
               )}
             </div>
           </div>
-          
+
           <div className="border border-gray-100 rounded p-8 shadow-sm bg-white h-[600px] flex flex-col">
             <h3 className="text-[16px] font-extrabold mb-2">
               Exposed TAs and Population
             </h3>
             <p className="text-xs text-gray-500 font-semibold mb-4">
-              Traditional Authorities with flood-exposed population in the latest analysis.
+              Traditional Authorities with flood-exposed population in the
+              latest analysis.
             </p>
             <div className="flex-1">
               {taFloodExposure.loading ? (
                 <ChartSkeleton />
               ) : exposedTaChartData.length === 0 ? (
                 <div className="h-full flex items-center justify-center text-center text-sm text-gray-500 px-6">
-                  No TA-level flood exposure records are available for this filter yet.
+                  No TA-level flood exposure records are available for this
+                  filter yet.
                 </div>
               ) : (
                 <ResponsiveContainer width="100%" height="100%">

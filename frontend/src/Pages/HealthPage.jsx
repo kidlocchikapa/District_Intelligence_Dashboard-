@@ -1,12 +1,16 @@
+import { useMemo } from "react";
 import { Activity, HeartPulse, Bed, Users, Download, Building2, CheckCircle2, AlertCircle, Building } from "lucide-react";
 import { useDashboardData } from "../hooks/useDashboardData";
 import { useDistrict } from "../context/DistrictContext";
 import { buildDashboardPath } from "../lib/query";
 import { usePdfExport } from "../hooks/usePdfExport";
 import MapPanel from "../components/MapPanel";
+import PopulationRasterPanel from "../components/PopulationRasterPanel";
 import GlobalHospitalRegistry from "../components/GlobalHospitalRegistry";
 import IntegrationSummaryPanel from "../components/IntegrationSummaryPanel";
 import SharedDistrictSelector from "../components/SharedDistrictSelector";
+import FacilityBurdenScatter from "../components/Charts/FacilityBurdenScatter.jsx";
+import TAAnalyticsTable from "../components/Tables/TAAnalyticsTable.jsx";
 import {
   Bar,
   BarChart,
@@ -54,6 +58,10 @@ function formatDistrictAxisLabel(value) {
   }
 
   return `${value.slice(0, 8)}…`;
+}
+
+function getHealthRasterAsset(assets, key) {
+  return assets?.[key] || "/worldpop/zomba_ppp_2020.preview.json";
 }
 
 function HealthPage() {
@@ -110,6 +118,50 @@ function HealthPage() {
       ta: selectedTa,
     }),
   );
+  const healthCoverageTaGeojson = useDashboardData(
+    buildDashboardPath("/dashboard/health/served-population/geojson", {
+      district: districtScope,
+      admin_type: "TA",
+    }),
+  );
+  const healthRasterMetadata = useDashboardData(
+    buildDashboardPath("/dashboard/health/raster-metadata", {
+      district: districtScope,
+    }),
+  );
+
+  const taAnalytics = useDashboardData(
+    buildDashboardPath("/dashboard/health/analytics/ta", {
+      district: districtScope,
+    }),
+  );
+
+  const augmentedGeojson = useMemo(() => {
+    if (!healthCoverageTaGeojson.data || !taAnalytics.data) {
+      return healthCoverageTaGeojson.data;
+    }
+    
+    const geojson = { ...healthCoverageTaGeojson.data };
+    geojson.features = geojson.features.map(feature => {
+      const name = feature.properties?.admin_unit_name || feature.properties?.name;
+      const taData = taAnalytics.data.find(d => String(d.admin_unit_name).toLowerCase() === String(name).toLowerCase());
+      
+      if (taData) {
+        return {
+          ...feature,
+          properties: {
+            ...feature.properties,
+            vulnerability_score: taData.vulnerability_score,
+            flood_isolation_risk: taData.flood_isolation_risk,
+            student_enrolment_affected: taData.student_enrolment_affected,
+            avg_distance_to_health: taData.avg_distance_to_health
+          }
+        };
+      }
+      return feature;
+    });
+    return geojson;
+  }, [healthCoverageTaGeojson.data, taAnalytics.data]);
 
   const healthApiErrors = [
     healthSummary.error,
@@ -117,7 +169,8 @@ function HealthPage() {
     servedPopulationSummary.error,
     healthLocations.error,
     servedPopulationTrend.error,
-    healthAccessZones.error,
+    healthCoverageTaGeojson.error,
+    healthRasterMetadata.error,
   ].filter(Boolean);
 
   const formatStat = (val) => Number(val).toLocaleString();
@@ -421,6 +474,215 @@ function HealthPage() {
               },
             ]}
           />
+        </div>
+
+        <div className="mb-10">
+          <div className="mb-4">
+            <h3 className="text-[16px] font-extrabold">
+              Beneficiary Travel Access Visualizations
+            </h3>
+            <p className="text-[13px] text-gray-500 font-semibold mt-1">
+              Separate views for 8 km facility buffers, 8 km road-network access, and beneficiary travel time to the nearest health facility.
+            </p>
+          </div>
+          <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
+            <div className="border border-gray-100 rounded p-4 shadow-sm bg-white">
+              <PopulationRasterPanel
+                geojson={healthCoverageTaGeojson.data}
+                title="Access in 8 Km radius"
+                subtitle="Population served in 8 Km radius"
+                metadataUrl={getHealthRasterAsset(
+                  healthRasterMetadata.data?.assets,
+                  "health_buffer_8km",
+                )}
+                heightClass="h-[320px]"
+                loading={
+                  healthCoverageTaGeojson.loading || healthRasterMetadata.loading
+                }
+                selectedFeatureName={selectedTa}
+              />
+            </div>
+            <div className="border border-gray-100 rounded p-4 shadow-sm bg-white">
+              <PopulationRasterPanel
+                geojson={healthCoverageTaGeojson.data}
+                title="8 km Road distance "
+                subtitle="Beneficiary road-network distance to healthy facility"
+                metadataUrl={getHealthRasterAsset(
+                  healthRasterMetadata.data?.assets,
+                  "health_network_8km",
+                )}
+                heightClass="h-[320px]"
+                loading={
+                  healthCoverageTaGeojson.loading || healthRasterMetadata.loading
+                }
+                selectedFeatureName={selectedTa}
+              />
+            </div>
+            <div className="border border-gray-100 rounded p-4 shadow-sm bg-white">
+              <PopulationRasterPanel
+                geojson={healthCoverageTaGeojson.data}
+                title="2SFCA Access Score"
+                subtitle="Healthcare staff per 1,000 people (interpolated from TA centroids)."
+                metadataUrl={getHealthRasterAsset(
+                  healthRasterMetadata.data?.assets,
+                  "health_2sfca",
+                )}
+                heightClass="h-[320px]"
+                loading={
+                  healthCoverageTaGeojson.loading || healthRasterMetadata.loading
+                }
+                selectedFeatureName={selectedTa}
+              />
+            </div>
+          </div>
+        </div>
+
+        {/* Integrated Insights Section */}
+        <div className="mb-8">
+          <h2 className="text-[20px] font-extrabold mb-4 text-[#1a365d]">
+            Integrated Planning Insights
+          </h2>
+          <div className="grid grid-cols-1 gap-8">
+            <div className="border border-gray-100 rounded p-6 shadow-sm bg-gradient-to-br from-white to-orange-50/30">
+              <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+                <div className="lg:col-span-1">
+                  <h3 className="text-[18px] font-bold mb-3 text-[#78350f]">Health + Welfare Priority Map</h3>
+                  <p className="text-gray-600 text-sm mb-4 leading-relaxed">
+                    This index identifies <strong>"Double-Vulnerable"</strong> zones by overlapping healthcare staff gaps with poverty density. 
+                  </p>
+                  <ul className="space-y-2 text-xs text-gray-500 mb-6">
+                    <li className="flex items-center gap-2">
+                      <div className="w-2 h-2 rounded-full bg-orange-400"></div>
+                      <strong>High Priority (Dark Brown):</strong> Areas with high poverty and low health access.
+                    </li>
+                    <li className="flex items-center gap-2">
+                      <div className="w-2 h-2 rounded-full bg-yellow-200"></div>
+                      <strong>Low Priority (Pale Yellow):</strong> Areas where access meets local demand.
+                    </li>
+                  </ul>
+                  <div className="p-3 bg-orange-100/50 rounded-lg border border-orange-200">
+                    <p className="text-xs text-orange-800 font-semibold italic">
+                      Strategy: Prioritize these zones for Mobile Clinic deployment or new Health Post construction.
+                    </p>
+                  </div>
+                </div>
+                <div className="lg:col-span-2 bg-white rounded-lg p-2 border border-gray-100 shadow-inner">
+                  <PopulationRasterPanel
+                    geojson={augmentedGeojson}
+                    customTooltipMetrics={[
+                      { key: "vulnerability_score", label: "Vulnerability", digits: 1 }
+                    ]}
+                    title="Vulnerability Index (Health x Poverty)"
+                    subtitle="Priority zones for healthcare infrastructure investment."
+                    metadataUrl={getHealthRasterAsset(
+                      healthRasterMetadata.data?.assets,
+                      "health_welfare_vulnerability",
+                    )}
+                    heightClass="h-[400px]"
+                    loading={
+                      healthCoverageTaGeojson.loading || healthRasterMetadata.loading
+                    }
+                    selectedFeatureName={selectedTa}
+                  />
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 gap-8 mt-8">
+            <div className="border border-gray-100 rounded p-6 shadow-sm bg-gradient-to-br from-white to-blue-50/30">
+              <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+                <div className="lg:col-span-1">
+                  <h3 className="text-[18px] font-bold mb-3 text-[#1e3a8a]">Flood Isolation Simulation</h3>
+                  <p className="text-gray-600 text-sm mb-4 leading-relaxed">
+                    This simulation identifies communities that lose access to clinics when local roads become impassable due to flooding.
+                  </p>
+                  <ul className="space-y-2 text-xs text-gray-500 mb-6">
+                    <li className="flex items-center gap-2">
+                      <div className="w-2 h-2 rounded-full bg-red-500"></div>
+                      <strong>High Risk (Red):</strong> &gt;50% reduction in healthcare accessibility during flood events.
+                    </li>
+                    <li className="flex items-center gap-2">
+                      <div className="w-2 h-2 rounded-full bg-blue-200"></div>
+                      <strong>Resilient (Blue):</strong> Minimal impact on facility accessibility.
+                    </li>
+                  </ul>
+                  <div className="p-3 bg-blue-100/50 rounded-lg border border-blue-200">
+                    <p className="text-xs text-blue-800 font-semibold italic">
+                      Insight: Use this to plan "Boats for Health" or pre-positioning medicine in high-risk zones.
+                    </p>
+                  </div>
+                </div>
+                <div className="lg:col-span-2 bg-white rounded-lg p-2 border border-gray-100 shadow-inner">
+                  <PopulationRasterPanel
+                    geojson={augmentedGeojson}
+                    customTooltipMetrics={[
+                      { key: "flood_isolation_risk", label: "Isolation Risk", format: "pct" }
+                    ]}
+                    title="Simulated Flood Impact (% Access Lost)"
+                    subtitle="Communities at risk of physical isolation from healthcare."
+                    metadataUrl={getHealthRasterAsset(
+                      healthRasterMetadata.data?.assets,
+                      "health_flood_isolation",
+                    )}
+                    heightClass="h-[400px]"
+                    loading={
+                      healthCoverageTaGeojson.loading || healthRasterMetadata.loading
+                    }
+                    selectedFeatureName={selectedTa}
+                  />
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 gap-8 mt-8">
+            <div className="border border-gray-100 rounded p-6 shadow-sm bg-gradient-to-br from-white to-green-50/30">
+              <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+                <div className="lg:col-span-1">
+                  <h3 className="text-[18px] font-bold mb-3 text-[#14532d]">School-Health Synergy</h3>
+                  <p className="text-gray-600 text-sm mb-4 leading-relaxed">
+                    This map shows the <strong>Average Distance</strong> students must travel from their school to reach the nearest health facility.
+                  </p>
+                  <ul className="space-y-2 text-xs text-gray-500 mb-6">
+                    <li className="flex items-center gap-2">
+                      <div className="w-2 h-2 rounded-full bg-green-700"></div>
+                      <strong>Underserved (Dark Green):</strong> Average distance to a clinic exceeds 5km.
+                    </li>
+                    <li className="flex items-center gap-2">
+                      <div className="w-2 h-2 rounded-full bg-green-200"></div>
+                      <strong>Well Served (Pale Green):</strong> Schools are within easy reach of health support.
+                    </li>
+                  </ul>
+                  <div className="p-3 bg-green-100/50 rounded-lg border border-green-200">
+                    <p className="text-xs text-green-800 font-semibold italic">
+                      Strategy: Target these dark green zones for school-based health programs and vaccination drives.
+                    </p>
+                  </div>
+                </div>
+                <div className="lg:col-span-2 bg-white rounded-lg p-2 border border-gray-100 shadow-inner">
+                  <PopulationRasterPanel
+                    geojson={augmentedGeojson}
+                    customTooltipMetrics={[
+                      { key: "student_enrolment_affected", label: "Affected Students" },
+                      { key: "avg_distance_to_health", label: "Avg Distance (km)", digits: 1 }
+                    ]}
+                    title="School Health Gaps (Avg Dist to Clinic)"
+                    subtitle="Accessibility of healthcare services for school populations."
+                    metadataUrl={getHealthRasterAsset(
+                      healthRasterMetadata.data?.assets,
+                      "health_school_gap",
+                    )}
+                    heightClass="h-[400px]"
+                    loading={
+                      healthCoverageTaGeojson.loading || healthRasterMetadata.loading
+                    }
+                    selectedFeatureName={selectedTa}
+                  />
+                </div>
+              </div>
+            </div>
+          </div>
         </div>
 
         {/* Map + Coverage Trend Section */}
@@ -803,6 +1065,38 @@ function HealthPage() {
                 </div>
               </div>
             )}
+          </div>
+        </div>
+
+        {/* Deep-Dive Analytics Section */}
+        <div className="mb-10">
+          <div className="flex items-center gap-2 mb-6 border-b pb-2">
+            <Building2 className="text-[#1e3a8a]" size={24} />
+            <h2 className="text-[20px] font-black tracking-tight text-[#1e3a8a]">
+              Deep-Dive Analytics
+            </h2>
+          </div>
+          <div className="grid grid-cols-1 xl:grid-cols-2 gap-8">
+            <div className="border border-gray-100 rounded-lg p-6 shadow-sm bg-white">
+              <h3 className="text-[16px] font-extrabold mb-2 text-gray-800">
+                Facility Burden Analysis
+              </h3>
+              <p className="text-sm text-gray-500 mb-6">
+                Identifies critically overloaded facilities. <span className="text-red-500 font-semibold">Red dots</span> indicate high-burden clinics (catchment &gt; 20,000 and staff &lt; 5).
+              </p>
+              <FacilityBurdenScatter />
+            </div>
+            <div className="border border-gray-100 rounded-lg p-6 shadow-sm bg-white overflow-hidden flex flex-col">
+              <h3 className="text-[16px] font-extrabold mb-2 text-gray-800">
+                Integrated Priority Matrix (TA Level)
+              </h3>
+              <p className="text-sm text-gray-500 mb-6">
+                A composite view of vulnerabilities by Traditional Authority.
+              </p>
+              <div className="flex-1 overflow-hidden">
+                <TAAnalyticsTable />
+              </div>
+            </div>
           </div>
         </div>
 
