@@ -200,6 +200,14 @@ function toPayloadValue(value, type) {
   return value === "" ? null : value;
 }
 
+function hasSamePayloadValue(left, right) {
+  if (left === right) {
+    return true;
+  }
+
+  return Number.isNaN(left) && Number.isNaN(right);
+}
+
 export default function AdminDataStewardship({ department, deptConfig }) {
   const tables = useMemo(() => DEPARTMENT_TABLES[department] || [], [department]);
   const [selectedTableId, setSelectedTableId] = useState(tables[0]?.id || "");
@@ -284,8 +292,18 @@ export default function AdminDataStewardship({ department, deptConfig }) {
 
     const payload = {};
     SCHOOL_EDIT_FIELDS.forEach((field) => {
-      payload[field.payloadKey] = toPayloadValue(editValues[field.key], field.type);
+      const nextValue = toPayloadValue(editValues[field.key], field.type);
+      const currentValue = toPayloadValue(editingRecord[field.key], field.type);
+
+      if (!hasSamePayloadValue(nextValue, currentValue)) {
+        payload[field.payloadKey] = nextValue;
+      }
     });
+
+    if (Object.keys(payload).length === 0) {
+      setEditingRecord(null);
+      return;
+    }
 
     try {
       setSaving(true);
