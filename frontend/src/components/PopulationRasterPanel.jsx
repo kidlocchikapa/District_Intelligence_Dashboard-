@@ -181,6 +181,32 @@ function PopulationRasterPanel({
     );
   }
 
+  function buildInlineHoverLabel(name, properties = {}) {
+    const inlineMetrics = [];
+
+    if (properties.schools_count !== undefined) {
+      inlineMetrics.push(`Schools: ${formatStat(properties.schools_count)}`);
+    }
+
+    if (properties.hospitals_count !== undefined) {
+      inlineMetrics.push(
+        `Hospitals: ${formatStat(properties.hospitals_count)}`,
+      );
+    }
+
+    if (properties.beneficiaries_count !== undefined) {
+      inlineMetrics.push(
+        `Beneficiaries: ${formatStat(properties.beneficiaries_count)}`,
+      );
+    }
+
+    if (!inlineMetrics.length) {
+      return String(name || "");
+    }
+
+    return `${name} • ${inlineMetrics.join(" • ")}`;
+  }
+
   function legendBackground(colors = []) {
     if (!Array.isArray(colors) || !colors.length) {
       return "linear-gradient(90deg, #e5e7eb, #9ca3af)";
@@ -242,13 +268,16 @@ function PopulationRasterPanel({
               onEachFeature={(feature, layer) => {
                 const name = getFeatureName(feature);
                 if (name) {
-                  layer.bindTooltip(String(name), {
+                  layer.bindTooltip(
+                    buildInlineHoverLabel(name, feature?.properties || {}),
+                    {
                     sticky: true,
                     direction: "top",
                     opacity: 0.96,
                     className: "health-ta-tooltip",
                     offset: L.point(0, -6),
-                  });
+                    },
+                  );
                 }
                 layer.on({
                   mouseover: (e) => {

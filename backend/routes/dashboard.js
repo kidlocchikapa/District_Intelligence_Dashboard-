@@ -566,4 +566,115 @@ router.get("/admin-units", async (req, res) => {
   }
 });
 
+/**
+ * @route   GET /api/v1/dashboard/ta-service-stats
+ * @desc    Get TA-level service counts for schools, hospitals, and beneficiaries
+ */
+/**
+ * @openapi
+ * /api/v1/dashboard/ta-service-stats:
+ *   get:
+ *     summary: Get TA-level service counts
+ *     tags:
+ *       - Dashboard
+ *     responses:
+ *       200:
+ *         description: TA service counts
+ */
+router.get("/ta-service-stats", async (req, res) => {
+  const { district, type = "TA" } = req.query;
+  const normalizedAdminType = normalizeAdminType(type);
+
+  if (normalizedAdminType && normalizedAdminType !== "TA") {
+    return res.status(400).json({
+      status: "error",
+      message: "Only TA/admin3 scope is supported for ta-service-stats",
+    });
+  }
+
+  try {
+    const params = [];
+    const conditions = ["a3.geom IS NOT NULL", "LOWER(a3.type) = LOWER('TA')"];
+    appendDistrictNameCondition(conditions, params, "d.name", district);
+    const whereClause = conditions.length
+      ? `WHERE ${conditions.join(" AND ")}`
+      : "";
+
+    const result = await db.query(
+      `
+        WITH ta_scope AS (
+          SELECT
+            a3.id AS ta_id,
+            a3.name AS ta_name,
+            d.name AS district_name
+          FROM admin3_units a3
+          LEFT JOIN districts d
+            ON d.id = a3.district_id
+          ${whereClause}
+        ),
+        school_counts AS (
+          SELECT
+            ef.ta_id,
+            COUNT(*)::int AS schools_count
+          FROM education_facilities ef
+          WHERE ef.ta_id IS NOT NULL
+          GROUP BY ef.ta_id
+        ),
+        health_counts AS (
+          SELECT
+            hf.ta_id,
+            COUNT(*)::int AS health_facilities_count,
+            COUNT(*) FILTER (
+              WHERE LOWER(COALESCE(hf.type, '')) LIKE '%hospital%'
+            )::int AS hospitals_count
+          FROM health_facilities hf
+          WHERE hf.ta_id IS NOT NULL
+          GROUP BY hf.ta_id
+        ),
+        beneficiary_counts AS (
+          SELECT
+            wb.ta_id,
+            COUNT(*)::int AS beneficiaries_count
+          FROM welfare_beneficiary wb
+          WHERE wb.ta_id IS NOT NULL
+          GROUP BY wb.ta_id
+        )
+        SELECT
+          ts.ta_id,
+          ts.ta_name,
+          ts.district_name,
+          COALESCE(sc.schools_count, 0)::int AS schools_count,
+          COALESCE(hc.health_facilities_count, 0)::int AS health_facilities_count,
+          COALESCE(hc.hospitals_count, 0)::int AS hospitals_count,
+          COALESCE(bc.beneficiaries_count, 0)::int AS beneficiaries_count
+        FROM ta_scope ts
+        LEFT JOIN school_counts sc
+          ON sc.ta_id = ts.ta_id
+        LEFT JOIN health_counts hc
+          ON hc.ta_id = ts.ta_id
+        LEFT JOIN beneficiary_counts bc
+          ON bc.ta_id = ts.ta_id
+        ORDER BY ts.ta_name ASC
+      `,
+      params,
+    );
+
+    return res.json({
+      status: "success",
+      data: result.rows.map((row) => ({
+        ta_id: Number(row.ta_id),
+        ta_name: row.ta_name,
+        district_name: row.district_name,
+        schools_count: Number(row.schools_count || 0),
+        health_facilities_count: Number(row.health_facilities_count || 0),
+        hospitals_count: Number(row.hospitals_count || 0),
+        beneficiaries_count: Number(row.beneficiaries_count || 0),
+      })),
+    });
+  } catch (err) {
+    console.error("Dashboard ta-service-stats error:", err.message);
+    return res.status(500).send("Server error");
+  }
+});
+
 module.exports = router;
