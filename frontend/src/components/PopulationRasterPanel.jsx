@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
 import "leaflet/dist/leaflet.css";
-import L from "leaflet";
 import { GeoJSON, ImageOverlay, MapContainer, ZoomControl, useMap } from "react-leaflet";
 import { useDistrict } from "../context/DistrictContext";
 import { getGeoBounds } from "../lib/geo";
@@ -110,12 +109,10 @@ function PopulationRasterPanel({
     );
   }, [featureNameResolver, features, selectedFeatureName]);
 
-  const focusFeature = hoveredFeature || selectedFeature;
-  const focusProperties = focusFeature?.properties || {};
-  const focusName =
-    hoveredDistrict ||
-    focusProperties.admin_unit_name ||
-    focusProperties.name ||
+  const selectedProperties = selectedFeature?.properties || {};
+  const selectedName =
+    selectedProperties.admin_unit_name ||
+    selectedProperties.name ||
     selectedFeatureName;
 
   const hasHeader = Boolean(title || subtitle);
@@ -181,31 +178,57 @@ function PopulationRasterPanel({
     );
   }
 
-  function buildInlineHoverLabel(name, properties = {}) {
-    const inlineMetrics = [];
-
-    if (properties.schools_count !== undefined) {
-      inlineMetrics.push(`Schools: ${formatStat(properties.schools_count)}`);
+  function resolveLegendLabel(rawLabel) {
+    if (!rawLabel) {
+      return "Raster surface";
     }
 
-    if (properties.hospitals_count !== undefined) {
-      inlineMetrics.push(
-        `Hospitals: ${formatStat(properties.hospitals_count)}`,
-      );
+    if (/estimated people per grid cell/i.test(rawLabel)) {
+      return "People per grid cell";
     }
 
-    if (properties.beneficiaries_count !== undefined) {
-      inlineMetrics.push(
-        `Beneficiaries: ${formatStat(properties.beneficiaries_count)}`,
-      );
-    }
-
-    if (!inlineMetrics.length) {
-      return String(name || "");
-    }
-
-    return `${name} • ${inlineMetrics.join(" • ")}`;
+    return String(rawLabel);
   }
+
+  const tooltipMetrics = customTooltipMetrics && customTooltipMetrics.length
+    ? customTooltipMetrics
+    : [
+        { key: "beneficiary_count", label: "Beneficiaries" },
+        { key: "flood_affected_count", label: "Flood Affected" },
+        { key: "exposed_population", label: "Flood Exposed" },
+        {
+          key: "exposed_population_pct",
+          label: "Exposure %",
+          format: "pct",
+          digits: 1,
+        },
+      ];
+
+  const metricItems = [
+    {
+      key: "population_total",
+      label: "Population",
+      value: formatStat(selectedProperties.population_total),
+    },
+    {
+      key: "population_density",
+      label: "Density",
+      value: formatStat(selectedProperties.population_density, 1),
+    },
+    ...tooltipMetrics
+      .filter((metric) => selectedProperties[metric.key] !== undefined)
+      .map((metric) => ({
+        key: metric.key,
+        label: metric.label,
+        value:
+          metric.format === "pct"
+            ? `${formatStat(
+                selectedProperties[metric.key],
+                metric.digits ?? 1,
+              )}%`
+            : formatStat(selectedProperties[metric.key], metric.digits || 0),
+      })),
+  ];
 
   function legendBackground(colors = []) {
     if (!Array.isArray(colors) || !colors.length) {
@@ -267,18 +290,6 @@ function PopulationRasterPanel({
               }}
               onEachFeature={(feature, layer) => {
                 const name = getFeatureName(feature);
-                if (name) {
-                  layer.bindTooltip(
-                    buildInlineHoverLabel(name, feature?.properties || {}),
-                    {
-                    sticky: true,
-                    direction: "top",
-                    opacity: 0.96,
-                    className: "health-ta-tooltip",
-                    offset: L.point(0, -6),
-                    },
-                  );
-                }
                 layer.on({
                   mouseover: (e) => {
                     setHoveredDistrict(name);
@@ -328,117 +339,54 @@ function PopulationRasterPanel({
         )}
 
         {legend ? (
-          <div className="pointer-events-none absolute right-4 bottom-4 z-[401] w-[190px] rounded-2xl border border-white/80 bg-white/92 px-4 py-3 shadow-md backdrop-blur-md">
-            <p className="text-[10px] font-bold uppercase tracking-[0.15em] text-slate/50">
+          <div className="pointer-events-none absolute right-4 bottom-4 z-[401] w-[156px] rounded-xl border border-white/80 bg-white/92 px-3 py-2.5 shadow-md backdrop-blur-md">
+            <p className="text-[9px] font-bold uppercase tracking-[0.14em] text-slate/50">
               Legend
             </p>
-            <p className="mt-1 text-[12px] font-semibold leading-5 text-slate">
-              {legend.label || title || "Raster surface"}
+            <p className="mt-1 text-[11px] font-semibold leading-4 text-slate">
+              {resolveLegendLabel(legend.label || title || "Raster surface")}
             </p>
             <div
-              className="mt-3 h-3 w-full rounded-full border border-slate-200/80"
+              className="mt-2 h-2.5 w-full rounded-full border border-slate-200/80"
               style={{ background: legendBackground(legend.colors) }}
             />
-            <div className="mt-2 flex items-center justify-between text-[10px] font-bold uppercase tracking-[0.12em] text-slate/55">
+            <div className="mt-1.5 flex items-center justify-between text-[9px] font-bold uppercase tracking-[0.12em] text-slate/55">
               <span>{legend.lowLabel || "Low"}</span>
               <span>{legend.highLabel || "High"}</span>
             </div>
           </div>
         ) : null}
 
-        {hoveredFeature ? (
-          <div className="pointer-events-none absolute inset-x-4 bottom-4 flex items-end justify-start gap-4 z-[401]">
-            <div className="rounded-2xl border border-white/80 bg-white/92 px-5 py-4 shadow-md backdrop-blur-md min-w-[240px]">
-            <div>
-              <p className="text-[10px] font-bold uppercase tracking-[0.15em] text-slate/50 leading-none mb-2.5">
-                Hovering Area
+        {selectedFeature ? (
+          <div className="pointer-events-none absolute inset-x-4 bottom-4 flex items-end justify-start z-[401]">
+            <div className="rounded-2xl border border-white/80 bg-white/92 px-4 py-3 shadow-md backdrop-blur-md w-[270px] sm:w-[288px]">
+              <p className="text-[9px] font-bold uppercase tracking-[0.14em] text-slate/50 leading-none mb-2">
+                Selected Area
               </p>
-              {focusName ? (
-                <div className="space-y-3">
-                  <p className="text-[15px] font-black text-slate leading-none">
-                    {focusName}
+              {selectedName ? (
+                <div className="space-y-2.5">
+                  <p className="text-[18px] font-black text-slate leading-none">
+                    {selectedName}
                   </p>
-                  <div className="grid grid-cols-2 gap-3 text-[11px] font-semibold text-slate/65">
-                    <div>
-                      <p className="uppercase tracking-[0.12em] text-slate/40">
-                        Population
-                      </p>
-                      <p className="mt-1 text-[14px] font-black text-slate">
-                        {formatStat(focusProperties.population_total)}
-                      </p>
-                    </div>
-                    <div>
-                      <p className="uppercase tracking-[0.12em] text-slate/40">
-                        Density
-                      </p>
-                      <p className="mt-1 text-[14px] font-black text-slate">
-                        {formatStat(focusProperties.population_density, 1)}
-                      </p>
-                    </div>
-                    {customTooltipMetrics ? customTooltipMetrics.map(metric => (
-                      focusProperties[metric.key] !== undefined ? (
-                        <div key={metric.key}>
-                          <p className="uppercase tracking-[0.12em] text-slate/40">
-                            {metric.label}
-                          </p>
-                          <p className="mt-1 text-[14px] font-black text-slate">
-                            {metric.format === 'pct' ? `${formatStat(focusProperties[metric.key], 1)}%` : formatStat(focusProperties[metric.key], metric.digits || 0)}
-                          </p>
-                        </div>
-                      ) : null
-                    )) : (
-                      <>
-                        {focusProperties.beneficiary_count !== undefined ? (
-                          <div>
-                            <p className="uppercase tracking-[0.12em] text-slate/40">
-                              Beneficiaries
-                            </p>
-                            <p className="mt-1 text-[14px] font-black text-slate">
-                              {formatStat(focusProperties.beneficiary_count)}
-                            </p>
-                          </div>
-                        ) : null}
-                        {focusProperties.flood_affected_count !== undefined ? (
-                          <div>
-                            <p className="uppercase tracking-[0.12em] text-slate/40">
-                              Flood Affected
-                            </p>
-                            <p className="mt-1 text-[14px] font-black text-slate">
-                              {formatStat(focusProperties.flood_affected_count)}
-                            </p>
-                          </div>
-                        ) : null}
-                        {focusProperties.exposed_population !== undefined ? (
-                          <div>
-                            <p className="uppercase tracking-[0.12em] text-slate/40">
-                              Flood Exposed
-                            </p>
-                            <p className="mt-1 text-[14px] font-black text-slate">
-                              {formatStat(focusProperties.exposed_population)}
-                            </p>
-                          </div>
-                        ) : null}
-                        {focusProperties.exposed_population_pct !== undefined ? (
-                          <div>
-                            <p className="uppercase tracking-[0.12em] text-slate/40">
-                              Exposure %
-                            </p>
-                            <p className="mt-1 text-[14px] font-black text-slate">
-                              {formatStat(focusProperties.exposed_population_pct, 1)}%
-                            </p>
-                          </div>
-                        ) : null}
-                      </>
-                    )}
+                  <div className="grid grid-cols-2 gap-x-4 gap-y-2 text-[10px] text-slate/65">
+                    {metricItems.map((item) => (
+                      <div key={item.key} className="space-y-0.5">
+                        <p className="uppercase tracking-[0.11em] text-slate/45 font-semibold">
+                          {item.label}
+                        </p>
+                        <p className="text-[15px] leading-none font-black text-slate">
+                          {item.value}
+                        </p>
+                      </div>
+                    ))}
                   </div>
                 </div>
               ) : (
                 <p className="text-[12px] font-semibold text-slate/60">
-                  Hover a TA to view its local stats.
+                  Select a TA to view its local stats.
                 </p>
               )}
             </div>
-          </div>
           </div>
         ) : null}
       </div>
@@ -447,3 +395,4 @@ function PopulationRasterPanel({
 }
 
 export default PopulationRasterPanel;
+
