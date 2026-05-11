@@ -1,5 +1,6 @@
 import {
   useMemo,
+  useState,
 } from "react";
 import {
   Download,
@@ -9,11 +10,13 @@ import {
   HeartPulse,
   Accessibility,
 } from "lucide-react";
+import { toast } from "react-hot-toast";
 import { useDashboardData } from "../hooks/useDashboardData";
 import { useDistrict } from "../context/DistrictContext";
 import { buildDashboardPath } from "../lib/query";
 import { usePdfExport } from "../hooks/usePdfExport";
 import { useImageDownload } from "../hooks/useImageDownload";
+import { downloadTAReport } from "../lib/taReport";
 import SharedDistrictSelector from "../components/SharedDistrictSelector";
 import PopulationRasterPanel from "../components/PopulationRasterPanel";
 import {
@@ -196,10 +199,56 @@ function OverviewPage() {
   const { targetRef: mapRef, downloadImage } = useImageDownload(
     "Zomba_Overview_Map.png",
   );
+  const [reportLoading, setReportLoading] = useState(false);
 
   const formatStat = (val) => {
     if (!val) return "0";
     return Number(val).toLocaleString(undefined, { maximumFractionDigits: 0 });
+  };
+
+  const hasReportData = Boolean(
+    selectedTa &&
+      !summary.loading &&
+      (Number(summary.data?.total_schools || 0) > 0 ||
+        Number(summary.data?.total_health_facilities || 0) > 0 ||
+        Number(summary.data?.total_estimated_population || 0) > 0 ||
+        Number(floodSummary.data?.exposed_population || 0) > 0),
+  );
+
+  const reportButtonTooltip = selectedTa
+    ? hasReportData
+      ? "Download TA report for the selected Traditional Authority"
+      : `No data available for ${selectedTa} to export`
+    : "Select a Traditional Authority to export";
+
+  const handleDownloadReport = async () => {
+    if (!selectedTa) {
+      toast.error("Select a TA before downloading a report.");
+      return;
+    }
+
+    if (!hasReportData) {
+      toast.error(`No data available for ${selectedTa} to export.`);
+      return;
+    }
+
+    setReportLoading(true);
+    try {
+      await downloadTAReport(selectedTa, selectedDistrict, {
+        populationData: chartData,
+        floodData: pieData.map((entry) => ({
+          facility_type: entry.name,
+          exposed_facilities: entry.value,
+          value: entry.value,
+        })),
+      });
+      toast.success("TA report downloaded successfully.");
+    } catch (error) {
+      console.error("TA report export failed:", error);
+      toast.error("Failed to download TA report.");
+    } finally {
+      setReportLoading(false);
+    }
   };
 
   const StatCardSkeleton = () => (
@@ -255,6 +304,16 @@ function OverviewPage() {
           >
             <Download className="h-4 w-4" />
             Download PDF
+          </button>
+          <button
+            id="download-ta-btn"
+            onClick={handleDownloadReport}
+            disabled={!hasReportData || reportLoading}
+            title={reportButtonTooltip}
+            className="flex items-center gap-2 border border-gray-300 rounded px-3 py-1.5 text-[13px] font-bold hover:bg-gray-50 transition-all shadow-sm active:scale-95 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            <Download className="h-4 w-4" />
+            Download TA Report
           </button>
           <button
             onClick={downloadImage}

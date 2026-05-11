@@ -33,6 +33,7 @@ const disasterRoutes = require("./routes/disaster");
 const adminRoutes = require("./routes/admin");
 const adminDataRoutes = require("./routes/adminData");
 const welfareRoutes = require("./routes/welfare");
+const exportRoutes = require("./routes/export");
 
 // Register Routes
 app.use("/api/v1/auth", authRoutes);
@@ -43,6 +44,7 @@ app.use("/api/v1/dashboard/health", healthRoutes);
 app.use("/api/v1/dashboard/disaster", disasterRoutes);
 app.use("/api/v1/admin", adminRoutes);
 app.use("/api/v1/admin-data", adminDataRoutes);
+app.use("/api/v1/export", exportRoutes);
 app.use("/api/v1/dashboard/welfare", welfareRoutes);
 
 // Basic Routes
