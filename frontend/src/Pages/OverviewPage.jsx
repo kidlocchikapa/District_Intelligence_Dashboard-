@@ -392,7 +392,7 @@ function OverviewPage() {
 
         {/* Middle Row (Map + Bar Chart) */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-10">
-          <div className="border border-gray-100 rounded p-8 shadow-sm bg-white flex flex-col h-[640px]">
+          <div className="border border-gray-100 rounded p-8 shadow-sm bg-white flex flex-col h-160">
             <h3 className="text-[16px] font-extrabold mb-6">
               {selectedTa ? `${selectedTa} Map Overview` : "TA Map Overview"}
             </h3>
@@ -415,7 +415,7 @@ function OverviewPage() {
             </div>
           </div>
 
-          <div className="border border-gray-100 rounded p-8 shadow-sm bg-white flex flex-col min-h-[460px]">
+          <div className="border border-gray-100 rounded p-8 shadow-sm bg-white flex flex-col min-h-115">
             <h3 className="text-[16px] font-extrabold mb-6">
               {selectedTa ? `Population for ${selectedTa}` : "Population by TA"}
             </h3>
@@ -521,7 +521,7 @@ function OverviewPage() {
             Flood Exposure Distribution for {scopeLabel}
           </h3>
           <div className="w-full flex flex-col md:flex-row items-center justify-start gap-16">
-            <div className="h-[280px] w-full md:w-[400px]">
+            <div className="h-70 w-full md:w-100">
               {floodSummary.loading ? (
                 <div className="flex items-center justify-center h-full text-gray-400">
                   Loading flood exposure data...

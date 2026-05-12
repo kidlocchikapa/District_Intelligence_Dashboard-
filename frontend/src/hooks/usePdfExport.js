@@ -3,7 +3,7 @@ import { toJpeg } from 'html-to-image';
 import { jsPDF } from 'jspdf';
 import { toast } from 'react-hot-toast';
 
-function drawTable(pdf, columns, rows, startX, startY, rowHeight, marginRight) {
+function drawTable(pdf, columns, rows, startX, startY, rowHeight) {
   let y = startY;
   const pageHeight = pdf.internal.pageSize.height;
 
