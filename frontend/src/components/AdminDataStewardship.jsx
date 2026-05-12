@@ -14,6 +14,7 @@ import {
   Users,
   X,
 } from "lucide-react";
+import { toast } from "react-hot-toast";
 import { fetchJson, patchJson } from "../lib/api";
 
 const SCHOOL_COLUMNS = [
@@ -145,6 +146,8 @@ const SCHOOL_EDIT_FIELDS = [
   { key: "water_equipment_facility_count", label: "Water equipment facilities", type: "number", payloadKey: "waterEquipmentFacilityCount" },
   { key: "classroom_pressure", label: "Classroom pressure", type: "number", payloadKey: "classroomPressure" },
   { key: "teacher_pressure", label: "Teacher pressure", type: "number", payloadKey: "teacherPressure" },
+  { key: "latitude", label: "Latitude", type: "number", payloadKey: "latitude" },
+  { key: "longitude", label: "Longitude", type: "number", payloadKey: "longitude" },
   { key: "district_id", label: "District ID", type: "number", payloadKey: "districtId" },
   { key: "ward_id", label: "TA ID", type: "number", payloadKey: "wardId" },
   { key: "is_active", label: "Active", type: "checkbox", payloadKey: "isActive" },
@@ -154,8 +157,6 @@ const READ_ONLY_SCHOOL_FIELDS = [
   ["school_id", "School ID"],
   ["district_name", "District"],
   ["ward_name", "TA"],
-  ["latitude", "Latitude"],
-  ["longitude", "Longitude"],
   ["x_coordinate", "X coordinate"],
   ["y_coordinate", "Y coordinate"],
   ["created_at", "Created"],
@@ -198,6 +199,14 @@ function toPayloadValue(value, type) {
   }
 
   return value === "" ? null : value;
+}
+
+function hasSamePayloadValue(left, right) {
+  if (left === right) {
+    return true;
+  }
+
+  return Number.isNaN(left) && Number.isNaN(right);
 }
 
 export default function AdminDataStewardship({ department, deptConfig }) {
@@ -283,9 +292,42 @@ export default function AdminDataStewardship({ department, deptConfig }) {
     }
 
     const payload = {};
+    const nextPayloadValues = {};
     SCHOOL_EDIT_FIELDS.forEach((field) => {
-      payload[field.payloadKey] = toPayloadValue(editValues[field.key], field.type);
+      const nextValue = toPayloadValue(editValues[field.key], field.type);
+      const currentValue = toPayloadValue(editingRecord[field.key], field.type);
+      nextPayloadValues[field.payloadKey] = nextValue;
+
+      if (!hasSamePayloadValue(nextValue, currentValue)) {
+        payload[field.payloadKey] = nextValue;
+      }
     });
+
+    const hasLatitudeChange = Object.prototype.hasOwnProperty.call(payload, "latitude");
+    const hasLongitudeChange = Object.prototype.hasOwnProperty.call(payload, "longitude");
+
+    if (hasLatitudeChange || hasLongitudeChange) {
+      const nextLatitude = nextPayloadValues.latitude;
+      const nextLongitude = nextPayloadValues.longitude;
+
+      if (
+        nextLatitude === null ||
+        nextLongitude === null ||
+        Number.isNaN(nextLatitude) ||
+        Number.isNaN(nextLongitude)
+      ) {
+        setErrorMessage("Latitude and longitude must both be valid numbers.");
+        return;
+      }
+
+      payload.latitude = nextLatitude;
+      payload.longitude = nextLongitude;
+    }
+
+    if (Object.keys(payload).length === 0) {
+      setEditingRecord(null);
+      return;
+    }
 
     try {
       setSaving(true);
@@ -300,9 +342,12 @@ export default function AdminDataStewardship({ department, deptConfig }) {
         await loadTableData();
       }
       setEditingRecord(null);
+      toast.success("School record updated successfully.");
     } catch (err) {
       console.error("Failed to update school record", err);
-      setErrorMessage(err?.response?.data?.message || "Unable to update this school record.");
+      const message = err?.response?.data?.message || "Unable to update this school record.";
+      setErrorMessage(message);
+      toast.error(message);
     } finally {
       setSaving(false);
     }
@@ -472,7 +517,7 @@ export default function AdminDataStewardship({ department, deptConfig }) {
               <div>
                 <h3 className="text-xl font-bold text-slate-950">{displayValue(editingRecord.name)}</h3>
                 <p className="mt-1 text-sm font-medium text-slate-500">
-                  Update school record details. Coordinates are read-only.
+                  Update school record details, including coordinates.
                 </p>
               </div>
               <button

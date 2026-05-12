@@ -38,6 +38,21 @@ function toNumber(value) {
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
+function buildBeneficiaryPreviewDedupKey(row) {
+  return [
+    String(row.firstname || "").trim().toLowerCase(),
+    String(row.lastname || "").trim().toLowerCase(),
+    String(row.gender || "").trim().toLowerCase(),
+    String(row.age ?? "").trim(),
+    String(row.household_size ?? "").trim(),
+    String(row.status || "").trim().toLowerCase(),
+    String(row.program_id ?? "").trim(),
+    String(row.program_name || "").trim().toLowerCase(),
+    String(row.ta_name || "").trim().toLowerCase(),
+    String(row.district_name || "").trim().toLowerCase(),
+  ].join("|");
+}
+
 async function getWelfareProgramIdColumn() {
   if (!welfareProgramIdColumnPromise) {
     welfareProgramIdColumnPromise = (async () => {
@@ -118,8 +133,19 @@ function buildBeneficiaryScopeQuery(programIdColumn, district, ta, programId) {
         FROM welfare_beneficiary wb
         LEFT JOIN welfare_programs wp
           ON wb.program_id = wp.${programIdColumn}
-        LEFT JOIN welfare_beneficiary_indicators wbi
-          ON wb.id = wbi.beneficiary_id
+        LEFT JOIN LATERAL (
+          SELECT
+            indicator.affected_by_flood,
+            indicator.has_school_access,
+            indicator.has_health_facility_access
+          FROM welfare_beneficiary_indicators indicator
+          WHERE indicator.beneficiary_id = wb.id
+          ORDER BY
+            indicator.updated_at DESC NULLS LAST,
+            indicator.created_at DESC NULLS LAST,
+            indicator.id DESC
+          LIMIT 1
+        ) wbi ON TRUE
         LEFT JOIN districts d
           ON wb.district_id = d.id
         LEFT JOIN admin3_units a3
@@ -304,6 +330,7 @@ router.get("/integration", async (req, res) => {
     Math.max(parseInt(previewLimitParam || "12", 10) || 12, 1),
     50,
   );
+  const previewFetchLimit = Math.min(previewLimit * 8, 400);
 
   try {
     const programIdColumn = await getWelfareProgramIdColumn();
@@ -647,9 +674,23 @@ router.get("/integration", async (req, res) => {
     const [byAreaResult, previewResult, programBreakdownResult] =
       await Promise.all([
         db.query(byAreaQuery, scope.params),
-        db.query(previewQuery, [...scope.params, previewLimit]),
+        db.query(previewQuery, [...scope.params, previewFetchLimit]),
         db.query(programBreakdownQuery, scope.params),
       ]);
+
+    const uniquePreviewRows = [];
+    const seenPreviewKeys = new Set();
+    for (const row of previewResult.rows) {
+      const dedupKey = buildBeneficiaryPreviewDedupKey(row);
+      if (seenPreviewKeys.has(dedupKey)) {
+        continue;
+      }
+      seenPreviewKeys.add(dedupKey);
+      uniquePreviewRows.push(row);
+      if (uniquePreviewRows.length >= previewLimit) {
+        break;
+      }
+    }
 
     const byArea = byAreaResult.rows.map((row) => {
       const areaTotalPopulation = toNumber(row.area_total_population);
@@ -804,7 +845,7 @@ router.get("/integration", async (req, res) => {
           ),
         })),
         by_area: byArea,
-        beneficiary_preview: previewResult.rows.map((row) => ({
+        beneficiary_preview: uniquePreviewRows.map((row) => ({
           ...row,
           age: row.age === null ? null : toNumber(row.age),
           household_size:
@@ -916,8 +957,19 @@ router.get("/", async (req, res) => {
         FROM welfare_beneficiary wb
         LEFT JOIN welfare_programs wp
           ON wb.program_id = wp.${programIdColumn}
-        LEFT JOIN welfare_beneficiary_indicators wbi
-          ON wb.id = wbi.beneficiary_id
+        LEFT JOIN LATERAL (
+          SELECT
+            indicator.affected_by_flood,
+            indicator.has_school_access,
+            indicator.has_health_facility_access
+          FROM welfare_beneficiary_indicators indicator
+          WHERE indicator.beneficiary_id = wb.id
+          ORDER BY
+            indicator.updated_at DESC NULLS LAST,
+            indicator.created_at DESC NULLS LAST,
+            indicator.id DESC
+          LIMIT 1
+        ) wbi ON TRUE
         LEFT JOIN beneficiary_facility_travel travel_health
           ON travel_health.beneficiary_id = wb.id
          AND travel_health.facility_type = 'health'
@@ -986,8 +1038,19 @@ router.get("/summary", async (req, res) => {
       FROM welfare_programs wp
       LEFT JOIN welfare_beneficiary wb
         ON wp.${programIdColumn} = wb.program_id
-      LEFT JOIN welfare_beneficiary_indicators wbi
-        ON wb.id = wbi.beneficiary_id
+      LEFT JOIN LATERAL (
+        SELECT
+          indicator.affected_by_flood,
+          indicator.has_school_access,
+          indicator.has_health_facility_access
+        FROM welfare_beneficiary_indicators indicator
+        WHERE indicator.beneficiary_id = wb.id
+        ORDER BY
+          indicator.updated_at DESC NULLS LAST,
+          indicator.created_at DESC NULLS LAST,
+          indicator.id DESC
+        LIMIT 1
+      ) wbi ON TRUE
       LEFT JOIN districts d
         ON wb.district_id = d.id
       LEFT JOIN admin3_units a3
