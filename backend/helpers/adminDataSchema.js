@@ -21,6 +21,18 @@ function ensureIndexStatement(indexName, tableName, expression) {
 }
 
 const schemaStatements = [
+  `
+    CREATE TABLE IF NOT EXISTS disaster_zones (
+      id SERIAL PRIMARY KEY,
+      event_type VARCHAR(120),
+      risk_level VARCHAR(60),
+      population_at_risk INTEGER,
+      geom GEOMETRY(MultiPolygon, 4326),
+      is_active BOOLEAN NOT NULL DEFAULT TRUE,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )
+  `,
   ensureColumnStatement("education_facilities", "is_active BOOLEAN NOT NULL DEFAULT TRUE"),
   ensureColumnStatement("education_facilities", "updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP"),
   ensureColumnStatement("health_facilities", "is_active BOOLEAN NOT NULL DEFAULT TRUE"),
