@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { Activity, HeartPulse, Bed, Users, Download, Building2, CheckCircle2, AlertCircle, Building } from "lucide-react";
 import { useDashboardData } from "../hooks/useDashboardData";
 import { useDistrict } from "../context/DistrictContext";
@@ -66,8 +66,10 @@ function getHealthRasterAsset(assets, key) {
 
 function HealthPage() {
   const { selectedDistrict, selectedTa, setSelectedTa } = useDistrict();
+  const [hoveredTa, setHoveredTa] = useState("");
   const { contentRef, exportPdf } = usePdfExport("Health_Report.pdf");
   const districtScope = selectedDistrict || "Zomba";
+  const activeTaPreview = selectedTa || hoveredTa;
 
   const servedPopulationSummary = useDashboardData(
     buildDashboardPath("/dashboard/health/served-population", {
@@ -165,11 +167,21 @@ function HealthPage() {
 
   const selectTa = (taName) => {
     setSelectedTa(taName || "");
+    setHoveredTa("");
   };
 
   const selectTaFromFeature = (feature) => {
     const properties = feature?.properties || {};
     selectTa(properties.admin_unit_name || properties.name || "");
+  };
+
+  const previewTaFromFeature = (feature) => {
+    if (selectedTa) {
+      return;
+    }
+
+    const properties = feature?.properties || {};
+    setHoveredTa(properties.admin_unit_name || properties.name || "");
   };
 
   const healthApiErrors = [
@@ -493,7 +505,9 @@ function HealthPage() {
             <p className="text-[13px] text-gray-500 font-semibold mt-1">
               {selectedTa
                 ? `Showing all health access maps focused on ${selectedTa}. Click another TA boundary to switch.`
-                : "Click any TA boundary to focus the whole health page on that TA."}
+                : activeTaPreview
+                  ? `Previewing health details for ${activeTaPreview}. Click to lock this TA.`
+                  : "Hover any TA boundary to preview its details across all maps, or click to lock it."}
             </p>
           </div>
           <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
@@ -511,6 +525,8 @@ function HealthPage() {
                   healthCoverageTaGeojson.loading || healthRasterMetadata.loading
                 }
                 selectedFeatureName={selectedTa}
+                hoveredFeatureName={selectedTa ? "" : hoveredTa}
+                onFeatureHover={previewTaFromFeature}
                 onFeatureClick={selectTaFromFeature}
               />
             </div>
@@ -528,6 +544,8 @@ function HealthPage() {
                   healthCoverageTaGeojson.loading || healthRasterMetadata.loading
                 }
                 selectedFeatureName={selectedTa}
+                hoveredFeatureName={selectedTa ? "" : hoveredTa}
+                onFeatureHover={previewTaFromFeature}
                 onFeatureClick={selectTaFromFeature}
               />
             </div>
@@ -545,6 +563,8 @@ function HealthPage() {
                   healthCoverageTaGeojson.loading || healthRasterMetadata.loading
                 }
                 selectedFeatureName={selectedTa}
+                hoveredFeatureName={selectedTa ? "" : hoveredTa}
+                onFeatureHover={previewTaFromFeature}
                 onFeatureClick={selectTaFromFeature}
               />
             </div>
@@ -597,6 +617,8 @@ function HealthPage() {
                       healthCoverageTaGeojson.loading || healthRasterMetadata.loading
                     }
                     selectedFeatureName={selectedTa}
+                    hoveredFeatureName={selectedTa ? "" : hoveredTa}
+                    onFeatureHover={previewTaFromFeature}
                     onFeatureClick={selectTaFromFeature}
                   />
                 </div>
@@ -645,6 +667,8 @@ function HealthPage() {
                       healthCoverageTaGeojson.loading || healthRasterMetadata.loading
                     }
                     selectedFeatureName={selectedTa}
+                    hoveredFeatureName={selectedTa ? "" : hoveredTa}
+                    onFeatureHover={previewTaFromFeature}
                     onFeatureClick={selectTaFromFeature}
                   />
                 </div>
@@ -694,6 +718,8 @@ function HealthPage() {
                       healthCoverageTaGeojson.loading || healthRasterMetadata.loading
                     }
                     selectedFeatureName={selectedTa}
+                    hoveredFeatureName={selectedTa ? "" : hoveredTa}
+                    onFeatureHover={previewTaFromFeature}
                     onFeatureClick={selectTaFromFeature}
                   />
                 </div>
