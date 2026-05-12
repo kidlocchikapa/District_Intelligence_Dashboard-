@@ -45,6 +45,19 @@ function formatDistanceKm(value) {
   return `${Number(value || 0).toFixed(1)} km`;
 }
 
+function formatMinutes(value) {
+  const minutes = Number(value || 0);
+  if (!Number.isFinite(minutes)) {
+    return "0 min";
+  }
+
+  if (minutes < 1) {
+    return "<1 min";
+  }
+
+  return `${minutes.toFixed(1)} min`;
+}
+
 function formatTaAxisLabel(value) {
   if (!value) {
     return "";

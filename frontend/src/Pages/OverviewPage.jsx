@@ -111,6 +111,12 @@ function OverviewPage() {
       admin_type: "TA",
     }),
   );
+  const taServiceStats = useDashboardData(
+    buildDashboardPath("/dashboard/ta-service-stats", {
+      district: districtScope,
+      type: "TA",
+    }),
+  );
 
   const educationSummary = useDashboardData(
     buildDashboardPath("/dashboard/education/summary", {
@@ -166,6 +172,23 @@ function OverviewPage() {
     return lookup;
   }, [taFloodExposure.data]);
 
+  const taServiceLookup = useMemo(() => {
+    const lookup = new Map();
+
+    (taServiceStats.data || []).forEach((row) => {
+      const taId = Number(row.ta_id);
+      if (Number.isFinite(taId)) {
+        lookup.set(taId, row);
+      }
+
+      if (row.ta_name) {
+        lookup.set(`name:${String(row.ta_name).toLowerCase()}`, row);
+      }
+    });
+
+    return lookup;
+  }, [taServiceStats.data]);
+
   const mapGeojson = useMemo(() => {
     if (!densityMap.data) {
       return densityMap.data;
@@ -179,6 +202,11 @@ function OverviewPage() {
       .map((feature) => {
         const name = feature?.properties?.name || "";
         const floodStats = taFloodLookup.get(name.toLowerCase()) || {};
+        const featureId = Number(feature?.id);
+        const serviceStats =
+          (Number.isFinite(featureId) && taServiceLookup.get(featureId)) ||
+          taServiceLookup.get(`name:${name.toLowerCase()}`) ||
+          {};
 
         return {
           ...feature,
@@ -188,6 +216,12 @@ function OverviewPage() {
             exposed_population: floodStats.exposedPopulation || 0,
             exposed_population_pct: floodStats.exposedPopulationPct || 0,
             risk_level: floodStats.riskLevel,
+            schools_count: Number(serviceStats.schools_count || 0),
+            hospitals_count: Number(serviceStats.hospitals_count || 0),
+            beneficiaries_count: Number(serviceStats.beneficiaries_count || 0),
+            health_facilities_count: Number(
+              serviceStats.health_facilities_count || 0,
+            ),
           },
         };
       });
@@ -196,7 +230,7 @@ function OverviewPage() {
       ...densityMap.data,
       features,
     };
-  }, [densityMap.data, selectedTa, taFloodLookup]);
+  }, [densityMap.data, selectedTa, taFloodLookup, taServiceLookup]);
 
   const selectTa = (taName) => {
     setSelectedTa(taName || "");
@@ -470,6 +504,18 @@ function OverviewPage() {
                 loading={densityMap.loading}
                 metadataUrl="/worldpop/zomba_ppp_2020.preview.json"
                 selectedFeatureName={selectedTa}
+                customTooltipMetrics={[
+                  { key: "schools_count", label: "Schools" },
+                  { key: "hospitals_count", label: "Hospitals" },
+                  { key: "beneficiaries_count", label: "Beneficiaries" },
+                  { key: "exposed_population", label: "Flood Exposed" },
+                  {
+                    key: "exposed_population_pct",
+                    label: "Exposure %",
+                    format: "pct",
+                    digits: 1,
+                  },
+                ]}
                 onFeatureClick={(feature) =>
                   selectTa(feature?.properties?.name || "")
                 }

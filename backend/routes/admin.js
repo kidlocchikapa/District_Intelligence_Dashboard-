@@ -289,6 +289,7 @@ const DATASET_DEPARTMENT_MAP = {
 };
 
 const TASK_DEPARTMENT_MAP = {
+  worldpop_age_sex: "education",
   education_insights: "education",
   health_insights: "health",
   road_travel_access: "welfare",

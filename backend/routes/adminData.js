@@ -2178,6 +2178,14 @@ router.patch("/education/:id", async (req, res) => {
           return null;
         }
 
+        const hasDistrictUpdate = Object.prototype.hasOwnProperty.call(
+          value,
+          "districtId",
+        );
+        const hasWardUpdate = Object.prototype.hasOwnProperty.call(
+          value,
+          "wardId",
+        );
         const nextDistrictId = Object.prototype.hasOwnProperty.call(
           value,
           "districtId",
@@ -2188,11 +2196,13 @@ router.patch("/education/:id", async (req, res) => {
           ? value.wardId
           : existingRecord.ward_id;
 
-        await validateDistrictWardRelationship(
-          client,
-          nextDistrictId,
-          nextWardId,
-        );
+        if (hasDistrictUpdate || hasWardUpdate) {
+          await validateDistrictWardRelationship(
+            client,
+            nextDistrictId,
+            nextWardId,
+          );
+        }
 
         const setClauses = [];
         const params = [];
@@ -2334,6 +2344,14 @@ router.patch("/health/:id", async (req, res) => {
           return null;
         }
 
+        const hasDistrictUpdate = Object.prototype.hasOwnProperty.call(
+          value,
+          "districtId",
+        );
+        const hasWardUpdate = Object.prototype.hasOwnProperty.call(
+          value,
+          "wardId",
+        );
         const nextDistrictId = Object.prototype.hasOwnProperty.call(
           value,
           "districtId",
@@ -2344,11 +2362,13 @@ router.patch("/health/:id", async (req, res) => {
           ? value.wardId
           : existingRecord.ward_id;
 
-        await validateDistrictWardRelationship(
-          client,
-          nextDistrictId,
-          nextWardId,
-        );
+        if (hasDistrictUpdate || hasWardUpdate) {
+          await validateDistrictWardRelationship(
+            client,
+            nextDistrictId,
+            nextWardId,
+          );
+        }
 
         const setClauses = [];
         const params = [];
