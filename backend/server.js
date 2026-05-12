@@ -10,8 +10,53 @@ const app = express();
 const port = process.env.PORT || 5000;
 const baseUrl = process.env.API_BASE_URL || `http://localhost:${port}`;
 
+function parseAllowedOrigins() {
+  const configured = String(process.env.CORS_ALLOWED_ORIGINS || "")
+    .split(",")
+    .map((value) => value.trim())
+    .filter(Boolean);
+
+  if (configured.length) {
+    return configured;
+  }
+
+  return [
+    "http://localhost:5173",
+    "http://localhost:3000",
+    "https://district-intelligence-dashboard.vercel.app",
+  ];
+}
+
+const exactAllowedOrigins = new Set(parseAllowedOrigins());
+const allowedOriginPatterns = [/^https:\/\/[a-z0-9-]+\.vercel\.app$/i];
+
+function isOriginAllowed(origin) {
+  if (!origin) {
+    return true;
+  }
+
+  if (exactAllowedOrigins.has(origin)) {
+    return true;
+  }
+
+  return allowedOriginPatterns.some((pattern) => pattern.test(origin));
+}
+
+const corsOptions = {
+  origin(origin, callback) {
+    if (isOriginAllowed(origin)) {
+      return callback(null, true);
+    }
+
+    return callback(new Error("CORS origin not allowed"));
+  },
+  methods: ["GET", "HEAD", "PUT", "PATCH", "POST", "DELETE", "OPTIONS"],
+  allowedHeaders: ["Authorization", "Content-Type", "Accept", "Origin"],
+  optionsSuccessStatus: 204,
+};
+
 // Middleware
-app.use(cors());
+app.use(cors(corsOptions));
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
