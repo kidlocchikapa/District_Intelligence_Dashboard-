@@ -51,6 +51,11 @@ ANALYSIS_TYPES = {
     'nearest_health_distance',
     'school_service_coverage',
     'health_service_coverage',
+    'education_standards_compliance',
+    'education_catchment_access',
+    'education_flood_isolation',
+    'education_welfare_vulnerability',
+    'school_capacity_risk',
 }
 
 DEFAULT_HEALTH_2SFCA_CATCHMENT_MIN = 60.0
@@ -858,6 +863,333 @@ def compute_education_summary(admin_units_gdf, schools_gdf, school_age_lookup=No
 
 # Main function to run selected spatial analyses based on provided parameters, fetching necessary data and computing 
 # results for each analysis type, and returning a combined DataFrame with all results
+def get_school_thresholds(school_name):
+    name_lower = str(school_name).lower()
+    if 'sec' in name_lower or 'cdss' in name_lower:
+        return {'type': 'secondary', 'max_dist_km': 8.0, 'ptr': 40.0, 'csr': 60.0}
+    else:
+        return {'type': 'primary', 'max_dist_km': 3.0, 'ptr': 60.0, 'csr': 60.0}
+
+def compute_education_standards_compliance(admin_units_gdf, schools_gdf, admin_level=None):
+    if schools_gdf.empty:
+        return pd.DataFrame()
+
+    admin_units = admin_units_gdf.copy()
+    selected_level = (admin_level or '').lower()
+    if selected_level == 'ta':
+        join_column = 'ta_id'
+    elif selected_level == 'ward':
+        join_column = 'ward_id'
+    else:
+        join_column = 'district_id'
+
+    records = []
+    
+    for _, admin_row in admin_units.iterrows():
+        admin_id = admin_row['id']
+        ta_schools = schools_gdf[schools_gdf[join_column] == admin_id]
+        
+        if ta_schools.empty:
+            continue
+            
+        primary_ptr_compliant = 0
+        primary_csr_compliant = 0
+        primary_count = 0
+        
+        sec_ptr_compliant = 0
+        sec_csr_compliant = 0
+        sec_count = 0
+        
+        for _, school in ta_schools.iterrows():
+            thresholds = get_school_thresholds(school.get('school_name', ''))
+            
+            # calculate metrics safely
+            enrollment = float(school.get('student_enrollment_total') or 0)
+            teachers = float(school.get('teacher_count') or 0)
+            classrooms = float(school.get('blocks_count') or 0) # Assuming blocks_count represents classrooms
+            
+            ptr = enrollment / teachers if teachers > 0 else (enrollment if enrollment > 0 else 0)
+            csr = enrollment / classrooms if classrooms > 0 else (enrollment if enrollment > 0 else 0)
+            
+            ptr_compliant = 1 if ptr <= thresholds['ptr'] else 0
+            csr_compliant = 1 if csr <= thresholds['csr'] else 0
+            
+            if thresholds['type'] == 'primary':
+                primary_count += 1
+                primary_ptr_compliant += ptr_compliant
+                primary_csr_compliant += csr_compliant
+            else:
+                sec_count += 1
+                sec_ptr_compliant += ptr_compliant
+                sec_csr_compliant += csr_compliant
+                
+        metrics = {}
+        if primary_count > 0:
+            metrics['primary_ptr_compliance_pct'] = (primary_ptr_compliant / primary_count * 100.0, 'percent')
+            metrics['primary_csr_compliance_pct'] = (primary_csr_compliant / primary_count * 100.0, 'percent')
+        if sec_count > 0:
+            metrics['secondary_ptr_compliance_pct'] = (sec_ptr_compliant / sec_count * 100.0, 'percent')
+            metrics['secondary_csr_compliance_pct'] = (sec_csr_compliant / sec_count * 100.0, 'percent')
+
+        for metric_name, (metric_value, metric_unit) in metrics.items():
+            records.append(
+                analysis_record(
+                    analysis_type='education_standards_compliance',
+                    admin_row=admin_row,
+                    metric_name=metric_name,
+                    metric_value=float(metric_value),
+                    metric_unit=metric_unit,
+                )
+            )
+
+    return pd.DataFrame(records)
+
+def compute_education_catchment_access(admin_units_gdf, schools_gdf):
+    # Coverage calculation using specific thresholds
+    admin_proj = admin_units_gdf.to_crs('EPSG:3857')
+    schools_proj = schools_gdf.to_crs('EPSG:3857')
+    
+    if schools_proj.empty:
+        return pd.DataFrame()
+        
+    # Separate primary and secondary
+    primary_geoms = []
+    secondary_geoms = []
+    
+    for _, school in schools_proj.iterrows():
+        thresholds = get_school_thresholds(school.get('name') or school.get('school_name', ''))
+        school_geom = get_row_geometry(school)
+        if school_geom is None:
+            continue
+        if thresholds['type'] == 'primary':
+            primary_geoms.append(school_geom.buffer(thresholds['max_dist_km'] * 1000))
+        else:
+            secondary_geoms.append(school_geom.buffer(thresholds['max_dist_km'] * 1000))
+            
+    primary_union = unary_union(primary_geoms) if primary_geoms else None
+    secondary_union = unary_union(secondary_geoms) if secondary_geoms else None
+    
+    records = []
+    admin_geom_col = admin_proj.geometry.name
+    
+    for _, row in admin_proj.iterrows():
+        row_geom = row.get(admin_geom_col)
+        area = row_geom.area if row_geom is not None else 0
+        if not area:
+            continue
+            
+        metrics = {}
+        if primary_union:
+            covered = row_geom.intersection(primary_union).area
+            metrics['primary_catchment_coverage_pct'] = (covered / area * 100, 'percent')
+        if secondary_union:
+            covered = row_geom.intersection(secondary_union).area
+            metrics['secondary_catchment_coverage_pct'] = (covered / area * 100, 'percent')
+            
+        for metric_name, (metric_value, metric_unit) in metrics.items():
+            records.append(
+                analysis_record(
+                    analysis_type='education_catchment_access',
+                    admin_row=row,
+                    metric_name=metric_name,
+                    metric_value=float(metric_value),
+                    metric_unit=metric_unit,
+                )
+            )
+            
+    return pd.DataFrame(records)
+
+def compute_education_flood_isolation_index(session, admin_units_gdf):
+    if admin_units_gdf.empty:
+        return pd.DataFrame()
+
+    # Reuse 2sfca access logic but for education facilities
+    def get_edu_access(is_flooded):
+        query = text("""
+            WITH admin_nodes AS (
+                SELECT au.id AS admin_unit_id, au.population_total, v.id AS admin_node
+                FROM admin3_units au
+                LEFT JOIN LATERAL (
+                    SELECT id, geom FROM road_vertices ORDER BY ST_PointOnSurface(au.geom) <-> geom LIMIT 1
+                ) v ON TRUE
+                WHERE v.id IS NOT NULL AND LOWER(au.type) = 'ta'
+            ),
+            facility_nodes AS (
+                SELECT ef.school_id AS facility_id, v.id AS facility_node
+                FROM education_facilities ef
+                LEFT JOIN LATERAL (
+                    SELECT id, geom FROM road_vertices ORDER BY ef.geom <-> geom LIMIT 1
+                ) v ON TRUE
+                WHERE ef.geom IS NOT NULL AND v.id IS NOT NULL
+            ),
+            reachable AS (
+                SELECT a.admin_unit_id, COUNT(DISTINCT f.facility_id) as reached_schools
+                FROM admin_nodes a
+                CROSS JOIN facility_nodes f
+                JOIN LATERAL (
+                    SELECT * FROM pgr_drivingDistance(
+                        'SELECT id, source, target, cost, reverse_cost FROM road_segments WHERE source IS NOT NULL AND target IS NOT NULL AND cost > 0' 
+                        || CASE WHEN :is_flooded THEN ' AND id NOT IN (SELECT rs.id FROM road_segments rs, flood_risk_polygons fz WHERE rs.geom && fz.geom AND ST_Intersects(rs.geom, fz.geom))' ELSE '' END,
+                        f.facility_node,
+                        30.0, -- Default 30 min access
+                        directed := true
+                    ) dd WHERE dd.node = a.admin_node
+                ) dd ON TRUE
+                GROUP BY a.admin_unit_id
+            )
+            SELECT admin_unit_id, reached_schools FROM reachable
+        """)
+        return {int(row['admin_unit_id']): int(row['reached_schools']) for row in session.execute(query, {'is_flooded': is_flooded}).mappings()}
+
+    normal_access = get_edu_access(False)
+    flooded_access = get_edu_access(True)
+
+    records = []
+    for _, admin_row in admin_units_gdf.iterrows():
+        admin_id = int(admin_row['id'])
+        score_normal = normal_access.get(admin_id, 0)
+        score_flooded = flooded_access.get(admin_id, 0)
+        
+        loss = score_normal - score_flooded
+        isolation_index = (loss / score_normal * 100.0) if score_normal > 0 else 0.0
+        isolation_index = max(0.0, min(100.0, isolation_index))
+        
+        records.append(
+            analysis_record(
+                analysis_type='education_flood_isolation',
+                admin_row=admin_row,
+                metric_name='education_flood_isolation_index',
+                metric_value=float(isolation_index),
+                metric_unit='percent_access_loss',
+            )
+        )
+        
+    return pd.DataFrame(records)
+
+def compute_education_welfare_vulnerability(session, admin_units_gdf):
+    if admin_units_gdf.empty:
+        return pd.DataFrame()
+
+    # Welfare density
+    welfare_query = text("""
+        SELECT ta_id, COUNT(*) as beneficiary_count
+        FROM welfare_beneficiary
+        WHERE ta_id IS NOT NULL
+        GROUP BY ta_id
+    """)
+    welfare_counts = {int(row['ta_id']): int(row['beneficiary_count'] or 0) for row in session.execute(welfare_query).mappings()}
+    
+    # Education gaps (from standard compliance if exists, else compute basic gap)
+    # Since compliance metrics are computed at the same time, we might just use nearest distance to proxy for now
+    edu_query = text("""
+        SELECT admin_unit_id, AVG(metric_value) as avg_dist
+        FROM analysis_results 
+        WHERE analysis_type = 'nearest_school_distance'
+        GROUP BY admin_unit_id
+    """)
+    edu_dist = {int(row['admin_unit_id']): float(row['avg_dist'] or 0.0) for row in session.execute(edu_query).mappings()}
+
+    records = []
+    df_raw = []
+    for _, row in admin_units_gdf.iterrows():
+        admin_id = int(row['id'])
+        pop = float(row.get('population_total') or 1.0)
+        w_count = welfare_counts.get(admin_id, 0)
+        dist = edu_dist.get(admin_id, 0.0)
+        w_density = w_count / pop if pop > 0 else 0
+        df_raw.append({'admin_id': admin_id, 'w_density': w_density, 'dist': dist, 'admin_row': row})
+        
+    if not df_raw:
+        return pd.DataFrame()
+        
+    df = pd.DataFrame(df_raw)
+    w_max = df['w_density'].max() or 1.0
+    d_max = df['dist'].max() or 1.0
+    
+    for _, entry in df.iterrows():
+        norm_w = entry['w_density'] / w_max
+        norm_d = entry['dist'] / d_max
+        vulnerability_score = norm_w * norm_d * 100.0
+        
+        records.append(
+            analysis_record(
+                analysis_type='education_welfare_vulnerability',
+                admin_row=entry['admin_row'],
+                metric_name='education_vulnerability_index',
+                metric_value=float(vulnerability_score),
+                metric_unit='priority_score',
+            )
+        )
+        
+    return pd.DataFrame(records)
+
+def compute_school_capacity_risk(admin_units_gdf, schools_gdf, raster_path):
+    if schools_gdf.empty or not raster_path:
+        return pd.DataFrame()
+
+    admin_proj = admin_units_gdf.to_crs('EPSG:3857')
+    schools_proj = schools_gdf.to_crs('EPSG:3857')
+    
+    # Create buffers based on school type
+    buffers = []
+    for idx, school in schools_proj.iterrows():
+        thresholds = get_school_thresholds(school.get('school_name', ''))
+        buf = school.geometry.buffer(thresholds['max_dist_km'] * 1000)
+        buffers.append(buf)
+        
+    schools_proj['catchment_geom'] = buffers
+    schools_catchment_gdf = gpd.GeoDataFrame(schools_proj, geometry='catchment_geom', crs='EPSG:3857').to_crs('EPSG:4326')
+    
+    # zonal stats
+    try:
+        catchment_stats = get_zonal_stats(raster_path, schools_catchment_gdf, stat='sum')
+    except Exception:
+        # Fallback if raster fails
+        catchment_stats = [0] * len(schools_catchment_gdf)
+
+    records = []
+    # aggregate back to TA
+    selected_level = 'ta_id' if 'ta_id' in schools_gdf.columns else 'district_id'
+    
+    ta_risks = {}
+    for idx, school in schools_proj.iterrows():
+        ta_id = school.get(selected_level)
+        if pd.isna(ta_id): continue
+        ta_id = int(ta_id)
+        
+        child_pop_demand = float(catchment_stats[idx] or 0)
+        thresholds = get_school_thresholds(school.get('school_name', ''))
+        
+        # capacity
+        classrooms = float(school.get('blocks_count') or 0)
+        teachers = float(school.get('teacher_count') or 0)
+        
+        max_capacity = min(classrooms * thresholds['csr'], teachers * thresholds['ptr']) if (classrooms and teachers) else (classrooms * thresholds['csr'] if classrooms else 0)
+        
+        risk = child_pop_demand / max_capacity if max_capacity > 0 else (10.0 if child_pop_demand > 0 else 0) # High risk if no capacity
+        
+        if ta_id not in ta_risks:
+            ta_risks[ta_id] = []
+        ta_risks[ta_id].append(risk)
+        
+    for _, admin_row in admin_units_gdf.iterrows():
+        admin_id = int(admin_row['id'])
+        risks = ta_risks.get(admin_id, [])
+        avg_risk = sum(risks) / len(risks) if risks else 0.0
+        
+        records.append(
+            analysis_record(
+                analysis_type='school_capacity_risk',
+                admin_row=admin_row,
+                metric_name='average_school_overcrowding_risk',
+                metric_value=float(avg_risk),
+                metric_unit='ratio',
+            )
+        )
+        
+    return pd.DataFrame(records)
+
+
 def run_spatial_analyses(session, analysis_types=None, admin_level=None, coverage_distance_km=5.0, raster_path=None):
     try:
         selected_types = set(analysis_types or ANALYSIS_TYPES)
@@ -883,7 +1215,16 @@ def run_spatial_analyses(session, analysis_types=None, admin_level=None, coverag
             )
 
         outputs = []
-        if 'education_summary' in selected_types or 'nearest_school_distance' in selected_types or 'school_service_coverage' in selected_types:
+        if (
+            'education_summary' in selected_types 
+            or 'nearest_school_distance' in selected_types 
+            or 'school_service_coverage' in selected_types
+            or 'education_standards_compliance' in selected_types
+            or 'education_catchment_access' in selected_types
+            or 'education_flood_isolation' in selected_types
+            or 'education_welfare_vulnerability' in selected_types
+            or 'school_capacity_risk' in selected_types
+        ):
             schools = run_step(
                 step_name='fetch_education_facilities',
                 user_message_on_error='Could not load education facilities for analysis.',
@@ -945,6 +1286,58 @@ def run_spatial_analyses(session, analysis_types=None, admin_level=None, coverag
                         analysis_type='school_service_coverage',
                         metric_name='school_service_coverage_pct',
                         coverage_distance_km=coverage_distance_km,
+                    )
+                )
+            if 'education_standards_compliance' in selected_types:
+                outputs.append(
+                    run_step(
+                        step_name='compute_education_standards_compliance',
+                        user_message_on_error='Could not compute education standards compliance metrics.',
+                        fn=compute_education_standards_compliance,
+                        admin_units_gdf=admin_units_gdf,
+                        schools_gdf=schools,
+                        admin_level=admin_level,
+                    )
+                )
+            if 'education_catchment_access' in selected_types:
+                outputs.append(
+                    run_step(
+                        step_name='compute_education_catchment_access',
+                        user_message_on_error='Could not compute education catchment access metrics.',
+                        fn=compute_education_catchment_access,
+                        admin_units_gdf=admin_units_gdf,
+                        schools_gdf=schools,
+                    )
+                )
+            if 'education_flood_isolation' in selected_types:
+                outputs.append(
+                    run_step(
+                        step_name='compute_education_flood_isolation_index',
+                        user_message_on_error='Could not compute education flood isolation index.',
+                        fn=compute_education_flood_isolation_index,
+                        session=session,
+                        admin_units_gdf=admin_units_gdf,
+                    )
+                )
+            if 'education_welfare_vulnerability' in selected_types:
+                outputs.append(
+                    run_step(
+                        step_name='compute_education_welfare_vulnerability',
+                        user_message_on_error='Could not compute education welfare vulnerability.',
+                        fn=compute_education_welfare_vulnerability,
+                        session=session,
+                        admin_units_gdf=admin_units_gdf,
+                    )
+                )
+            if 'school_capacity_risk' in selected_types:
+                outputs.append(
+                    run_step(
+                        step_name='compute_school_capacity_risk',
+                        user_message_on_error='Could not compute school capacity risk.',
+                        fn=compute_school_capacity_risk,
+                        admin_units_gdf=admin_units_gdf,
+                        schools_gdf=schools,
+                        raster_path=raster_path,
                     )
                 )
 

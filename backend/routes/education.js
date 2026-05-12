@@ -40,6 +40,32 @@ function normalizeAdminType(adminType) {
   return String(adminType).trim();
 }
 
+function buildRasterSlug(district) {
+  const normalized = String(district || "").trim().toLowerCase();
+  if (
+    normalized === "zomba" ||
+    normalized === "zomba city" ||
+    normalized === "zomba (all)"
+  ) {
+    return "zomba-zomba-city";
+  }
+
+  const values = resolveDistrictFilterValues(district);
+  const source = values.length ? values : ["malawi"];
+  return (
+    source
+      .map((value) =>
+        String(value || "")
+          .trim()
+          .toLowerCase()
+          .replace(/[^a-z0-9]+/g, "-")
+          .replace(/^-+|-+$/g, ""),
+      )
+      .filter(Boolean)
+      .join("-") || "malawi"
+  );
+}
+
 function appendOptionalTaCondition(
   conditions,
   params,
@@ -52,6 +78,21 @@ function appendOptionalTaCondition(
 
   params.push(taName);
   conditions.push(`LOWER(${columnExpression}) = LOWER($${params.length})`);
+}
+
+async function tableExists(tableName) {
+  const result = await db.query(
+    `
+      SELECT EXISTS (
+        SELECT 1
+        FROM information_schema.tables
+        WHERE table_schema = 'public'
+          AND table_name = $1
+      ) AS exists
+    `,
+    [tableName],
+  );
+  return Boolean(result.rows[0]?.exists);
 }
 
 function computeQuantile(values, quantile) {
@@ -539,6 +580,103 @@ router.get("/access-zones/geojson", async (req, res) => {
   }
 });
 
+// @route   GET api/v1/dashboard/education/facility-buffers/geojson
+// @desc    Get school buffer polygons with buffer-based and network-based metrics
+router.get("/facility-buffers/geojson", async (req, res) => {
+  const { district, ta, buffer_km: bufferKmParam } = req.query;
+  const parsedBufferKm = Number(bufferKmParam);
+  const fallbackBufferKm =
+    Number.isFinite(parsedBufferKm) && parsedBufferKm > 0
+      ? Math.min(parsedBufferKm, 30)
+      : 5;
+  const hasMetricsTable = await tableExists("education_facility_access_metrics");
+
+  try {
+    const params = [fallbackBufferKm];
+    const conditions = ["ef.geom IS NOT NULL"];
+    appendDistrictGeometryCondition(conditions, params, "ef.geom", district);
+    appendOptionalTaCondition(conditions, params, "a3.name", ta);
+    const whereClause = conditions.length
+      ? `WHERE ${conditions.join(" AND ")}`
+      : "";
+
+    const metricsJoin = hasMetricsTable
+      ? `
+        LEFT JOIN education_facility_access_metrics eam
+          ON eam.facility_id = ef.school_id
+      `
+      : "";
+    const metricsFields = hasMetricsTable
+      ? `
+        'worldpop_population_within_buffer', COALESCE(eam.worldpop_population_within_buffer, 0),
+        'welfare_beneficiaries_within_buffer', COALESCE(eam.welfare_beneficiaries_within_buffer, 0),
+        'avg_network_distance_km', eam.avg_network_distance_km,
+        'avg_travel_time_min', eam.avg_travel_time_min,
+      `
+      : `
+        'worldpop_population_within_buffer', NULL,
+        'welfare_beneficiaries_within_buffer', NULL,
+        'avg_network_distance_km', NULL,
+        'avg_travel_time_min', NULL,
+      `;
+    const bufferDistanceExpr = hasMetricsTable
+      ? "COALESCE(eam.coverage_distance_km, $1)"
+      : "$1";
+
+    const query = `
+      SELECT jsonb_build_object(
+        'type', 'FeatureCollection',
+        'features', COALESCE(jsonb_agg(feature), '[]'::jsonb)
+      )
+      FROM (
+        SELECT jsonb_build_object(
+          'type', 'Feature',
+          'id', CONCAT('school-buffer-', ef.school_id),
+          'geometry', ST_AsGeoJSON(
+            ST_Buffer(ef.geom::geography, (${bufferDistanceExpr}) * 1000)::geometry
+          )::jsonb,
+          'properties', jsonb_build_object(
+            'school_id', ef.school_id,
+            'school_name', ef.school_name,
+            'name', ef.school_name,
+            'operator_type', ef.operator,
+            'status', ef.status,
+            'ta_name', a3.name,
+            'district_name', d.name,
+            'coverage_distance_km', ${bufferDistanceExpr},
+            ${metricsFields}
+            'metric_source', ${hasMetricsTable ? "'education_facility_access_metrics'" : "'not_calculated'"}
+          )
+        ) AS feature
+        FROM education_facilities ef
+        LEFT JOIN admin3_units a3
+          ON a3.id = ef.ta_id
+        LEFT JOIN districts d
+          ON d.id = ef.district_id
+        ${metricsJoin}
+        ${whereClause}
+      ) features;
+    `;
+
+    const result = await db.query(query, params);
+    res.json({
+      status: "success",
+      data: result.rows[0]?.jsonb_build_object || {
+        type: "FeatureCollection",
+        features: [],
+      },
+    });
+  } catch (err) {
+    console.error("Education facility buffers geojson error", {
+      message: err.message,
+      district,
+      ta,
+      fallbackBufferKm,
+    });
+    res.status(500).send("Server error");
+  }
+});
+
 // @route   GET api/v1/dashboard/education/summary
 // @desc    Get ward/district education aggregates
 /**
@@ -676,6 +814,24 @@ router.get("/summary", async (req, res) => {
     console.error(err.message);
     res.status(500).send("Server error");
   }
+});
+
+// @route   GET api/v1/dashboard/education/raster-metadata
+// @desc    Get static raster metadata descriptors for education access visualizations
+router.get("/raster-metadata", async (req, res) => {
+  const { district } = req.query;
+  const slug = buildRasterSlug(district);
+
+  res.json({
+    status: "success",
+    data: {
+      district: district || null,
+      assets: {
+        education_network_distance: `/education-access/${slug}.education_network_distance.preview.json`,
+        education_travel_time: `/education-access/${slug}.education_travel_time.preview.json`,
+      },
+    },
+  });
 });
 
 // @route   GET api/v1/dashboard/education/insights
