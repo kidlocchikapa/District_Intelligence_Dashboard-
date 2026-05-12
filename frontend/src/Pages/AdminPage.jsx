@@ -146,7 +146,7 @@ function AdminPage() {
   const [jobs, setJobs] = useState([]);
   const [selectedJobId, setSelectedJobId] = useState("");
   const [isRefreshingJobs, setIsRefreshingJobs] = useState(false);
-  const [selectedDepartment, setSelectedDepartment] = useState("education");
+  const [selectedDepartment, setSelectedDepartment] = useState("");
   const [authProfile, setAuthProfile] = useState(null);
 
   const isAuthenticated = useMemo(() => Boolean(token), [token]);
@@ -154,6 +154,31 @@ function AdminPage() {
     () => jobs.find((job) => job.id === selectedJobId) || jobs[0] || null,
     [jobs, selectedJobId],
   );
+  const availableDepartments = useMemo(
+    () => Object.keys(departmentConfig),
+    [],
+  );
+  const allowedDepartments = useMemo(() => {
+    if (!authProfile) {
+      return [];
+    }
+
+    if (
+      authProfile.is_global_admin ||
+      authProfile.role === "super_admin" ||
+      authProfile.role === "admin"
+    ) {
+      return availableDepartments;
+    }
+
+    const profileDepartments = Array.isArray(authProfile.departments)
+      ? authProfile.departments
+      : [];
+
+    return profileDepartments.filter((department) =>
+      availableDepartments.includes(department),
+    );
+  }, [authProfile, availableDepartments]);
 
   useEffect(() => {
     function syncAuthState(event) {
@@ -182,12 +207,9 @@ function AdminPage() {
   async function loadAuthProfile() {
     try {
       const response = await fetchJson("/auth/me");
-      const profile = response.data?.user?.access || {};
-      setAuthProfile({ ...profile, role: response.data?.user?.role });
-
-      if (profile.departments && profile.departments.length > 0) {
-        setSelectedDepartment(profile.departments[0]);
-      }
+      const user = response?.user || {};
+      const profile = user?.access || {};
+      setAuthProfile({ ...profile, role: user?.role });
     } catch (error) {
       console.error("Load auth profile error:", error);
     }
@@ -202,6 +224,25 @@ function AdminPage() {
   }, [isAuthenticated]);
 
   useEffect(() => {
+    if (!authProfile) {
+      return;
+    }
+
+    if (!allowedDepartments.length) {
+      setSelectedDepartment("");
+      return;
+    }
+
+    setSelectedDepartment((current) =>
+      allowedDepartments.includes(current) ? current : allowedDepartments[0],
+    );
+  }, [allowedDepartments, authProfile]);
+
+  useEffect(() => {
+    if (!selectedDepartment) {
+      return;
+    }
+
     if (selectedDepartment === "education") {
       setUploadFormState((s) => ({ ...s, type: "education" }));
     } else if (selectedDepartment === "social_welfare") {
@@ -215,6 +256,11 @@ function AdminPage() {
 
   async function handleUpload(event) {
     event.preventDefault();
+    if (!selectedDepartment) {
+      setStatus("No department access is assigned to this account.");
+      return;
+    }
+
     if (!uploadFormState.file) {
       setStatus("Please select a file first");
       return;
@@ -240,6 +286,11 @@ function AdminPage() {
   }
 
   async function handleRunTask(task) {
+    if (!selectedDepartment) {
+      setStatus("No department access is assigned to this account.");
+      return;
+    }
+
     try {
       setStatus(`Starting ${taskDescriptions[task]?.title || task}...`);
       const response = await postJson("/admin/run-task", { task });
@@ -278,10 +329,17 @@ function AdminPage() {
 
       <div className="flex-1 min-h-[640px] lg:min-h-0">
         {activeTab === 'stewardship' && (
-          <AdminDataStewardship 
-            department={selectedDepartment} 
-            deptConfig={departmentConfig[selectedDepartment]} 
-          />
+          selectedDepartment ? (
+            <AdminDataStewardship
+              department={selectedDepartment}
+              deptConfig={departmentConfig[selectedDepartment]}
+            />
+          ) : (
+            <EmptyState
+              title="No Department Access"
+              description="This account is authenticated but has no department read permissions assigned. Ask a super admin to grant access in User Permissions."
+            />
+          )
         )}
 
         {activeTab === "operations" && (
@@ -298,10 +356,7 @@ function AdminPage() {
                     <select
                       className="mt-2 w-full px-4 py-3 bg-white border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-slate-900/5 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
                       value={uploadFormState.type}
-                      disabled={
-                        selectedDepartment === "education" ||
-                        selectedDepartment === "health"
-                      }
+                      disabled={!selectedDepartment}
                       onChange={(e) =>
                         setUploadFormState((s) => ({
                           ...s,
@@ -309,29 +364,40 @@ function AdminPage() {
                         }))
                       }
                     >
-                      {datasetTypes
-                        .filter((t) => {
-                          if (selectedDepartment === "education")
-                            return t === "education";
-                          if (selectedDepartment === "social_welfare")
-                            return t === "social_welfare" || t === "roads";
-                          if (selectedDepartment === "disaster")
-                            return t === "disaster" || t === "flood";
-                          if (selectedDepartment === "health")
-                            return t === "health";
-                          return true;
-                        })
-                        .map((t) => (
-                          <option key={t} value={t}>
-                            {t.replace("_", " ")}
+                      {selectedDepartment
+                        ? datasetTypes
+                            .filter((t) => {
+                              if (selectedDepartment === "education")
+                                return t === "education";
+                              if (selectedDepartment === "social_welfare")
+                                return t === "social_welfare" || t === "roads";
+                              if (selectedDepartment === "disaster")
+                                return t === "disaster" || t === "flood";
+                              if (selectedDepartment === "health")
+                                return t === "health";
+                              return true;
+                            })
+                            .map((t) => (
+                              <option key={t} value={t}>
+                                {t.replace("_", " ")}
+                              </option>
+                            ))
+                        : (
+                          <option value="">
+                            No department access
                           </option>
-                        ))}
+                        )}
                     </select>
                   </label>
                   <label className="block text-sm font-bold text-slate-700">
                     Source File
                     <input
                       type="file"
+                      disabled={
+                        !selectedDepartment ||
+                        selectedDepartment === "education" ||
+                        selectedDepartment === "health"
+                      }
                       className="mt-2 w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl outline-none"
                       onChange={(e) =>
                         setUploadFormState((s) => ({
@@ -346,6 +412,11 @@ function AdminPage() {
                   <UploadCloud size={18} />
                   Import Data 
                 </button>
+                {!selectedDepartment && (
+                  <div className="rounded-xl border border-amber-100 bg-amber-50 px-4 py-3 text-xs font-semibold text-amber-700">
+                    No department permissions were found for this account.
+                  </div>
+                )}
                 {status && (
                   <div className="p-4 bg-slate-50 border border-slate-100 rounded-xl text-xs text-slate-600 leading-relaxed font-mono">
                     {status}
@@ -362,6 +433,9 @@ function AdminPage() {
               <div className="grid gap-4">
                 {Object.entries(taskDescriptions)
                   .filter(([key, task]) => {
+                    if (!selectedDepartment) {
+                      return false;
+                    }
                     if (selectedDepartment === "education") {
                       return (
                         key === "worldpop_age_sex" ||
