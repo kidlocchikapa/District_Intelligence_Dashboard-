@@ -18,6 +18,7 @@ import MapPanel from "../components/MapPanel";
 import CoverageShapePanel from "../components/CoverageShapePanel";
 import IntegrationSummaryPanel from "../components/IntegrationSummaryPanel";
 import SharedDistrictSelector from "../components/SharedDistrictSelector";
+import PopulationRasterPanel from "../components/PopulationRasterPanel";
 import {
   Cell,
   CartesianGrid,
@@ -112,6 +113,10 @@ function normalizeTaName(value) {
     .toLowerCase();
 }
 
+function getEducationRasterAsset(assets, key) {
+  return assets?.[key] || "/worldpop/zomba_ppp_2020.preview.json";
+}
+
 function EducationScatterTooltip({ active, payload }) {
   if (!active || !payload?.length) {
     return null;
@@ -196,6 +201,19 @@ function EducationPage() {
     buildDashboardPath("/dashboard/welfare/integration", {
       district: selectedDistrict,
       admin_type: "District",
+    }),
+  );
+  const educationRasterMetadata = useDashboardData(
+    buildDashboardPath("/dashboard/education/raster-metadata", {
+      district: coverageFocusDistrict,
+    }),
+  );
+  const educationCoverageTaGeojson = useDashboardData(
+    buildDashboardPath("/dashboard/analysis/geojson", {
+      analysis_type: "education_summary",
+      admin_type: "TA",
+      metric_name: "school_age_population_total",
+      district: selectedDistrict,
     }),
   );
 
@@ -971,6 +989,49 @@ function EducationPage() {
                 heightClass="h-full w-full"
                 loading={schoolAccessZones.loading}
                 pointLabel="School Point"
+              />
+            </div>
+          </div>
+        </div>
+
+        <div className="mt-8">
+          <h3 className="text-[16px] font-extrabold">Education Access Raster</h3>
+          <p className="mt-2 text-sm text-gray-500 font-semibold">
+            High-resolution travel-distance surfaces derived from beneficiary routing to schools.
+          </p>
+          <div className="mt-5 grid grid-cols-1 xl:grid-cols-2 gap-6">
+            <div className="border border-gray-100 rounded p-4 shadow-sm bg-white">
+              <PopulationRasterPanel
+                geojson={educationCoverageTaGeojson.data}
+                title="Road Distance to Nearest School"
+                subtitle="Average beneficiary road distance (km) by area."
+                metadataUrl={getEducationRasterAsset(
+                  educationRasterMetadata.data?.assets,
+                  "education_network_distance",
+                )}
+                heightClass="h-[320px]"
+                loading={
+                  educationCoverageTaGeojson.loading ||
+                  educationRasterMetadata.loading
+                }
+                selectedFeatureName={selectedTa}
+              />
+            </div>
+            <div className="border border-gray-100 rounded p-4 shadow-sm bg-white">
+              <PopulationRasterPanel
+                geojson={educationCoverageTaGeojson.data}
+                title="Travel Time to Nearest School"
+                subtitle="Average beneficiary travel time (minutes) by area."
+                metadataUrl={getEducationRasterAsset(
+                  educationRasterMetadata.data?.assets,
+                  "education_travel_time",
+                )}
+                heightClass="h-[320px]"
+                loading={
+                  educationCoverageTaGeojson.loading ||
+                  educationRasterMetadata.loading
+                }
+                selectedFeatureName={selectedTa}
               />
             </div>
           </div>
