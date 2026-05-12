@@ -1,7 +1,7 @@
 const DISTRICT_GROUPS = {
-  zomba: ["Zomba", "Zomba City", "Zomba (All)"],
-  "zomba city": ["Zomba", "Zomba City", "Zomba (All)"],
-  "zomba (all)": ["Zomba", "Zomba City", "Zomba (All)"],
+  zomba: ["Zomba", "Zomba City"],
+  "zomba city": ["Zomba", "Zomba City"],
+  "zomba (all)": ["Zomba", "Zomba City"],
 };
 
 function buildCanonicalDistrictExpression(columnExpression) {

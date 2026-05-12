@@ -38,6 +38,21 @@ function toNumber(value) {
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
+function buildBeneficiaryPreviewDedupKey(row) {
+  return [
+    String(row.firstname || "").trim().toLowerCase(),
+    String(row.lastname || "").trim().toLowerCase(),
+    String(row.gender || "").trim().toLowerCase(),
+    String(row.age ?? "").trim(),
+    String(row.household_size ?? "").trim(),
+    String(row.status || "").trim().toLowerCase(),
+    String(row.program_id ?? "").trim(),
+    String(row.program_name || "").trim().toLowerCase(),
+    String(row.ta_name || "").trim().toLowerCase(),
+    String(row.district_name || "").trim().toLowerCase(),
+  ].join("|");
+}
+
 async function getWelfareProgramIdColumn() {
   if (!welfareProgramIdColumnPromise) {
     welfareProgramIdColumnPromise = (async () => {
@@ -58,6 +73,21 @@ async function getWelfareProgramIdColumn() {
   }
 
   return welfareProgramIdColumnPromise;
+}
+
+async function tableExists(tableName) {
+  const result = await db.query(
+    `
+      SELECT EXISTS (
+        SELECT 1
+        FROM information_schema.tables
+        WHERE table_schema = 'public'
+          AND table_name = $1
+      ) AS exists
+    `,
+    [tableName],
+  );
+  return Boolean(result.rows[0]?.exists);
 }
 
 function buildBeneficiaryScopeQuery(programIdColumn, district, ta, programId) {
@@ -103,8 +133,19 @@ function buildBeneficiaryScopeQuery(programIdColumn, district, ta, programId) {
         FROM welfare_beneficiary wb
         LEFT JOIN welfare_programs wp
           ON wb.program_id = wp.${programIdColumn}
-        LEFT JOIN welfare_beneficiary_indicators wbi
-          ON wb.id = wbi.beneficiary_id
+        LEFT JOIN LATERAL (
+          SELECT
+            indicator.affected_by_flood,
+            indicator.has_school_access,
+            indicator.has_health_facility_access
+          FROM welfare_beneficiary_indicators indicator
+          WHERE indicator.beneficiary_id = wb.id
+          ORDER BY
+            indicator.updated_at DESC NULLS LAST,
+            indicator.created_at DESC NULLS LAST,
+            indicator.id DESC
+          LIMIT 1
+        ) wbi ON TRUE
         LEFT JOIN districts d
           ON wb.district_id = d.id
         LEFT JOIN admin3_units a3
@@ -289,9 +330,11 @@ router.get("/integration", async (req, res) => {
     Math.max(parseInt(previewLimitParam || "12", 10) || 12, 1),
     50,
   );
+  const previewFetchLimit = Math.min(previewLimit * 8, 400);
 
   try {
     const programIdColumn = await getWelfareProgramIdColumn();
+    const hasTravelTable = await tableExists("beneficiary_facility_travel");
     const scope = buildBeneficiaryScopeQuery(
       programIdColumn,
       district,
@@ -313,6 +356,53 @@ router.get("/integration", async (req, res) => {
       normalizedAdminType === "District" ? "fz.district_name" : "fz.ta_name";
     const floodAdminTypeFilter =
       normalizedAdminType === "District" ? "" : "WHERE fz.ta_id <> 0";
+    const travelCtes = hasTravelTable
+      ? `
+      travel_health AS (
+        SELECT
+          beneficiary_id,
+          facility_id,
+          facility_name,
+          network_distance_km,
+          travel_time_min,
+          routing_status
+        FROM beneficiary_facility_travel
+        WHERE facility_type = 'health'
+      ),
+      travel_school AS (
+        SELECT
+          beneficiary_id,
+          facility_id,
+          facility_name,
+          network_distance_km,
+          travel_time_min,
+          routing_status
+        FROM beneficiary_facility_travel
+        WHERE facility_type = 'school'
+      )
+    `
+      : `
+      travel_health AS (
+        SELECT
+          NULL::integer AS beneficiary_id,
+          NULL::bigint AS facility_id,
+          NULL::text AS facility_name,
+          NULL::double precision AS network_distance_km,
+          NULL::double precision AS travel_time_min,
+          NULL::text AS routing_status
+        WHERE FALSE
+      ),
+      travel_school AS (
+        SELECT
+          NULL::integer AS beneficiary_id,
+          NULL::bigint AS facility_id,
+          NULL::text AS facility_name,
+          NULL::double precision AS network_distance_km,
+          NULL::double precision AS travel_time_min,
+          NULL::text AS routing_status
+        WHERE FALSE
+      )
+    `;
     const shouldResolveNearestHealth = Boolean(district || ta);
 
     const nearestHealthCte = `
@@ -411,6 +501,7 @@ router.get("/integration", async (req, res) => {
             `
         }
       ),
+      ${travelCtes},
       education_context AS (
         SELECT
           ar.admin_unit_id,
@@ -537,6 +628,14 @@ router.get("/integration", async (req, res) => {
         nh.facility_name AS nearest_facility_name,
         nh.facility_type AS nearest_facility_type,
         nh.ownership_category AS nearest_facility_ownership_category,
+        ROUND(th.network_distance_km::numeric, 2) AS nearest_health_network_distance_km,
+        ROUND(th.travel_time_min::numeric, 1) AS nearest_health_travel_time_min,
+        th.routing_status AS nearest_health_routing_status,
+        ROUND(ts.network_distance_km::numeric, 2) AS nearest_school_network_distance_km,
+        ROUND(ts.travel_time_min::numeric, 1) AS nearest_school_travel_time_min,
+        ts.facility_name AS nearest_school_name,
+        ts.routing_status AS nearest_school_routing_status,
+        COALESCE(th.routing_status, ts.routing_status, 'not_calculated') AS routing_status,
         ROUND(COALESCE(hosp.distance_km, 0)::numeric, 2) AS nearest_hospital_distance_km,
         hosp.facility_name AS nearest_hospital_name,
         hosp.ownership_category AS nearest_hospital_ownership_category
@@ -545,6 +644,10 @@ router.get("/integration", async (req, res) => {
         ON bs.beneficiary_id = nh.beneficiary_id
       LEFT JOIN nearest_hospital hosp
         ON bs.beneficiary_id = hosp.beneficiary_id
+      LEFT JOIN travel_health th
+        ON bs.beneficiary_id = th.beneficiary_id
+      LEFT JOIN travel_school ts
+        ON bs.beneficiary_id = ts.beneficiary_id
       LEFT JOIN flood_context fc
         ON fc.admin_unit_id = ${adminUnitIdExpression}
       ORDER BY
@@ -571,9 +674,23 @@ router.get("/integration", async (req, res) => {
     const [byAreaResult, previewResult, programBreakdownResult] =
       await Promise.all([
         db.query(byAreaQuery, scope.params),
-        db.query(previewQuery, [...scope.params, previewLimit]),
+        db.query(previewQuery, [...scope.params, previewFetchLimit]),
         db.query(programBreakdownQuery, scope.params),
       ]);
+
+    const uniquePreviewRows = [];
+    const seenPreviewKeys = new Set();
+    for (const row of previewResult.rows) {
+      const dedupKey = buildBeneficiaryPreviewDedupKey(row);
+      if (seenPreviewKeys.has(dedupKey)) {
+        continue;
+      }
+      seenPreviewKeys.add(dedupKey);
+      uniquePreviewRows.push(row);
+      if (uniquePreviewRows.length >= previewLimit) {
+        break;
+      }
+    }
 
     const byArea = byAreaResult.rows.map((row) => {
       const areaTotalPopulation = toNumber(row.area_total_population);
@@ -728,7 +845,7 @@ router.get("/integration", async (req, res) => {
           ),
         })),
         by_area: byArea,
-        beneficiary_preview: previewResult.rows.map((row) => ({
+        beneficiary_preview: uniquePreviewRows.map((row) => ({
           ...row,
           age: row.age === null ? null : toNumber(row.age),
           household_size:
@@ -738,6 +855,18 @@ router.get("/integration", async (req, res) => {
           ),
           nearest_hospital_distance_km: toNumber(
             row.nearest_hospital_distance_km,
+          ),
+          nearest_health_network_distance_km: toNumber(
+            row.nearest_health_network_distance_km,
+          ),
+          nearest_health_travel_time_min: toNumber(
+            row.nearest_health_travel_time_min,
+          ),
+          nearest_school_network_distance_km: toNumber(
+            row.nearest_school_network_distance_km,
+          ),
+          nearest_school_travel_time_min: toNumber(
+            row.nearest_school_travel_time_min,
           ),
         })),
         decision_signals: decisionSignals,
@@ -816,15 +945,34 @@ router.get("/", async (req, res) => {
                 'ta_name', a3.name,
                 'has_health_facility_access', COALESCE(wbi.has_health_facility_access, FALSE),
                 'has_school_access', COALESCE(wbi.has_school_access, FALSE),
-                'affected_by_flood', COALESCE(wbi.affected_by_flood, FALSE)
+                'affected_by_flood', COALESCE(wbi.affected_by_flood, FALSE),
+                'nearest_health_facility_id', travel_health.facility_id,
+                'nearest_health_facility_name', travel_health.facility_name,
+                'nearest_health_network_distance_km', ROUND(travel_health.network_distance_km::numeric, 2),
+                'nearest_health_travel_time_min', ROUND(travel_health.travel_time_min::numeric, 1),
+                'nearest_health_routing_status', travel_health.routing_status
             )
           )
         ) AS feature
         FROM welfare_beneficiary wb
         LEFT JOIN welfare_programs wp
           ON wb.program_id = wp.${programIdColumn}
-        LEFT JOIN welfare_beneficiary_indicators wbi
-          ON wb.id = wbi.beneficiary_id
+        LEFT JOIN LATERAL (
+          SELECT
+            indicator.affected_by_flood,
+            indicator.has_school_access,
+            indicator.has_health_facility_access
+          FROM welfare_beneficiary_indicators indicator
+          WHERE indicator.beneficiary_id = wb.id
+          ORDER BY
+            indicator.updated_at DESC NULLS LAST,
+            indicator.created_at DESC NULLS LAST,
+            indicator.id DESC
+          LIMIT 1
+        ) wbi ON TRUE
+        LEFT JOIN beneficiary_facility_travel travel_health
+          ON travel_health.beneficiary_id = wb.id
+         AND travel_health.facility_type = 'health'
         LEFT JOIN districts d
           ON wb.district_id = d.id
         LEFT JOIN admin3_units a3
@@ -890,8 +1038,19 @@ router.get("/summary", async (req, res) => {
       FROM welfare_programs wp
       LEFT JOIN welfare_beneficiary wb
         ON wp.${programIdColumn} = wb.program_id
-      LEFT JOIN welfare_beneficiary_indicators wbi
-        ON wb.id = wbi.beneficiary_id
+      LEFT JOIN LATERAL (
+        SELECT
+          indicator.affected_by_flood,
+          indicator.has_school_access,
+          indicator.has_health_facility_access
+        FROM welfare_beneficiary_indicators indicator
+        WHERE indicator.beneficiary_id = wb.id
+        ORDER BY
+          indicator.updated_at DESC NULLS LAST,
+          indicator.created_at DESC NULLS LAST,
+          indicator.id DESC
+        LIMIT 1
+      ) wbi ON TRUE
       LEFT JOIN districts d
         ON wb.district_id = d.id
       LEFT JOIN admin3_units a3

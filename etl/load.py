@@ -300,8 +300,16 @@ def load_welfare_beneficiary_indicators(session, indicators_df):
                 )
             """
             )
-            # Handle potential duplicates or existing records by deleting first if we want to refresh
-            # Or just use a simple insert if it's a new load
+            # Keep one indicator row per beneficiary by replacing any existing rows.
+            session.execute(
+                text(
+                    """
+                    DELETE FROM welfare_beneficiary_indicators
+                    WHERE beneficiary_id = :beneficiary_id
+                    """
+                ),
+                {"beneficiary_id": record["beneficiary_id"]},
+            )
             session.execute(query, record)
 
         session.commit()

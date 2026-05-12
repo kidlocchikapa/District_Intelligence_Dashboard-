@@ -4,6 +4,7 @@ const db = require("../db");
 const {
   appendDistrictGeometryCondition,
   appendDistrictNameCondition,
+  resolveDistrictFilterValues,
 } = require("./queryFilters");
 
 function normalizeAdminType(adminType = "District") {
@@ -28,6 +29,45 @@ function appendOptionalTaCondition(
 
   params.push(taName);
   conditions.push(`LOWER(${columnExpression}) = LOWER($${params.length})`);
+}
+
+async function tableExists(tableName) {
+  const result = await db.query(
+    `
+      SELECT EXISTS (
+        SELECT 1
+        FROM information_schema.tables
+        WHERE table_schema = 'public'
+          AND table_name = $1
+      ) AS exists
+    `,
+    [tableName],
+  );
+  return Boolean(result.rows[0]?.exists);
+}
+
+function buildRasterSlug(district) {
+  const normalized = String(district || "").trim().toLowerCase();
+  if (
+    normalized === "zomba" ||
+    normalized === "zomba city" ||
+    normalized === "zomba (all)"
+  ) {
+    return "zomba-zomba-city";
+  }
+
+  const values = resolveDistrictFilterValues(district);
+  const source = values.length ? values : ["malawi"];
+  return source
+    .map((value) =>
+      String(value || "")
+        .trim()
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, "-")
+        .replace(/^-+|-+$/g, ""),
+    )
+    .filter(Boolean)
+    .join("-") || "malawi";
 }
 
 // @route   GET api/v1/dashboard/health
@@ -421,6 +461,281 @@ router.get("/served-population/geojson", async (req, res) => {
   }
 });
 
+// @route   GET api/v1/dashboard/health/2sfca
+// @desc    Get health 2SFCA access metrics
+/**
+ * @openapi
+ * /api/v1/dashboard/health/2sfca:
+ *   get:
+ *     summary: Get health 2SFCA access metrics
+ *     tags:
+ *       - Health
+ *     responses:
+ *       200:
+ *         description: 2SFCA access metrics
+ */
+router.get("/2sfca", async (req, res) => {
+  const { admin_type: adminType = "District", district, ta } = req.query;
+  const normalizedAdminType = normalizeAdminType(adminType);
+
+  try {
+    const conditions = [
+      "analysis_type = 'health_2sfca_access'",
+      "LOWER(admin_unit_type) = LOWER($1)",
+    ];
+    const params = [normalizedAdminType];
+    if (normalizedAdminType === "TA") {
+      appendOptionalTaCondition(conditions, params, "admin_unit_name", ta);
+    } else {
+      appendDistrictNameCondition(
+        conditions,
+        params,
+        "admin_unit_name",
+        district,
+      );
+    }
+
+    const result = await db.query(
+      `
+            SELECT
+                admin_unit_id,
+                admin_unit_code,
+                admin_unit_name,
+                admin_unit_type,
+                metric_name,
+                metric_value,
+                metric_unit,
+                metadata,
+                calculated_at
+            FROM analysis_results
+            WHERE ${conditions.join(" AND ")}
+            ORDER BY admin_unit_name, metric_name
+            `,
+      params,
+    );
+    res.json({
+      status: "success",
+      data: result.rows,
+    });
+  } catch (err) {
+    console.error(err.message);
+    res.status(500).send("Server error");
+  }
+});
+
+// @route   GET api/v1/dashboard/health/2sfca/geojson
+// @desc    Get health 2SFCA access results as GeoJSON
+/**
+ * @openapi
+ * /api/v1/dashboard/health/2sfca/geojson:
+ *   get:
+ *     summary: Get health 2SFCA access as GeoJSON
+ *     tags:
+ *       - Health
+ *     responses:
+ *       200:
+ *         description: 2SFCA access GeoJSON
+ */
+router.get("/2sfca/geojson", async (req, res) => {
+  const { admin_type: adminType = "District", district } = req.query;
+  const normalizedAdminType = normalizeAdminType(adminType);
+
+  try {
+    const params = [normalizedAdminType];
+    const conditions = ["au.geom IS NOT NULL", "LOWER(au.type) = LOWER($1)"];
+    appendDistrictGeometryCondition(conditions, params, "au.geom", district);
+
+    const query = `
+            SELECT jsonb_build_object(
+                'type', 'FeatureCollection',
+                'features', COALESCE(jsonb_agg(feature), '[]'::jsonb)
+            )
+            FROM (
+        WITH admin_units AS (
+          SELECT
+            d.id,
+            d.code,
+            d.name,
+            'District'::text AS type,
+            d.population_total,
+            d.population_density,
+            d.geom
+          FROM districts d
+          UNION ALL
+          SELECT
+            a3.id,
+            a3.code,
+            a3.name,
+            a3.type::text AS type,
+            a3.population_total,
+            a3.population_density,
+            a3.geom
+          FROM admin3_units a3
+        )
+                SELECT jsonb_build_object(
+                    'type', 'Feature',
+                    'id', au.id,
+          'geometry', ST_AsGeoJSON(au.geom)::jsonb,
+                    'properties', jsonb_build_object(
+                        'admin_unit_id', au.id,
+                        'admin_unit_code', au.code,
+                        'admin_unit_name', au.name,
+                        'admin_unit_type', au.type,
+                        'population_total', au.population_total,
+                        'population_density', au.population_density,
+                        'health_2sfca_access_score', ar.health_2sfca_access_score,
+                        'catchment_minutes', ar.catchment_minutes,
+                        'calculated_at', ar.calculated_at
+                    )
+                ) AS feature
+                FROM admin_units au
+                JOIN (
+                    SELECT
+                        admin_unit_id,
+                        MAX(CASE WHEN metric_name = 'health_2sfca_access_score' THEN metric_value END) AS health_2sfca_access_score,
+                        MAX((metadata->>'catchment_minutes')::numeric) AS catchment_minutes,
+                        MAX(calculated_at) AS calculated_at
+                    FROM analysis_results
+                    WHERE analysis_type = 'health_2sfca_access'
+                      AND LOWER(admin_unit_type) = LOWER($1)
+                    GROUP BY admin_unit_id
+                ) ar
+                  ON ar.admin_unit_id = au.id
+                WHERE ${conditions.join(" AND ")}
+                ORDER BY au.name
+            ) rowconf;
+        `;
+    const result = await db.query(query, params);
+    res.json({
+      status: "success",
+      data: result.rows[0].jsonb_build_object || {
+        type: "FeatureCollection",
+        features: [],
+      },
+    });
+  } catch (err) {
+    console.error(err.message);
+    res.status(500).send("Server error");
+  }
+});
+
+// @route   GET api/v1/dashboard/health/raster-metadata
+// @desc    Get static raster metadata descriptors for health access visualizations
+router.get("/raster-metadata", async (req, res) => {
+  const { district } = req.query;
+  const slug = buildRasterSlug(district);
+
+  res.json({
+    status: "success",
+    data: {
+      district: district || null,
+      assets: {
+        health_buffer_8km: `/health-access/${slug}.health_buffer_8km.preview.json`,
+        health_network_8km: `/health-access/${slug}.health_network_8km.preview.json`,
+        health_travel_time: `/health-access/${slug}.health_travel_time.preview.json`,
+        health_2sfca: `/health-access/${slug}.health_2sfca.preview.json`,
+        health_welfare_vulnerability: `/health-access/${slug}.health_welfare_vulnerability.preview.json`,
+        health_flood_isolation: `/health-access/${slug}.health_flood_isolation.preview.json`,
+        health_school_gap: `/health-access/${slug}.health_school_gap.preview.json`,
+      },
+    },
+  });
+});
+
+// @route   GET api/v1/dashboard/health/facility-buffers/geojson
+// @desc    Get facility 8 km buffer polygons with buffer-based and network-based metrics
+router.get("/facility-buffers/geojson", async (req, res) => {
+  const { district, ta, buffer_km: bufferKmParam } = req.query;
+  const parsedBufferKm = Number(bufferKmParam);
+  const bufferKm =
+    Number.isFinite(parsedBufferKm) && parsedBufferKm > 0
+      ? Math.min(parsedBufferKm, 30)
+      : 8;
+  const hasMetricsTable = await tableExists("health_facility_access_metrics");
+
+  try {
+    const params = [bufferKm * 1000];
+    const conditions = ["hf.geom IS NOT NULL"];
+    appendDistrictGeometryCondition(conditions, params, "hf.geom", district);
+    appendOptionalTaCondition(conditions, params, "a3.name", ta);
+    const whereClause = conditions.length
+      ? `WHERE ${conditions.join(" AND ")}`
+      : "";
+
+    const metricsJoin = hasMetricsTable
+      ? `
+        LEFT JOIN health_facility_access_metrics ham
+          ON ham.facility_id = hf.id
+      `
+      : "";
+    const metricsFields = hasMetricsTable
+      ? `
+        'worldpop_population_within_8km_buffer', COALESCE(ham.worldpop_population_within_buffer, 0),
+        'welfare_beneficiaries_within_8km_buffer', COALESCE(ham.welfare_beneficiaries_within_buffer, 0),
+        'welfare_beneficiaries_served_by_8km_network', COALESCE(ham.welfare_beneficiaries_served_by_8km_network, 0),
+        'avg_network_distance_km', ham.avg_network_distance_km,
+        'avg_travel_time_min', ham.avg_travel_time_min,
+      `
+      : `
+        'worldpop_population_within_8km_buffer', NULL,
+        'welfare_beneficiaries_within_8km_buffer', NULL,
+        'welfare_beneficiaries_served_by_8km_network', NULL,
+        'avg_network_distance_km', NULL,
+        'avg_travel_time_min', NULL,
+      `;
+
+    const query = `
+      SELECT jsonb_build_object(
+        'type', 'FeatureCollection',
+        'features', COALESCE(jsonb_agg(feature), '[]'::jsonb)
+      )
+      FROM (
+        SELECT jsonb_build_object(
+          'type', 'Feature',
+          'id', CONCAT('facility-buffer-', hf.id),
+          'geometry', ST_AsGeoJSON(ST_Buffer(hf.geom::geography, $1)::geometry)::jsonb,
+          'properties', jsonb_build_object(
+            'facility_id', hf.id,
+            'facility_name', hf.name,
+            'facility_type', hf.type,
+            'ownership', hf.ownership,
+            'ta_name', a3.name,
+            'district_name', d.name,
+            'coverage_distance_km', $1 / 1000.0,
+            'coverage_metric_type', 'buffer_based',
+            ${metricsFields}
+            'metric_source', ${hasMetricsTable ? "'health_facility_access_metrics'" : "'not_calculated'"}
+          )
+        ) AS feature
+        FROM health_facilities hf
+        LEFT JOIN admin3_units a3
+          ON a3.id = hf.ta_id
+        LEFT JOIN districts d
+          ON d.id = hf.district_id
+        ${metricsJoin}
+        ${whereClause}
+      ) features;
+    `;
+
+    const result = await db.query(query, params);
+    res.json({
+      status: "success",
+      data: result.rows[0]?.jsonb_build_object || {
+        type: "FeatureCollection",
+        features: [],
+      },
+    });
+  } catch (err) {
+    console.error("Health facility buffers geojson error", {
+      message: err.message,
+      district,
+      ta,
+      bufferKm,
+    });
+    res.status(500).send("Server error");
+  }
+});
+
 // @route   GET api/v1/dashboard/health/access-zones/geojson
 // @desc    Get served/unserved health access zones plus facility points
 /**
@@ -650,6 +965,9 @@ router.get("/drilldown", async (req, res) => {
   const bufferMeters = bufferKm * 1000;
 
   try {
+    const hasFacilityAccessMetricsTable = await tableExists(
+      "health_facility_access_metrics",
+    );
     const facilityParams = [bufferMeters];
     const facilityConditions = ["hf.geom IS NOT NULL"];
     appendDistrictGeometryCondition(
@@ -734,6 +1052,26 @@ router.get("/drilldown", async (req, res) => {
          AND ST_Intersects(wb.geom, fs.buffer_geom)
         GROUP BY fs.facility_id
       ),
+      network_access AS (
+        SELECT
+          travel.facility_id,
+          COUNT(travel.beneficiary_id) FILTER (
+            WHERE travel.routing_status = 'routed'
+              AND travel.network_distance_km IS NOT NULL
+              AND travel.network_distance_km <= 8
+          ) AS welfare_beneficiaries_served_by_8km_network,
+          AVG(travel.network_distance_km) FILTER (
+            WHERE travel.routing_status = 'routed'
+              AND travel.network_distance_km IS NOT NULL
+          ) AS avg_network_distance_km,
+          AVG(travel.travel_time_min) FILTER (
+            WHERE travel.routing_status = 'routed'
+              AND travel.travel_time_min IS NOT NULL
+          ) AS avg_travel_time_min
+        FROM beneficiary_facility_travel travel
+        WHERE travel.facility_type = 'health'
+        GROUP BY travel.facility_id
+      ),
       flood_latest AS (
         SELECT MAX(analysis_date) AS analysis_date
         FROM flood_facility_exposure
@@ -778,8 +1116,14 @@ router.get("/drilldown", async (req, res) => {
         fs.district_id,
         fs.district_name,
         ST_AsGeoJSON(fs.geom)::jsonb AS geom,
-        COALESCE(sp.served_population_est, 0) AS served_population_est,
+        COALESCE(${hasFacilityAccessMetricsTable ? "ham.worldpop_population_within_buffer" : "sp.served_population_est"}, 0) AS served_population_est,
+        COALESCE(${hasFacilityAccessMetricsTable ? "ham.worldpop_population_within_buffer" : "sp.served_population_est"}, 0) AS worldpop_population_within_8km_buffer,
         COALESCE(wa.welfare_beneficiaries_within_buffer, 0) AS welfare_beneficiaries_within_buffer,
+        COALESCE(${hasFacilityAccessMetricsTable ? "ham.welfare_beneficiaries_served_by_8km_network" : "na.welfare_beneficiaries_served_by_8km_network"}, 0) AS welfare_beneficiaries_served_by_8km_network,
+        COALESCE(${hasFacilityAccessMetricsTable ? "ham.avg_network_distance_km" : "na.avg_network_distance_km"}, 0) AS avg_network_distance_km,
+        COALESCE(${hasFacilityAccessMetricsTable ? "ham.avg_travel_time_min" : "na.avg_travel_time_min"}, 0) AS avg_travel_time_min,
+        'buffer_based'::text AS buffer_metric_type,
+        'network_distance_km<=8'::text AS network_metric_type,
         fe.risk_class AS flood_risk_class,
         COALESCE(fe.is_exposed, FALSE) AS flood_is_exposed,
         fe.analysis_date AS flood_analysis_date,
@@ -790,6 +1134,14 @@ router.get("/drilldown", async (req, res) => {
         ON sp.facility_id = fs.facility_id
       LEFT JOIN welfare_access wa
         ON wa.facility_id = fs.facility_id
+      LEFT JOIN network_access na
+        ON na.facility_id = fs.facility_id
+      ${
+        hasFacilityAccessMetricsTable
+          ? `LEFT JOIN health_facility_access_metrics ham
+        ON ham.facility_id = fs.facility_id`
+          : ""
+      }
       LEFT JOIN flood_exposure fe
         ON fe.facility_id = fs.facility_id
       LEFT JOIN nearest_facility nf
@@ -916,6 +1268,55 @@ router.get("/drilldown", async (req, res) => {
       ta,
     });
     res.status(500).send("Server error");
+  }
+});
+
+// @route   GET api/v1/dashboard/health/analytics/ta
+// @desc    Get aggregated TA-level deep-dive analytics
+router.get("/analytics/ta", async (req, res) => {
+  const { district } = req.query;
+  try {
+    const query = `
+      SELECT 
+          admin_unit_name,
+          MAX(CASE WHEN analysis_type = 'health_welfare_vulnerability' THEN metric_value END) as vulnerability_score,
+          MAX(CASE WHEN analysis_type = 'health_welfare_vulnerability' THEN (metadata->>'raw_beneficiary_count')::numeric END) as beneficiary_count,
+          MAX(CASE WHEN analysis_type = 'health_flood_isolation' THEN metric_value END) as flood_isolation_risk,
+          MAX(CASE WHEN analysis_type = 'school_health_gap' THEN (metadata->>'student_enrolment_affected')::numeric END) as student_enrolment_affected,
+          MAX(CASE WHEN analysis_type = 'school_health_gap' THEN metric_value END) as avg_distance_to_health
+      FROM analysis_results
+      WHERE analysis_type IN ('health_welfare_vulnerability', 'health_flood_isolation', 'school_health_gap')
+        AND LOWER(admin_unit_type) = 'ta'
+      GROUP BY admin_unit_name
+      ORDER BY vulnerability_score DESC NULLS LAST;
+    `;
+    const result = await db.query(query);
+    res.json({ status: "success", data: result.rows });
+  } catch (err) {
+    console.error("TA Analytics Error:", err);
+    res.status(500).json({ status: "error", message: "Server error" });
+  }
+});
+
+// @route   GET api/v1/dashboard/health/analytics/facility
+// @desc    Get Facility-level deep-dive analytics (Burden)
+router.get("/analytics/facility", async (req, res) => {
+  try {
+    const query = `
+      SELECT 
+        hf.name as facility_name,
+        COALESCE(hf.doctor_count, 0) + COALESCE(hf.nurse_midwife_count, 0) as staff_count,
+        hf.beds_count,
+        COALESCE(am.worldpop_population_within_buffer, 0) as catchment_population
+      FROM health_facilities hf
+      LEFT JOIN health_facility_access_metrics am ON hf.id = am.facility_id AND am.coverage_distance_km = 8
+      WHERE hf.geom IS NOT NULL
+    `;
+    const result = await db.query(query);
+    res.json({ status: "success", data: result.rows });
+  } catch (err) {
+    console.error("Facility Analytics Error:", err);
+    res.status(500).json({ status: "error", message: "Server error" });
   }
 });
 

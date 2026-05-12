@@ -89,7 +89,7 @@ async function getAccessibleDepartmentsForUser(userId, role, action = "read") {
 }
 
 async function userHasDepartmentAccess(userId, role, department, action = "read") {
-  const normalizedDepartment = String(department || "").trim().toLowerCase();
+  const normalizedDepartment = normalizeDepartment(department);
   if (!DEPARTMENTS.includes(normalizedDepartment)) {
     return false;
   }

@@ -168,12 +168,66 @@ def download_worldpop_raster(raster_url, download_dir, filename=None, timeout=30
             os.remove(target_path)
 
         log_step('download_worldpop_raster', f'downloading raster from {raster_url}')
-        with urlopen(raster_url, timeout=timeout) as response, open(target_path, 'wb') as output:
+        request = Request(raster_url, headers={'User-Agent': 'district-intelligence-etl/1.0'})
+        with urlopen(request, timeout=timeout) as response, open(target_path, 'wb') as output:
+            total_bytes = None
+            content_length = response.headers.get('Content-Length')
+            if content_length:
+                try:
+                    total_bytes = int(content_length)
+                    total_mb = total_bytes / (1024 * 1024)
+                    log_step(
+                        'download_worldpop_raster',
+                        f'estimated download size: {total_mb:.1f} MB'
+                    )
+                except (TypeError, ValueError):
+                    total_bytes = None
+
+            chunk_size = 1024 * 1024
+            downloaded_bytes = 0
+            progress_log_interval_bytes = 10 * 1024 * 1024
+            next_progress_log = progress_log_interval_bytes
+            start_time = time.monotonic()
+
             while True:
-                chunk = response.read(1024 * 1024)
+                chunk = response.read(chunk_size)
                 if not chunk:
                     break
                 output.write(chunk)
+                downloaded_bytes += len(chunk)
+
+                should_log_progress = downloaded_bytes >= next_progress_log
+                if total_bytes:
+                    should_log_progress = should_log_progress or downloaded_bytes == total_bytes
+
+                if should_log_progress:
+                    elapsed = max(time.monotonic() - start_time, 0.001)
+                    downloaded_mb = downloaded_bytes / (1024 * 1024)
+                    speed_mb_s = downloaded_mb / elapsed
+                    if total_bytes:
+                        total_mb = total_bytes / (1024 * 1024)
+                        pct = min(downloaded_bytes / total_bytes * 100, 100.0)
+                        log_step(
+                            'download_worldpop_raster',
+                            (
+                                f'progress: {downloaded_mb:.1f}/{total_mb:.1f} MB '
+                                f'({pct:.1f}%) at {speed_mb_s:.2f} MB/s'
+                            )
+                        )
+                    else:
+                        log_step(
+                            'download_worldpop_raster',
+                            f'progress: {downloaded_mb:.1f} MB downloaded at {speed_mb_s:.2f} MB/s'
+                        )
+                    while downloaded_bytes >= next_progress_log:
+                        next_progress_log += progress_log_interval_bytes
+
+        elapsed_total = max(time.monotonic() - start_time, 0.001)
+        final_mb = downloaded_bytes / (1024 * 1024)
+        log_step(
+            'download_worldpop_raster',
+            f'download complete: {final_mb:.1f} MB written to {target_path} in {elapsed_total:.1f}s'
+        )
 
         if not validate_raster_readable(target_path, strict=True):
             if os.path.exists(target_path):
