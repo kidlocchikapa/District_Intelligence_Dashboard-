@@ -338,55 +338,59 @@ function PopulationRasterPanel({
           </div>
         )}
 
-        {legend ? (
-          <div className="pointer-events-none absolute right-4 bottom-4 z-[401] w-[156px] rounded-xl border border-white/80 bg-white/92 px-3 py-2.5 shadow-md backdrop-blur-md">
-            <p className="text-[9px] font-bold uppercase tracking-[0.14em] text-slate/50">
-              Legend
-            </p>
-            <p className="mt-1 text-[11px] font-semibold leading-4 text-slate">
-              {resolveLegendLabel(legend.label || title || "Raster surface")}
-            </p>
-            <div
-              className="mt-2 h-2.5 w-full rounded-full border border-slate-200/80"
-              style={{ background: legendBackground(legend.colors) }}
-            />
-            <div className="mt-1.5 flex items-center justify-between text-[9px] font-bold uppercase tracking-[0.12em] text-slate/55">
-              <span>{legend.lowLabel || "Low"}</span>
-              <span>{legend.highLabel || "High"}</span>
-            </div>
-          </div>
-        ) : null}
-
-        {selectedFeature ? (
-          <div className="pointer-events-none absolute inset-x-4 bottom-4 flex items-end justify-start z-[401]">
-            <div className="rounded-2xl border border-white/80 bg-white/92 px-4 py-3 shadow-md backdrop-blur-md w-[270px] sm:w-[288px]">
-              <p className="text-[9px] font-bold uppercase tracking-[0.14em] text-slate/50 leading-none mb-2">
-                Selected Area
-              </p>
-              {selectedName ? (
-                <div className="space-y-2.5">
-                  <p className="text-[18px] font-black text-slate leading-none">
-                    {selectedName}
+        {legend || selectedFeature ? (
+          <div className="pointer-events-none absolute inset-x-3 bottom-3 z-[401] flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
+            {selectedFeature ? (
+              <div className="sm:min-w-0 sm:flex-1">
+                <div className="w-full rounded-2xl border border-white/80 bg-white/92 px-4 py-3 shadow-md backdrop-blur-md sm:max-w-[17.5rem]">
+                  <p className="mb-2 text-[9px] font-bold uppercase tracking-[0.14em] text-slate/50 leading-none">
+                    Selected Area
                   </p>
-                  <div className="grid grid-cols-2 gap-x-4 gap-y-2 text-[10px] text-slate/65">
-                    {metricItems.map((item) => (
-                      <div key={item.key} className="space-y-0.5">
-                        <p className="uppercase tracking-[0.11em] text-slate/45 font-semibold">
-                          {item.label}
-                        </p>
-                        <p className="text-[15px] leading-none font-black text-slate">
-                          {item.value}
-                        </p>
+                  {selectedName ? (
+                    <div className="space-y-2.5">
+                      <p className="text-[18px] font-black text-slate leading-none">
+                        {selectedName}
+                      </p>
+                      <div className="grid grid-cols-2 gap-x-4 gap-y-2 text-[10px] text-slate/65">
+                        {metricItems.map((item) => (
+                          <div key={item.key} className="space-y-0.5">
+                            <p className="uppercase tracking-[0.11em] text-slate/45 font-semibold">
+                              {item.label}
+                            </p>
+                            <p className="text-[15px] leading-none font-black text-slate">
+                              {item.value}
+                            </p>
+                          </div>
+                        ))}
                       </div>
-                    ))}
-                  </div>
+                    </div>
+                  ) : (
+                    <p className="text-[12px] font-semibold text-slate/60">
+                      Select a TA to view its local stats.
+                    </p>
+                  )}
                 </div>
-              ) : (
-                <p className="text-[12px] font-semibold text-slate/60">
-                  Select a TA to view its local stats.
+              </div>
+            ) : null}
+
+            {legend ? (
+              <div className="w-[148px] self-end rounded-xl border border-white/80 bg-white/92 px-3 py-2.5 shadow-md backdrop-blur-md sm:self-auto sm:shrink-0">
+                <p className="text-[9px] font-bold uppercase tracking-[0.14em] text-slate/50">
+                  Legend
                 </p>
-              )}
-            </div>
+                <p className="mt-1 text-[11px] font-semibold leading-4 text-slate">
+                  {resolveLegendLabel(legend.label || title || "Raster surface")}
+                </p>
+                <div
+                  className="mt-2 h-2.5 w-full rounded-full border border-slate-200/80"
+                  style={{ background: legendBackground(legend.colors) }}
+                />
+                <div className="mt-1.5 flex items-center justify-between text-[9px] font-bold uppercase tracking-[0.12em] text-slate/55">
+                  <span>{legend.lowLabel || "Low"}</span>
+                  <span>{legend.highLabel || "High"}</span>
+                </div>
+              </div>
+            ) : null}
           </div>
         ) : null}
       </div>
