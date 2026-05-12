@@ -4,8 +4,8 @@ DO $$
 BEGIN
     CREATE EXTENSION IF NOT EXISTS pgrouting;
 EXCEPTION
-    WHEN undefined_file THEN
-        RAISE NOTICE 'pgRouting extension is not available in this database environment.';
+    WHEN OTHERS THEN
+        RAISE NOTICE 'pgRouting extension is not available in this database environment. Skipping pgRouting installation.';
 END $$;
 
 -- Normalized boundary tables for non-destructive incremental uploads
@@ -130,8 +130,8 @@ CREATE TABLE IF NOT EXISTS welfare_beneficiaries (
 
 -- Welfare Programs
 CREATE TABLE IF NOT EXISTS welfare_programs (
-    id SERIAL PRIMARY KEY,
-    program_name VARCHAR(255) NOT NULL,
+    program_id SERIAL PRIMARY KEY,
+    program_name VARCHAR(255) NOT NULL UNIQUE,
     department VARCHAR(100),
     description TEXT,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -141,7 +141,7 @@ CREATE TABLE IF NOT EXISTS welfare_programs (
 -- Individual Welfare Beneficiaries
 CREATE TABLE IF NOT EXISTS welfare_beneficiary (
     id SERIAL PRIMARY KEY,
-    program_id INTEGER REFERENCES welfare_programs(id) ON DELETE SET NULL,
+    program_id INTEGER REFERENCES welfare_programs(program_id) ON DELETE SET NULL,
     firstname VARCHAR(100),
     lastname VARCHAR(100),
     gender VARCHAR(20),
@@ -164,7 +164,7 @@ CREATE TABLE IF NOT EXISTS welfare_beneficiary (
 CREATE TABLE IF NOT EXISTS welfare_beneficiary_indicators (
     id SERIAL PRIMARY KEY,
     beneficiary_id INTEGER REFERENCES welfare_beneficiary(id) ON DELETE CASCADE,
-    program_id INTEGER REFERENCES welfare_programs(id) ON DELETE CASCADE,
+    program_id INTEGER REFERENCES welfare_programs(program_id) ON DELETE CASCADE,
     ta_id INTEGER REFERENCES admin3_units(id) ON DELETE SET NULL,
     district_id INTEGER REFERENCES districts(id) ON DELETE SET NULL,
     affected_by_flood BOOLEAN DEFAULT FALSE,
@@ -367,7 +367,7 @@ CREATE TABLE IF NOT EXISTS users (
     email VARCHAR(255) NOT NULL UNIQUE,
     password_hash TEXT NOT NULL,
     full_name VARCHAR(255),
-    role VARCHAR(50) NOT NULL DEFAULT 'department_admin' CHECK (role IN ('super_admin', 'admin', 'department_admin', 'analyst', 'user')),
+    role VARCHAR(50) NOT NULL DEFAULT 'department_admin' CHECK (role IN ('super_admin', 'admin', 'education_admin', 'health_admin', 'disaster_admin', 'welfare_admin', 'department_admin', 'analyst', 'user')),
     is_active BOOLEAN NOT NULL DEFAULT TRUE,
     last_login_at TIMESTAMP,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,

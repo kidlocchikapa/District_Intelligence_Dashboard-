@@ -66,7 +66,7 @@ function getHealthRasterAsset(assets, key) {
 
 function HealthPage() {
   const { selectedDistrict, selectedTa } = useDistrict();
-  const { contentRef, exportPdf } = usePdfExport("Health_Report.pdf");
+  const { contentRef, exportDataPdf } = usePdfExport("Health_Report.pdf");
   const districtScope = selectedDistrict || "Zomba";
 
   const servedPopulationSummary = useDashboardData(
@@ -174,6 +174,72 @@ function HealthPage() {
   ].filter(Boolean);
 
   const formatStat = (val) => Number(val).toLocaleString();
+
+  const selectedAreaName = selectedTa
+    ? `TA: ${selectedTa}`
+    : selectedDistrict
+      ? `District: ${selectedDistrict}`
+      : "National";
+
+  const handleDownloadReport = async () => {
+    const healthRows = Array.isArray(healthSummary.data)
+      ? healthSummary.data.map((row) => ({
+          metric: row.metric_name,
+          value: formatStat(row.metric_value),
+        }))
+      : [];
+
+    const servedPopulationRows = Array.isArray(servedPopulationSummary.data)
+      ? servedPopulationSummary.data.map((row) => ({
+          metric: row.metric_name,
+          value: formatStat(row.metric_value),
+        }))
+      : [];
+
+    const welfareRows = Object.entries(healthIntegration.data?.summary || {}).map(
+      ([key, value]) => ({
+        metric: key.replace(/_/g, " "),
+        value: formatStat(value),
+      }),
+    );
+
+    await exportDataPdf({
+      title: "Health Area Analysis",
+      selectedArea: selectedAreaName,
+      sections: [
+        {
+          title: "Health Summary",
+          columns: [
+            { key: "metric", label: "Metric", width: 260 },
+            { key: "value", label: "Value", width: 180 },
+          ],
+          rows: healthRows.length ? healthRows : [
+            { metric: "Health summary", value: "No data available" },
+          ],
+        },
+        {
+          title: "Served Population",
+          columns: [
+            { key: "metric", label: "Metric", width: 260 },
+            { key: "value", label: "Value", width: 180 },
+          ],
+          rows: servedPopulationRows.length ? servedPopulationRows : [
+            { metric: "Served population", value: "No data available" },
+          ],
+        },
+        {
+          title: "Welfare Integration",
+          columns: [
+            { key: "metric", label: "Metric", width: 260 },
+            { key: "value", label: "Value", width: 180 },
+          ],
+          rows: welfareRows.length ? welfareRows : [
+            { metric: "Integration summary", value: "No data available" },
+          ],
+        },
+      ],
+    });
+  };
 
   const facilities = healthLocations?.data?.features || [];
   const totalFacilities = facilities.length;
@@ -374,11 +440,11 @@ function HealthPage() {
         {/* Actions Row */}
         <div className="flex gap-4 mb-8">
           <button
-            onClick={exportPdf}
+            onClick={handleDownloadReport}
             className="flex items-center gap-2 border border-gray-300 rounded px-3 py-1.5 text-[13px] font-bold hover:bg-gray-50 transition-all shadow-sm active:scale-95"
           >
             <Download className="h-4 w-4" />
-            Download PDF
+            Download Area Analysis
           </button>
           <SharedDistrictSelector />
 
