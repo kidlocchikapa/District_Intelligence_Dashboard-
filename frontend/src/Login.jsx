@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { toast } from 'react-hot-toast';
-import { setAuthToken } from './lib/api';
+import { postJson, setAuthToken } from './lib/api';
 import logo from './assets/court_of_arms.png';
 
 export default function Login({ onLogin }) {
@@ -15,20 +15,16 @@ export default function Login({ onLogin }) {
     setLoading(true);
 
     try {
-      const res = await fetch('/api/v1/auth/login', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email, password }),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.status === 'error' ? data.message : 'Failed to login');
+      const data = await postJson('/auth/login', { email, password });
       
       setAuthToken(data.data.token);
       toast.success('Signed in successfully');
       onLogin(data.data.token, data.data.user.role);
     } catch (err) {
-      setError(err.message);
-      toast.error(err.message || 'Failed to sign in');
+      const message =
+        err?.response?.data?.message || err?.message || 'Failed to sign in';
+      setError(message);
+      toast.error(message);
     } finally {
       setLoading(false);
     }
