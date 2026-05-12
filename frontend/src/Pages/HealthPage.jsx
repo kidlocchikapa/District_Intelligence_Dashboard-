@@ -65,7 +65,7 @@ function getHealthRasterAsset(assets, key) {
 }
 
 function HealthPage() {
-  const { selectedDistrict, selectedTa } = useDistrict();
+  const { selectedDistrict, selectedTa, setSelectedTa } = useDistrict();
   const { contentRef, exportPdf } = usePdfExport("Health_Report.pdf");
   const districtScope = selectedDistrict || "Zomba";
 
@@ -162,6 +162,15 @@ function HealthPage() {
     });
     return geojson;
   }, [healthCoverageTaGeojson.data, taAnalytics.data]);
+
+  const selectTa = (taName) => {
+    setSelectedTa(taName || "");
+  };
+
+  const selectTaFromFeature = (feature) => {
+    const properties = feature?.properties || {};
+    selectTa(properties.admin_unit_name || properties.name || "");
+  };
 
   const healthApiErrors = [
     healthSummary.error,
@@ -482,7 +491,9 @@ function HealthPage() {
               Beneficiary Travel Access Visualizations
             </h3>
             <p className="text-[13px] text-gray-500 font-semibold mt-1">
-              Separate views for 8 km facility buffers, 8 km road-network access, and beneficiary travel time to the nearest health facility.
+              {selectedTa
+                ? `Showing all health access maps focused on ${selectedTa}. Click another TA boundary to switch.`
+                : "Click any TA boundary to focus the whole health page on that TA."}
             </p>
           </div>
           <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
@@ -500,6 +511,7 @@ function HealthPage() {
                   healthCoverageTaGeojson.loading || healthRasterMetadata.loading
                 }
                 selectedFeatureName={selectedTa}
+                onFeatureClick={selectTaFromFeature}
               />
             </div>
             <div className="border border-gray-100 rounded p-4 shadow-sm bg-white">
@@ -516,6 +528,7 @@ function HealthPage() {
                   healthCoverageTaGeojson.loading || healthRasterMetadata.loading
                 }
                 selectedFeatureName={selectedTa}
+                onFeatureClick={selectTaFromFeature}
               />
             </div>
             <div className="border border-gray-100 rounded p-4 shadow-sm bg-white">
@@ -532,6 +545,7 @@ function HealthPage() {
                   healthCoverageTaGeojson.loading || healthRasterMetadata.loading
                 }
                 selectedFeatureName={selectedTa}
+                onFeatureClick={selectTaFromFeature}
               />
             </div>
           </div>
@@ -583,6 +597,7 @@ function HealthPage() {
                       healthCoverageTaGeojson.loading || healthRasterMetadata.loading
                     }
                     selectedFeatureName={selectedTa}
+                    onFeatureClick={selectTaFromFeature}
                   />
                 </div>
               </div>
@@ -630,6 +645,7 @@ function HealthPage() {
                       healthCoverageTaGeojson.loading || healthRasterMetadata.loading
                     }
                     selectedFeatureName={selectedTa}
+                    onFeatureClick={selectTaFromFeature}
                   />
                 </div>
               </div>
@@ -678,6 +694,7 @@ function HealthPage() {
                       healthCoverageTaGeojson.loading || healthRasterMetadata.loading
                     }
                     selectedFeatureName={selectedTa}
+                    onFeatureClick={selectTaFromFeature}
                   />
                 </div>
               </div>
@@ -718,7 +735,9 @@ function HealthPage() {
               Health Service Coverage Trend
             </h3>
             <p className="text-xs text-gray-500 font-semibold mb-4">
-              Health service coverage by TA so weaker access areas stand out in sequence.
+              {selectedTa
+                ? `Showing the selected TA coverage for ${selectedTa}.`
+                : "Health service coverage by TA. Click a bar to focus the page on that TA."}
             </p>
             <div className="flex-1 rounded overflow-hidden relative border border-gray-50 bg-gray-50 p-4">
               {servedPopulationTrend.loading || healthAccessZones.loading ? (
@@ -794,13 +813,29 @@ function HealthPage() {
                       name="Service coverage"
                       radius={[2, 2, 0, 0]}
                       barSize={16}
+                      onClick={(entry) => selectTa(entry?.area || "")}
                     >
-                      {coverageTrendData.map((entry) => (
-                        <Cell
-                          key={`health-coverage-bar-${entry.area}`}
-                          fill={getCoverageBarColor(entry.coverage_pct)}
-                        />
-                      ))}
+                      {coverageTrendData.map((entry) => {
+                        const isSelected =
+                          selectedTa &&
+                          entry.area.toLowerCase() ===
+                            selectedTa.toLowerCase();
+
+                        return (
+                          <Cell
+                            key={`health-coverage-bar-${entry.area}`}
+                            cursor="pointer"
+                            fill={
+                              isSelected
+                                ? "#7e22ce"
+                                : getCoverageBarColor(entry.coverage_pct)
+                            }
+                            stroke={isSelected ? "#111827" : "transparent"}
+                            strokeWidth={isSelected ? 2 : 0}
+                            fillOpacity={selectedTa && !isSelected ? 0.32 : 1}
+                          />
+                        );
+                      })}
                     </Bar>
                     {hasPopulationCoverageTrend ? (
                       <Line
@@ -1094,7 +1129,12 @@ function HealthPage() {
                 A composite view of vulnerabilities by Traditional Authority.
               </p>
               <div className="flex-1 overflow-hidden">
-                <TAAnalyticsTable />
+                <TAAnalyticsTable
+                  data={taAnalytics.data || []}
+                  loading={taAnalytics.loading}
+                  selectedTa={selectedTa}
+                  onSelectTa={selectTa}
+                />
               </div>
             </div>
           </div>
