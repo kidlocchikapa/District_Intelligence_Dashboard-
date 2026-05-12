@@ -1268,6 +1268,215 @@ router.get("/disaster", async (req, res) => {
 
 /**
  * @openapi
+ * /api/v1/admin-data/disaster/facility_exposure:
+ *   get:
+ *     summary: List flood facility exposure records
+ *     tags:
+ *       - Admin Data
+ *     security:
+ *       - BearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Flood facility exposure records
+ */
+router.get("/disaster/facility_exposure", async (req, res) => {
+  try {
+    const page = parsePositiveInteger(req.query.page, 1);
+    const pageSize = Math.min(parsePositiveInteger(req.query.page_size, 25), 100);
+    const offset = (page - 1) * pageSize;
+    const search = String(req.query.search || "").trim();
+
+    const params = [];
+    let searchClause = "";
+    if (search) {
+      params.push(`%${search}%`);
+      searchClause = `
+        AND (
+          COALESCE(ffe.facility_name, '') ILIKE $${params.length}
+          OR COALESCE(ffe.facility_type, '') ILIKE $${params.length}
+          OR COALESCE(ffe.risk_class, '') ILIKE $${params.length}
+          OR COALESCE(ffe.ta_name, '') ILIKE $${params.length}
+          OR COALESCE(ffe.district_name, '') ILIKE $${params.length}
+        )
+      `;
+    }
+
+    const countResult = await db.query(
+      `
+        WITH latest AS (
+          SELECT MAX(analysis_date) AS analysis_date
+          FROM flood_facility_exposure
+        )
+        SELECT COUNT(*)::int AS total
+        FROM flood_facility_exposure ffe
+        JOIN latest
+          ON ffe.analysis_date = latest.analysis_date
+        WHERE TRUE
+        ${searchClause}
+      `,
+      params,
+    );
+
+    const dataParams = [...params, pageSize, offset];
+    const rowsResult = await db.query(
+      `
+        WITH latest AS (
+          SELECT MAX(analysis_date) AS analysis_date
+          FROM flood_facility_exposure
+        )
+        SELECT
+          ffe.id,
+          ffe.facility_name AS name,
+          ffe.facility_type AS type,
+          ffe.risk_class AS risk_level,
+          ROUND(COALESCE(ffe.flood_value, 0)::numeric, 3) AS flood_depth,
+          ffe.district_name,
+          ffe.ta_name AS ward_name,
+          ffe.is_exposed,
+          ffe.facility_id,
+          ffe.analysis_date,
+          ffe.updated_at
+        FROM flood_facility_exposure ffe
+        JOIN latest
+          ON ffe.analysis_date = latest.analysis_date
+        WHERE TRUE
+        ${searchClause}
+        ORDER BY ffe.updated_at DESC, ffe.id DESC
+        LIMIT $${dataParams.length - 1}
+        OFFSET $${dataParams.length}
+      `,
+      dataParams,
+    );
+
+    const total = countResult.rows[0]?.total || 0;
+    return res.json({
+      status: "success",
+      data: {
+        items: rowsResult.rows,
+        page,
+        page_size: pageSize,
+        total,
+        total_pages: total ? Math.ceil(total / pageSize) : 0,
+      },
+    });
+  } catch (error) {
+    console.error("Admin disaster facility exposure list error:", error.message);
+    return res.status(500).json({
+      status: "error",
+      message: "Unable to load disaster facility exposure records",
+    });
+  }
+});
+
+/**
+ * @openapi
+ * /api/v1/admin-data/disaster/exposure_summary:
+ *   get:
+ *     summary: List flood exposure summary records
+ *     tags:
+ *       - Admin Data
+ *     security:
+ *       - BearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Flood exposure summary records
+ */
+router.get("/disaster/exposure_summary", async (req, res) => {
+  try {
+    const page = parsePositiveInteger(req.query.page, 1);
+    const pageSize = Math.min(parsePositiveInteger(req.query.page_size, 25), 100);
+    const offset = (page - 1) * pageSize;
+    const search = String(req.query.search || "").trim();
+
+    const params = [];
+    let searchClause = "";
+    if (search) {
+      params.push(`%${search}%`);
+      searchClause = `
+        AND (
+          COALESCE(ffes.district_name, '') ILIKE $${params.length}
+          OR COALESCE(ffes.ta_name, '') ILIKE $${params.length}
+          OR COALESCE(ffes.facility_type, '') ILIKE $${params.length}
+        )
+      `;
+    }
+
+    const countResult = await db.query(
+      `
+        WITH latest AS (
+          SELECT MAX(analysis_date) AS analysis_date
+          FROM flood_facility_exposure_summary
+        )
+        SELECT COUNT(*)::int AS total
+        FROM flood_facility_exposure_summary ffes
+        JOIN latest
+          ON ffes.analysis_date = latest.analysis_date
+        WHERE TRUE
+        ${searchClause}
+      `,
+      params,
+    );
+
+    const dataParams = [...params, pageSize, offset];
+    const rowsResult = await db.query(
+      `
+        WITH latest AS (
+          SELECT MAX(analysis_date) AS analysis_date
+          FROM flood_facility_exposure_summary
+        )
+        SELECT
+          ffes.id,
+          CASE
+            WHEN COALESCE(ffes.ta_id, 0) <> 0 THEN ffes.ta_name
+            ELSE ffes.district_name
+          END AS admin_unit_name,
+          ffes.facility_type,
+          ffes.total_facilities,
+          ffes.exposed_facilities AS at_risk_count,
+          ROUND(
+            CASE
+              WHEN ffes.total_facilities > 0 THEN
+                (ffes.exposed_facilities::numeric * 100) / ffes.total_facilities
+              ELSE 0
+            END,
+            2
+          ) AS risk_percentage,
+          ffes.analysis_date,
+          ffes.updated_at
+        FROM flood_facility_exposure_summary ffes
+        JOIN latest
+          ON ffes.analysis_date = latest.analysis_date
+        WHERE TRUE
+        ${searchClause}
+        ORDER BY ffes.updated_at DESC, ffes.id DESC
+        LIMIT $${dataParams.length - 1}
+        OFFSET $${dataParams.length}
+      `,
+      dataParams,
+    );
+
+    const total = countResult.rows[0]?.total || 0;
+    return res.json({
+      status: "success",
+      data: {
+        items: rowsResult.rows,
+        page,
+        page_size: pageSize,
+        total,
+        total_pages: total ? Math.ceil(total / pageSize) : 0,
+      },
+    });
+  } catch (error) {
+    console.error("Admin disaster exposure summary list error:", error.message);
+    return res.status(500).json({
+      status: "error",
+      message: "Unable to load disaster exposure summary records",
+    });
+  }
+});
+
+/**
+ * @openapi
  * /api/v1/admin-data/education/{id}:
  *   get:
  *     summary: Get an education record
