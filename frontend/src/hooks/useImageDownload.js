@@ -12,15 +12,10 @@ export function useImageDownload(filename = "district-map.png") {
     const className = "download-boundary-only";
     const style = document.createElement("style");
     style.innerHTML = `
-      .${className} .leaflet-image-layer,
-      .${className} .leaflet-tile-pane,
       .${className} .leaflet-control-container,
       .${className} .leaflet-shadow-pane,
-      .${className} .leaflet-overlay-pane img {
-        display: none !important;
-      }
-      .${className} .leaflet-tooltip,
       .${className} .leaflet-popup-pane,
+      .${className} .leaflet-tooltip,
       .${className} .leaflet-control-zoom,
       .${className} .leaflet-control-attribution {
         display: none !important;
