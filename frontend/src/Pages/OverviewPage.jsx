@@ -424,7 +424,9 @@ function OverviewPage() {
           </button>
           <button
             onClick={downloadImage}
-            className="flex items-center gap-2 border border-gray-300 rounded px-3 py-1.5 text-[13px] font-bold hover:bg-gray-50 transition-all shadow-sm active:scale-95"
+            disabled={!selectedDistrict && !selectedTa}
+            title={selectedDistrict || selectedTa ? "Download selected area boundary map" : "Select a district or TA first"}
+            className="flex items-center gap-2 border border-gray-300 rounded px-3 py-1.5 text-[13px] font-bold hover:bg-gray-50 transition-all shadow-sm active:scale-95 disabled:cursor-not-allowed disabled:opacity-50"
           >
             <MapIcon className="h-4 w-4" />
             Download Map
