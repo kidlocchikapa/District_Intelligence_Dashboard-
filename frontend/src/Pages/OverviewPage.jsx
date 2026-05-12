@@ -10,11 +10,9 @@ import {
   HeartPulse,
   Accessibility,
 } from "lucide-react";
-import { toast } from "react-hot-toast";
 import { useDashboardData } from "../hooks/useDashboardData";
 import { useDistrict } from "../context/DistrictContext";
 import { buildDashboardPath } from "../lib/query";
-import { usePdfExport } from "../hooks/usePdfExport";
 import { useImageDownload } from "../hooks/useImageDownload";
 import SharedDistrictSelector from "../components/SharedDistrictSelector";
 import PopulationRasterPanel from "../components/PopulationRasterPanel";
@@ -199,79 +197,9 @@ function OverviewPage() {
     return Number(val).toLocaleString(undefined, { maximumFractionDigits: 0 });
   };
 
-  const selectedAreaLabel = selectedTa
-    ? `TA: ${selectedTa}`
-    : selectedDistrict
-      ? `District: ${selectedDistrict}`
-      : "All Districts";
-
-  const tableRows = chartData
-    .filter((item) => !selectedTa || item.admin3.toLowerCase() === selectedTa.toLowerCase())
-    .map((item) => {
-      const floodStats = taFloodLookup.get(item.admin3.toLowerCase()) || {};
-
-      return {
-        admin3: item.admin3 || "Unknown TA",
-        population: formatStat(item.population || 0),
-        exposed_population: formatStat(floodStats.exposedPopulation || 0),
-        risk_level: floodStats.riskLevel || "N/A",
-      };
-    });
-
-  const tableColumns = [
-    { key: "admin3", label: "Traditional Authority", width: 180 },
-    { key: "population", label: "Population", width: 110 },
-    { key: "exposed_population", label: "Flood Exposed", width: 120 },
-    { key: "risk_level", label: "Risk Level", width: 110 },
-  ];
-
-  const { exportDataPdf } = usePdfExport("Overview_Report.pdf");
   const { targetRef: mapRef, downloadImage } = useImageDownload(
     "Zomba_Overview_Map.png",
   );
-
-  const handleDownloadReport = async () => {
-    if (!selectedDistrict && !selectedTa) {
-      toast.error("Select a district or TA before downloading the report.");
-      return;
-    }
-
-    if (tableRows.length === 0) {
-      toast.error("No selected area data available for export.");
-      return;
-    }
-
-    await exportDataPdf({
-      title: "Selected Area Data Analysis",
-      selectedArea: selectedAreaLabel,
-      summaryMetrics: [
-        {
-          label: "Total Population",
-          value: formatStat(
-            selectedTaChartRow?.population || summary.data?.total_estimated_population || 0,
-          ),
-        },
-        {
-          label: "Total Schools",
-          value: formatStat(summary.data?.total_schools || 0),
-        },
-        {
-          label: "Health Facilities",
-          value: formatStat(summary.data?.total_health_facilities || 0),
-        },
-        {
-          label: "Flood Exposed Population",
-          value: formatStat(exposedPopulation),
-        },
-        {
-          label: "Not Exposed Population",
-          value: formatStat(notExposedPopulation),
-        },
-      ],
-      tableColumns,
-      tableRows,
-    });
-  };
 
   const StatCardSkeleton = () => (
     <div className="border border-gray-100 rounded p-6 shadow-md bg-white relative animate-pulse">
@@ -317,15 +245,6 @@ function OverviewPage() {
 
         {/* Actions Row */}
         <div className="flex gap-4 mb-8">
-          <button
-            onClick={handleDownloadReport}
-            disabled={(!selectedDistrict && !selectedTa) || summary.loading}
-            title={selectedDistrict || selectedTa ? "Download selected area analysis as PDF" : "Select a district or TA first"}
-            className="flex items-center gap-2 border border-gray-300 rounded px-3 py-1.5 text-[13px] font-bold hover:bg-gray-50 transition-all shadow-sm active:scale-95 disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            <Download className="h-4 w-4" />
-            Download PDF
-          </button>
           <button
             onClick={downloadImage}
             className="flex items-center gap-2 border border-gray-300 rounded px-3 py-1.5 text-[13px] font-bold hover:bg-gray-50 transition-all shadow-sm active:scale-95"
