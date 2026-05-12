@@ -1,0 +1,33 @@
+{
+  "source": "mwi_worldpop_2020.tif (clipped to Zomba)",
+  "image": "zomba_ppp_2020.preview.png",
+  "bounds": [
+    [
+      -15.684582789822027,
+      35.0037498744111
+    ],
+    [
+      -15.19624945845964,
+      35.85374987091675
+    ]
+  ],
+  "legend": {
+    "label": "Estimated people per grid cell",
+    "lowLabel": "Low",
+    "highLabel": "High",
+    "colors": [
+      "#fff78a",
+      "#aff04a",
+      "#5cd661",
+      "#31aaa4",
+      "#2874d6",
+      "#1f2379"
+    ]
+  },
+  "render": {
+    "clipPercentile": 99.85,
+    "clipMax": 4.3449273109436035,
+    "transform": "log1p",
+    "gamma": 0.85
+  }
+}

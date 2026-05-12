@@ -1,6 +1,6 @@
 const Joi = require("joi");
 
-const VALID_ROLES = ["admin"];
+const VALID_ROLES = ["super_admin", "admin", "education_admin", "health_admin", "disaster_admin", "welfare_admin", "department_admin", "analyst", "user"];
 const validationOptions = {
   abortEarly: true,
   stripUnknown: true,
@@ -22,7 +22,7 @@ const registerSchema = Joi.object({
     "string.empty": "password is required",
     "string.min": "Password must be at least 8 characters long",
   }),
-  role: Joi.string().trim().lowercase().valid(...VALID_ROLES).default("admin").messages({
+  role: Joi.string().trim().lowercase().valid(...VALID_ROLES).default("department_admin").messages({
     "any.only": `role must be one of: ${VALID_ROLES.join(", ")}`,
   }),
 });
