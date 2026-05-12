@@ -66,27 +66,6 @@ function PopulationRasterPanel({
   const defaultBounds = metadata?.bounds;
   const legend = metadata?.legend || null;
   const features = geojson?.features || [];
-  const activeBounds = useMemo(() => {
-    if (!metadata) {
-      return null;
-    }
-
-    if (!features.length) {
-      return defaultBounds;
-    }
-
-    const bounds = getGeoBounds(features);
-
-    if (bounds.minLat === Infinity) {
-      return defaultBounds;
-    }
-
-    return [
-      [bounds.minLat, bounds.minLon],
-      [bounds.maxLat, bounds.maxLon],
-    ];
-  }, [defaultBounds, features, metadata]);
-
   const selectedFeature = useMemo(() => {
     if (!selectedFeatureName) {
       return null;
@@ -108,6 +87,28 @@ function PopulationRasterPanel({
       }) || null
     );
   }, [featureNameResolver, features, selectedFeatureName]);
+  const activeBounds = useMemo(() => {
+    if (!metadata) {
+      return null;
+    }
+
+    if (!features.length) {
+      return defaultBounds;
+    }
+
+    const bounds = getGeoBounds(
+      selectedFeature ? [selectedFeature] : features,
+    );
+
+    if (bounds.minLat === Infinity) {
+      return defaultBounds;
+    }
+
+    return [
+      [bounds.minLat, bounds.minLon],
+      [bounds.maxLat, bounds.maxLon],
+    ];
+  }, [defaultBounds, features, metadata, selectedFeature]);
 
   const selectedProperties = selectedFeature?.properties || {};
   const selectedName =
@@ -304,11 +305,19 @@ function PopulationRasterPanel({
                   mouseout: (e) => {
                     setHoveredDistrict(null);
                     setHoveredFeature(null);
+                    const isSelected =
+                      selectedFeatureName &&
+                      name &&
+                      String(name).toLowerCase() ===
+                        String(selectedFeatureName).toLowerCase();
                     const layer = e.target;
                     layer.setStyle({
-                      weight: features.length === 1 ? 2.5 : 1.35,
-                      opacity: 0.82,
-                      fillOpacity: 0
+                      color: isSelected ? "#111827" : "#5f6d5b",
+                      weight:
+                        isSelected || features.length === 1 ? 2.7 : 1.35,
+                      opacity: isSelected ? 0.95 : 0.82,
+                      fillColor: isSelected ? "#5f6d5b" : "transparent",
+                      fillOpacity: isSelected ? 0.08 : 0
                     });
                   },
                   click: (e) => {
