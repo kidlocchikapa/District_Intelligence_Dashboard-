@@ -194,14 +194,83 @@ function OverviewPage() {
     0,
   );
 
-  const { contentRef, exportPdf } = usePdfExport("Overview_Report.pdf");
+  const formatStat = (val) => {
+    if (!val && val !== 0) return "0";
+    return Number(val).toLocaleString(undefined, { maximumFractionDigits: 0 });
+  };
+
+  const selectedAreaLabel = selectedTa
+    ? `TA: ${selectedTa}`
+    : selectedDistrict
+      ? `District: ${selectedDistrict}`
+      : "All Districts";
+
+  const tableRows = chartData
+    .filter((item) => !selectedTa || item.admin3.toLowerCase() === selectedTa.toLowerCase())
+    .map((item) => {
+      const floodStats = taFloodLookup.get(item.admin3.toLowerCase()) || {};
+
+      return {
+        admin3: item.admin3 || "Unknown TA",
+        population: formatStat(item.population || 0),
+        exposed_population: formatStat(floodStats.exposedPopulation || 0),
+        risk_level: floodStats.riskLevel || "N/A",
+      };
+    });
+
+  const tableColumns = [
+    { key: "admin3", label: "Traditional Authority", width: 180 },
+    { key: "population", label: "Population", width: 110 },
+    { key: "exposed_population", label: "Flood Exposed", width: 120 },
+    { key: "risk_level", label: "Risk Level", width: 110 },
+  ];
+
+  const { exportDataPdf } = usePdfExport("Overview_Report.pdf");
   const { targetRef: mapRef, downloadImage } = useImageDownload(
     "Zomba_Overview_Map.png",
   );
 
-  const formatStat = (val) => {
-    if (!val) return "0";
-    return Number(val).toLocaleString(undefined, { maximumFractionDigits: 0 });
+  const handleDownloadReport = async () => {
+    if (!selectedDistrict && !selectedTa) {
+      toast.error("Select a district or TA before downloading the report.");
+      return;
+    }
+
+    if (tableRows.length === 0) {
+      toast.error("No selected area data available for export.");
+      return;
+    }
+
+    await exportDataPdf({
+      title: "Selected Area Data Analysis",
+      selectedArea: selectedAreaLabel,
+      summaryMetrics: [
+        {
+          label: "Total Population",
+          value: formatStat(
+            selectedTaChartRow?.population || summary.data?.total_estimated_population || 0,
+          ),
+        },
+        {
+          label: "Total Schools",
+          value: formatStat(summary.data?.total_schools || 0),
+        },
+        {
+          label: "Health Facilities",
+          value: formatStat(summary.data?.total_health_facilities || 0),
+        },
+        {
+          label: "Flood Exposed Population",
+          value: formatStat(exposedPopulation),
+        },
+        {
+          label: "Not Exposed Population",
+          value: formatStat(notExposedPopulation),
+        },
+      ],
+      tableColumns,
+      tableRows,
+    });
   };
 
   const StatCardSkeleton = () => (
@@ -231,10 +300,7 @@ function OverviewPage() {
   );
 
   return (
-    <div
-      ref={contentRef}
-      className="min-h-screen bg-white text-black font-sans pb-10"
-    >
+    <div className="min-h-screen bg-white text-black font-sans pb-10">
       {/* Header Area */}
       <div className="flex items-center gap-4 px-8 py-8 border-b border-gray-200">
         <h1 className="text-[28px] font-extrabold tracking-tight">OVERVIEW</h1>
@@ -252,8 +318,10 @@ function OverviewPage() {
         {/* Actions Row */}
         <div className="flex gap-4 mb-8">
           <button
-            onClick={exportPdf}
-            className="flex items-center gap-2 border border-gray-300 rounded px-3 py-1.5 text-[13px] font-bold hover:bg-gray-50 transition-all shadow-sm active:scale-95"
+            onClick={handleDownloadReport}
+            disabled={(!selectedDistrict && !selectedTa) || summary.loading}
+            title={selectedDistrict || selectedTa ? "Download selected area analysis as PDF" : "Select a district or TA first"}
+            className="flex items-center gap-2 border border-gray-300 rounded px-3 py-1.5 text-[13px] font-bold hover:bg-gray-50 transition-all shadow-sm active:scale-95 disabled:cursor-not-allowed disabled:opacity-50"
           >
             <Download className="h-4 w-4" />
             Download PDF
