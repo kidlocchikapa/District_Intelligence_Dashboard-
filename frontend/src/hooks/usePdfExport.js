@@ -87,13 +87,14 @@ export function usePdfExport(filename = 'district-report.pdf') {
     }
   };
 
-  const exportDataPdf = async ({ title, selectedArea, summaryMetrics, tableColumns, tableRows }) => {
+  const exportDataPdf = async ({ title, selectedArea, sections }) => {
     const loadingToast = toast.loading('Preparing data PDF...');
 
     try {
       const pdf = new jsPDF({ orientation: 'portrait', unit: 'pt', format: 'a4' });
       const margin = 40;
       let y = 50;
+      const pageHeight = pdf.internal.pageSize.height;
 
       pdf.setFont('helvetica', 'bold');
       pdf.setFontSize(18);
@@ -105,23 +106,31 @@ export function usePdfExport(filename = 'district-report.pdf') {
       pdf.text(`Exported on: ${new Date().toLocaleString()}`, margin, y + 40);
 
       y += 70;
-      pdf.setFont('helvetica', 'bold');
-      pdf.text('Key Metrics', margin, y);
-      pdf.setFont('helvetica', 'normal');
-      y += 18;
 
-      summaryMetrics.forEach((metric) => {
-        pdf.text(`${metric.label}:`, margin, y);
-        pdf.text(String(metric.value), margin + 260, y);
+      sections.forEach((section) => {
+        if (y + 80 > pageHeight) {
+          pdf.addPage();
+          y = margin;
+        }
+
+        pdf.setFont('helvetica', 'bold');
+        pdf.setFontSize(14);
+        pdf.text(section.title, margin, y);
+        y += 22;
+
+        pdf.setFont('helvetica', 'normal');
+        pdf.setFontSize(11);
+
+        if (!section.rows || section.rows.length === 0) {
+          pdf.text('No data available for this section.', margin, y);
+          y += 20;
+          return;
+        }
+
+        y = drawTable(pdf, section.columns, section.rows, margin, y, 24);
         y += 18;
       });
 
-      y += 12;
-      pdf.setFont('helvetica', 'bold');
-      pdf.text('Selected Area Breakdown', margin, y);
-      y += 20;
-
-      drawTable(pdf, tableColumns, tableRows, margin, y, 24);
       pdf.save(filename);
       toast.success('PDF successfully downloaded!', { id: loadingToast });
     } catch (error) {

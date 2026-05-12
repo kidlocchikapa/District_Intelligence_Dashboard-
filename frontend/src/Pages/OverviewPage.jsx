@@ -10,9 +10,11 @@ import {
   HeartPulse,
   Accessibility,
 } from "lucide-react";
+import { toast } from "react-hot-toast";
 import { useDashboardData } from "../hooks/useDashboardData";
 import { useDistrict } from "../context/DistrictContext";
 import { buildDashboardPath } from "../lib/query";
+import { usePdfExport } from "../hooks/usePdfExport";
 import { useImageDownload } from "../hooks/useImageDownload";
 import SharedDistrictSelector from "../components/SharedDistrictSelector";
 import PopulationRasterPanel from "../components/PopulationRasterPanel";
@@ -110,6 +112,31 @@ function OverviewPage() {
     }),
   );
 
+  const educationSummary = useDashboardData(
+    buildDashboardPath("/dashboard/education/summary", {
+      district: districtScope,
+      ta: selectedTa,
+      admin_type: selectedTa ? "TA" : "District",
+    }),
+  );
+
+  const healthSummary = useDashboardData(
+    buildDashboardPath("/dashboard/health/summary", {
+      district: districtScope,
+      ta: selectedTa,
+      admin_type: selectedTa ? "TA" : "District",
+    }),
+  );
+
+  const welfareIntegration = useDashboardData(
+    buildDashboardPath("/dashboard/welfare/integration", {
+      district: districtScope,
+      ta: selectedTa,
+      admin_type: selectedTa ? "TA" : "District",
+      preview_limit: 0,
+    }),
+  );
+
   const chartData = (populationDistribution.data || []).map((item) => ({
     admin3Id: item.admin3_id,
     admin3: item.admin3_name,
@@ -197,9 +224,116 @@ function OverviewPage() {
     return Number(val).toLocaleString(undefined, { maximumFractionDigits: 0 });
   };
 
+  const { exportDataPdf } = usePdfExport("Overview_AreaAnalysis.pdf");
   const { targetRef: mapRef, downloadImage } = useImageDownload(
     "Zomba_Overview_Map.png",
   );
+
+  const handleDownloadReport = async () => {
+    if (!selectedDistrict && !selectedTa) {
+      toast.error("Select a district or TA first to download area analysis.");
+      return;
+    }
+
+    const selectedAreaName = selectedTa
+      ? `TA: ${selectedTa}`
+      : `District: ${selectedDistrict}`;
+
+    const educationData = educationSummary.data || {};
+    const healthRows = Array.isArray(healthSummary.data)
+      ? healthSummary.data.map((row) => ({
+          metric: row.metric_name,
+          value: row.metric_value,
+        }))
+      : [];
+
+    const welfareSummary = welfareIntegration.data?.summary || {};
+    const welfareRows = Object.entries(welfareSummary).map(([key, value]) => ({
+      metric: key.replace(/_/g, " "),
+      value: formatStat(value),
+    }));
+
+    const disasterRows = [
+      { metric: "Flood Exposed Population", value: formatStat(exposedPopulation) },
+      { metric: "Not Exposed Population", value: formatStat(notExposedPopulation) },
+    ];
+
+    const sections = [
+      {
+        title: "Population",
+        columns: [
+          { key: "metric", label: "Metric", width: 260 },
+          { key: "value", label: "Value", width: 180 },
+        ],
+        rows: [
+          {
+            metric: "Estimated Population",
+            value: formatStat(summary.data?.total_estimated_population || 0),
+          },
+          {
+            metric: "Total Population Density",
+            value: formatStat(summary.data?.total_population_density || 0),
+          },
+          {
+            metric: "Flood Exposed Population",
+            value: formatStat(exposedPopulation),
+          },
+          {
+            metric: "Not Exposed Population",
+            value: formatStat(notExposedPopulation),
+          },
+        ],
+      },
+      {
+        title: "Education",
+        columns: [
+          { key: "metric", label: "Metric", width: 260 },
+          { key: "value", label: "Value", width: 180 },
+        ],
+        rows: [
+          { metric: "School Count", value: formatStat(educationData.school_count || 0) },
+          { metric: "Student Enrollment", value: formatStat(educationData.student_enrollment_total || 0) },
+          { metric: "Teacher Count", value: formatStat(educationData.teacher_count_total || 0) },
+          { metric: "School Age Population", value: formatStat(educationData.school_age_population_total || 0) },
+          { metric: "Out-of-School Population", value: formatStat(educationData.not_in_school_total || 0) },
+        ],
+      },
+      {
+        title: "Health",
+        columns: [
+          { key: "metric", label: "Metric", width: 260 },
+          { key: "value", label: "Value", width: 180 },
+        ],
+        rows: healthRows.length > 0 ? healthRows : [
+          { metric: "Health metrics", value: "No data available" },
+        ],
+      },
+      {
+        title: "Social Welfare",
+        columns: [
+          { key: "metric", label: "Metric", width: 260 },
+          { key: "value", label: "Value", width: 180 },
+        ],
+        rows: welfareRows.length > 0 ? welfareRows : [
+          { metric: "Welfare metrics", value: "No data available" },
+        ],
+      },
+      {
+        title: "Disaster Risk",
+        columns: [
+          { key: "metric", label: "Metric", width: 260 },
+          { key: "value", label: "Value", width: 180 },
+        ],
+        rows: disasterRows,
+      },
+    ];
+
+    await exportDataPdf({
+      title: "Selected Area Sector Analysis",
+      selectedArea: selectedAreaName,
+      sections,
+    });
+  };
 
   const StatCardSkeleton = () => (
     <div className="border border-gray-100 rounded p-6 shadow-md bg-white relative animate-pulse">
@@ -245,6 +379,15 @@ function OverviewPage() {
 
         {/* Actions Row */}
         <div className="flex gap-4 mb-8">
+          <button
+            onClick={handleDownloadReport}
+            disabled={(!selectedDistrict && !selectedTa) || summary.loading}
+            title={selectedDistrict || selectedTa ? "Download analysis for selected area" : "Select a district or TA first"}
+            className="flex items-center gap-2 border border-gray-300 rounded px-3 py-1.5 text-[13px] font-bold hover:bg-gray-50 transition-all shadow-sm active:scale-95 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            <Download className="h-4 w-4" />
+            Download Area Analysis
+          </button>
           <button
             onClick={downloadImage}
             className="flex items-center gap-2 border border-gray-300 rounded px-3 py-1.5 text-[13px] font-bold hover:bg-gray-50 transition-all shadow-sm active:scale-95"
