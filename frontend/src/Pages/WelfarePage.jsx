@@ -11,9 +11,25 @@ import { useDashboardData } from "../hooks/useDashboardData";
 import { useDistrict } from "../context/DistrictContext";
 import { usePdfExport } from "../hooks/usePdfExport";
 import { buildDashboardPath } from "../lib/query";
+import { formatNumber } from "../lib/format";
 import DataTable from "../components/DataTable";
 import MapPanel from "../components/MapPanel";
 import SharedDistrictSelector from "../components/SharedDistrictSelector";
+
+function formatMinutes(value) {
+  const mins = Number(value);
+  if (!Number.isFinite(mins) || mins <= 0) return "—";
+  if (mins < 60) return `${Math.round(mins)} min`;
+  const h = Math.floor(mins / 60);
+  const m = Math.round(mins % 60);
+  return m > 0 ? `${h}h ${m}min` : `${h}h`;
+}
+
+function formatDistanceKm(value) {
+  const km = Number(value);
+  if (!Number.isFinite(km) || km <= 0) return "—";
+  return km < 1 ? `${Math.round(km * 1000)} m` : `${formatNumber(km, 1)} km`;
+}
 import {
   Bar,
   BarChart,
@@ -38,10 +54,6 @@ function formatWholeNumber(value) {
 
 function formatPercent(value) {
   return `${Number(value || 0).toFixed(1)}%`;
-}
-
-function formatDistanceKm(value) {
-  return `${Number(value || 0).toFixed(1)} km`;
 }
 
 function formatTaAxisLabel(value) {
