@@ -97,7 +97,6 @@ function PopulationRasterPanel({
   const hoveredFeature = useMemo(() => {
     return findFeatureByName(hoveredFeatureName);
   }, [findFeatureByName, hoveredFeatureName]);
-  const detailFeature = selectedFeature || hoveredFeature;
   const activeBounds = useMemo(() => {
     if (!metadata) {
       return null;
@@ -120,13 +119,6 @@ function PopulationRasterPanel({
       [bounds.maxLat, bounds.maxLon],
     ];
   }, [defaultBounds, features, metadata, selectedFeature]);
-
-  const selectedProperties = detailFeature?.properties || {};
-  const selectedName =
-    selectedProperties.admin_unit_name ||
-    selectedProperties.name ||
-    selectedFeatureName ||
-    hoveredFeatureName;
 
   const hasHeader = Boolean(title || subtitle);
   const wrapperClassName = hasHeader
@@ -217,31 +209,11 @@ function PopulationRasterPanel({
         },
       ];
 
-  const metricItems = [
-    {
-      key: "population_total",
-      label: "Population",
-      value: formatStat(selectedProperties.population_total),
-    },
-    {
-      key: "population_density",
-      label: "Density",
-      value: formatStat(selectedProperties.population_density, 1),
-    },
-    ...tooltipMetrics
-      .filter((metric) => selectedProperties[metric.key] !== undefined)
-      .map((metric) => ({
-        key: metric.key,
-        label: metric.label,
-        value:
-          metric.format === "pct"
-            ? `${formatStat(
-                selectedProperties[metric.key],
-                metric.digits ?? 1,
-              )}%`
-            : formatStat(selectedProperties[metric.key], metric.digits || 0),
-      })),
-  ];
+  const focusProperties = hoveredFeature?.properties || {};
+  const focusName =
+    (hoveredFeature ? getFeatureName(hoveredFeature) : null) ||
+    hoveredFeatureName ||
+    null;
 
   function legendBackground(colors = []) {
     if (!Array.isArray(colors) || !colors.length) {
@@ -465,31 +437,28 @@ function PopulationRasterPanel({
                         {formatStat(focusProperties.population_density, 1)}
                       </p>
                     </div>
-                    {customTooltipMetrics ? customTooltipMetrics.map(metric => (
+                    {tooltipMetrics.map((metric) =>
                       focusProperties[metric.key] !== undefined ? (
                         <div key={metric.key}>
                           <p className="uppercase tracking-[0.12em] text-slate/40">
                             {metric.label}
                           </p>
                           <p className="mt-1 text-[14px] font-black text-slate">
-                            {metric.format === 'pct' ? `${formatStat(focusProperties[metric.key], 1)}%` : formatStat(focusProperties[metric.key], metric.digits || 0)}
+                            {metric.format === "pct"
+                              ? `${formatStat(
+                                  focusProperties[metric.key],
+                                  metric.digits ?? 1,
+                                )}%`
+                              : formatStat(
+                                  focusProperties[metric.key],
+                                  metric.digits || 0,
+                                )}
                           </p>
                         </div>
                       ) : null
-                    )) : (
-                      <>
-                        {focusProperties.beneficiary_count !== undefined ? (
-                          <div>
-                            <p className="uppercase tracking-[0.12em] text-slate/40">
-                              Beneficiaries
-                            </p>
-                            <p className="text-[15px] leading-none font-black text-slate">
-                              {item.value}
-                            </p>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
+                    )}
+                  </div>
+                </div>
                   ) : (
                     <p className="text-[12px] font-semibold text-slate/60">
                       Select a TA to view its local stats.
@@ -497,7 +466,6 @@ function PopulationRasterPanel({
                   )}
                 </div>
               </div>
-            ) : null}
 
             {legend ? (
               <div className="w-[148px] self-end rounded-xl border border-white/80 bg-white/92 px-3 py-2.5 shadow-md backdrop-blur-md sm:self-auto sm:shrink-0">
