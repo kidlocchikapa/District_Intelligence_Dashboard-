@@ -269,7 +269,7 @@ function MapPanel({
   };
 
   return (
-    <div className="space-y-4 h-full flex flex-col">
+    <div className={`${(title || subtitle) ? "space-y-4 h-full flex flex-col" : "h-full w-full"}`}>
       {(title || subtitle) && (
         <div className="shrink-0 mb-2">
           <h4 className="text-lg font-semibold text-slate">{title}</h4>
@@ -280,7 +280,7 @@ function MapPanel({
       )}
 
       <div
-        className={`relative flex-1 ${heightClass} w-full overflow-hidden rounded-[1.5rem] border border-fog`}
+        className={`relative ${(title || subtitle) ? `flex-1 ${heightClass}` : heightClass} w-full overflow-hidden rounded-[1.5rem] border border-fog`}
       >
         <MapContainer
           center={firstCenter}
@@ -294,7 +294,7 @@ function MapPanel({
             attribution="&copy; OpenStreetMap contributors"
             url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
           />
-          {bounds && bounds.minY !== Infinity && <MapFitter bounds={bounds} />}
+          {bounds && bounds.minLat !== Infinity && <MapFitter bounds={bounds} />}
 
           <GeoJSON
             key={`${metricName}-${features.length}-${selectedFeatureName || "all"}`}

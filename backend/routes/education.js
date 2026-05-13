@@ -40,6 +40,32 @@ function normalizeAdminType(adminType) {
   return String(adminType).trim();
 }
 
+function buildRasterSlug(district) {
+  const normalized = String(district || "").trim().toLowerCase();
+  if (
+    normalized === "zomba" ||
+    normalized === "zomba city" ||
+    normalized === "zomba (all)"
+  ) {
+    return "zomba-zomba-city";
+  }
+
+  const values = resolveDistrictFilterValues(district);
+  const source = values.length ? values : ["malawi"];
+  return (
+    source
+      .map((value) =>
+        String(value || "")
+          .trim()
+          .toLowerCase()
+          .replace(/[^a-z0-9]+/g, "-")
+          .replace(/^-+|-+$/g, ""),
+      )
+      .filter(Boolean)
+      .join("-") || "malawi"
+  );
+}
+
 function appendOptionalTaCondition(
   conditions,
   params,
@@ -52,6 +78,21 @@ function appendOptionalTaCondition(
 
   params.push(taName);
   conditions.push(`LOWER(${columnExpression}) = LOWER($${params.length})`);
+}
+
+async function tableExists(tableName) {
+  const result = await db.query(
+    `
+      SELECT EXISTS (
+        SELECT 1
+        FROM information_schema.tables
+        WHERE table_schema = 'public'
+          AND table_name = $1
+      ) AS exists
+    `,
+    [tableName],
+  );
+  return Boolean(result.rows[0]?.exists);
 }
 
 function computeQuantile(values, quantile) {
@@ -183,7 +224,7 @@ router.get("/", async (req, res) => {
   const { district } = req.query;
 
   try {
-    const conditions = ["geom IS NOT NULL"];
+    const conditions = ["ef.geom IS NOT NULL"];
     const params = [];
     if (district) {
       params.push(
@@ -211,20 +252,27 @@ router.get("/", async (req, res) => {
                 'type',       'Feature',
                 'id',         ef.school_id,
                 'geometry',   ST_AsGeoJSON(ef.geom)::jsonb,
-                'properties', (
-                  (to_jsonb(ef) - 'geom')
-                  || jsonb_build_object(
-                      'name', COALESCE(ef.school_name, ''),
-                      'school_name', ef.school_name,
-                      'operator_type', ef.operator,
-                      'status', ef.status,
-                      'student_enrollment_total', ef.student_enrollment_total,
-                      'teacher_distribution', ef.teacher_distribution,
-                      'teacher_count', ef.teacher_count,
-                      'ward_id', ef.ta_id,
-                      'ta_id', ef.ta_id,
-                      'district_id', ef.district_id
-                  )
+                'properties', jsonb_build_object(
+                    'school_id',               ef.school_id,
+                    'name',                    COALESCE(ef.school_name, ''),
+                    'school_name',             ef.school_name,
+                    'operator_type',           ef.operator,
+                    'operator',                ef.operator,
+                    'status',                  ef.status,
+                    'student_enrollment_total',ef.student_enrollment_total,
+                    'teacher_distribution',    ef.teacher_distribution,
+                    'teacher_count',           ef.teacher_count,
+                    'blocks_count',            ef.blocks_count,
+                    'classroom_pressure',      ef.classroom_pressure,
+                    'teacher_pressure',        ef.teacher_pressure,
+                    'student_classroom_ratio', ef.student_classroom_ratio,
+                    'special_needs_students',  ef.special_needs_students,
+                    'toilets_count',           ef.toilets_count,
+                    'water_equipment_facility_count', ef.water_equipment_facility_count,
+                    'ward_id',                 ef.ta_id,
+                    'ta_id',                   ef.ta_id,
+                    'district_id',             ef.district_id,
+                    'district',                ef.district
                 )
               ) AS feature
               FROM education_facilities ef
@@ -539,6 +587,103 @@ router.get("/access-zones/geojson", async (req, res) => {
   }
 });
 
+// @route   GET api/v1/dashboard/education/facility-buffers/geojson
+// @desc    Get school buffer polygons with buffer-based and network-based metrics
+router.get("/facility-buffers/geojson", async (req, res) => {
+  const { district, ta, buffer_km: bufferKmParam } = req.query;
+  const parsedBufferKm = Number(bufferKmParam);
+  const fallbackBufferKm =
+    Number.isFinite(parsedBufferKm) && parsedBufferKm > 0
+      ? Math.min(parsedBufferKm, 30)
+      : 5;
+  const hasMetricsTable = await tableExists("education_facility_access_metrics");
+
+  try {
+    const params = [fallbackBufferKm];
+    const conditions = ["ef.geom IS NOT NULL"];
+    appendDistrictGeometryCondition(conditions, params, "ef.geom", district);
+    appendOptionalTaCondition(conditions, params, "a3.name", ta);
+    const whereClause = conditions.length
+      ? `WHERE ${conditions.join(" AND ")}`
+      : "";
+
+    const metricsJoin = hasMetricsTable
+      ? `
+        LEFT JOIN education_facility_access_metrics eam
+          ON eam.facility_id = ef.school_id
+      `
+      : "";
+    const metricsFields = hasMetricsTable
+      ? `
+        'worldpop_population_within_buffer', COALESCE(eam.worldpop_population_within_buffer, 0),
+        'welfare_beneficiaries_within_buffer', COALESCE(eam.welfare_beneficiaries_within_buffer, 0),
+        'avg_network_distance_km', eam.avg_network_distance_km,
+        'avg_travel_time_min', eam.avg_travel_time_min,
+      `
+      : `
+        'worldpop_population_within_buffer', NULL,
+        'welfare_beneficiaries_within_buffer', NULL,
+        'avg_network_distance_km', NULL,
+        'avg_travel_time_min', NULL,
+      `;
+    const bufferDistanceExpr = hasMetricsTable
+      ? "COALESCE(eam.coverage_distance_km, $1)"
+      : "$1";
+
+    const query = `
+      SELECT jsonb_build_object(
+        'type', 'FeatureCollection',
+        'features', COALESCE(jsonb_agg(feature), '[]'::jsonb)
+      )
+      FROM (
+        SELECT jsonb_build_object(
+          'type', 'Feature',
+          'id', CONCAT('school-buffer-', ef.school_id),
+          'geometry', ST_AsGeoJSON(
+            ST_Buffer(ef.geom::geography, (${bufferDistanceExpr}) * 1000)::geometry
+          )::jsonb,
+          'properties', jsonb_build_object(
+            'school_id', ef.school_id,
+            'school_name', ef.school_name,
+            'name', ef.school_name,
+            'operator_type', ef.operator,
+            'status', ef.status,
+            'ta_name', a3.name,
+            'district_name', d.name,
+            'coverage_distance_km', ${bufferDistanceExpr},
+            ${metricsFields}
+            'metric_source', ${hasMetricsTable ? "'education_facility_access_metrics'" : "'not_calculated'"}
+          )
+        ) AS feature
+        FROM education_facilities ef
+        LEFT JOIN admin3_units a3
+          ON a3.id = ef.ta_id
+        LEFT JOIN districts d
+          ON d.id = ef.district_id
+        ${metricsJoin}
+        ${whereClause}
+      ) features;
+    `;
+
+    const result = await db.query(query, params);
+    res.json({
+      status: "success",
+      data: result.rows[0]?.jsonb_build_object || {
+        type: "FeatureCollection",
+        features: [],
+      },
+    });
+  } catch (err) {
+    console.error("Education facility buffers geojson error", {
+      message: err.message,
+      district,
+      ta,
+      fallbackBufferKm,
+    });
+    res.status(500).send("Server error");
+  }
+});
+
 // @route   GET api/v1/dashboard/education/summary
 // @desc    Get ward/district education aggregates
 /**
@@ -676,6 +821,31 @@ router.get("/summary", async (req, res) => {
     console.error(err.message);
     res.status(500).send("Server error");
   }
+});
+
+// @route   GET api/v1/dashboard/education/raster-metadata
+// @desc    Get static raster metadata descriptors for education access visualizations
+router.get("/raster-metadata", async (req, res) => {
+  const { district, buffer_km: bufferKmParam } = req.query;
+  const parsedBufferKm = Number(bufferKmParam);
+  const coverageDistanceKm =
+    Number.isFinite(parsedBufferKm) && parsedBufferKm > 0
+      ? Math.round(parsedBufferKm)
+      : 5;
+  const slug = buildRasterSlug(district);
+
+  res.json({
+    status: "success",
+    data: {
+      district: district || null,
+      coverageDistanceKm,
+      assets: {
+        education_buffer_coverage: `/education-access/${slug}.education_buffer_${coverageDistanceKm}km.preview.json`,
+        education_network_distance: `/education-access/${slug}.education_network_distance.preview.json`,
+        education_travel_time: `/education-access/${slug}.education_travel_time.preview.json`,
+      },
+    },
+  });
 });
 
 // @route   GET api/v1/dashboard/education/insights
@@ -1263,6 +1433,225 @@ router.get("/drilldown", async (req, res) => {
       district,
       ta,
     });
+    res.status(500).send("Server error");
+  }
+});
+
+// @route   GET api/v1/dashboard/education/flood-impact
+// @desc    Summary + per-TA breakdown of flood-exposed schools and students at risk
+router.get("/flood-impact", async (req, res) => {
+  const { district } = req.query;
+
+  try {
+    const conditions = [];
+    const params = [];
+    appendDistrictNameCondition(conditions, params, "ffe.district_name", district);
+    const andWhere = conditions.length ? `AND ${conditions.join(" AND ")}` : "";
+
+    const query = `
+      WITH latest AS (
+        SELECT MAX(analysis_date) AS analysis_date
+        FROM flood_facility_exposure
+        WHERE LOWER(facility_type) = 'education'
+      ),
+      exposed AS (
+        SELECT
+          ffe.ta_id,
+          ffe.ta_name,
+          ffe.district_name,
+          ffe.risk_class,
+          ffe.facility_id,
+          ffe.facility_name,
+          COALESCE(ef.student_enrollment_total, 0) AS enrollment
+        FROM flood_facility_exposure ffe
+        JOIN latest la ON ffe.analysis_date = la.analysis_date
+        LEFT JOIN education_facilities ef ON ef.school_id = ffe.facility_id
+        WHERE LOWER(ffe.facility_type) = 'education'
+          AND ffe.is_exposed = TRUE
+          ${andWhere}
+      ),
+      ta_agg AS (
+        SELECT
+          ta_id,
+          ta_name,
+          district_name,
+          COUNT(*)                                                        AS exposed_schools,
+          SUM(enrollment)                                                 AS students_at_risk,
+          SUM(CASE WHEN risk_class = 'high'   THEN 1 ELSE 0 END)         AS high_risk_schools,
+          SUM(CASE WHEN risk_class = 'medium' THEN 1 ELSE 0 END)         AS medium_risk_schools,
+          SUM(CASE WHEN risk_class = 'low'    THEN 1 ELSE 0 END)         AS low_risk_schools,
+          SUM(CASE WHEN risk_class = 'high'   THEN enrollment ELSE 0 END) AS high_risk_students,
+          SUM(CASE WHEN risk_class = 'medium' THEN enrollment ELSE 0 END) AS medium_risk_students,
+          SUM(CASE WHEN risk_class = 'low'    THEN enrollment ELSE 0 END) AS low_risk_students
+        FROM exposed
+        GROUP BY ta_id, ta_name, district_name
+      )
+      SELECT
+        ta_agg.*,
+        COALESCE(a3.population_total, 0) AS ta_population
+      FROM ta_agg
+      LEFT JOIN admin3_units a3 ON a3.id = ta_agg.ta_id
+      ORDER BY students_at_risk DESC NULLS LAST;
+    `;
+
+    const result = await db.query(query, params);
+    const rows = result.rows;
+
+    const summary = rows.reduce(
+      (acc, r) => {
+        acc.exposed_schools     += Number(r.exposed_schools     || 0);
+        acc.students_at_risk    += Number(r.students_at_risk    || 0);
+        acc.high_risk_schools   += Number(r.high_risk_schools   || 0);
+        acc.medium_risk_schools += Number(r.medium_risk_schools || 0);
+        acc.low_risk_schools    += Number(r.low_risk_schools    || 0);
+        acc.high_risk_students  += Number(r.high_risk_students  || 0);
+        acc.medium_risk_students+= Number(r.medium_risk_students|| 0);
+        acc.low_risk_students   += Number(r.low_risk_students   || 0);
+        return acc;
+      },
+      {
+        exposed_schools: 0, students_at_risk: 0,
+        high_risk_schools: 0, medium_risk_schools: 0, low_risk_schools: 0,
+        high_risk_students: 0, medium_risk_students: 0, low_risk_students: 0,
+      },
+    );
+
+    res.json({ status: "success", data: { summary, ta_breakdown: rows } });
+  } catch (err) {
+    console.error("Education flood-impact error", { message: err.message, district });
+    res.status(500).send("Server error");
+  }
+});
+
+// @route   GET api/v1/dashboard/education/flood-impact/geojson
+// @desc    GeoJSON of TAs coloured by students_at_risk + exposed school points
+router.get("/flood-impact/geojson", async (req, res) => {
+  const { district } = req.query;
+
+  try {
+    const conditions = [];
+    const params = [];
+    appendDistrictNameCondition(conditions, params, "ffe.district_name", district);
+    const andWhere = conditions.length ? `AND ${conditions.join(" AND ")}` : "";
+
+    // Build district filter for the all-TAs query
+    const taConditions = ["a3.geom IS NOT NULL", "LOWER(a3.type) IN ('ta', 'ward', 'admin3')"];
+    const taParams = [];
+    appendDistrictNameCondition(taConditions, taParams, "d.name", district);
+    const taWhereClause = `WHERE ${taConditions.join(" AND ")}`;
+
+    const query = `
+      WITH latest AS (
+        SELECT MAX(analysis_date) AS analysis_date
+        FROM flood_facility_exposure
+        WHERE LOWER(facility_type) = 'education'
+      ),
+      exposed AS (
+        SELECT
+          ffe.ta_id,
+          ffe.ta_name,
+          ffe.district_name,
+          ffe.risk_class,
+          ffe.facility_id,
+          ffe.facility_name,
+          COALESCE(ef.student_enrollment_total, 0) AS enrollment,
+          ef.geom AS school_geom
+        FROM flood_facility_exposure ffe
+        JOIN latest la ON ffe.analysis_date = la.analysis_date
+        LEFT JOIN education_facilities ef ON ef.school_id = ffe.facility_id
+        WHERE LOWER(ffe.facility_type) = 'education'
+          AND ffe.is_exposed = TRUE
+          ${andWhere}
+      ),
+      ta_agg AS (
+        SELECT
+          ta_id,
+          ta_name,
+          district_name,
+          COUNT(*)                                                         AS exposed_schools,
+          SUM(enrollment)                                                  AS students_at_risk,
+          SUM(CASE WHEN risk_class = 'high'   THEN 1 ELSE 0 END)          AS high_risk_schools,
+          SUM(CASE WHEN risk_class = 'medium' THEN 1 ELSE 0 END)          AS medium_risk_schools,
+          SUM(CASE WHEN risk_class = 'low'    THEN 1 ELSE 0 END)          AS low_risk_schools
+        FROM exposed
+        GROUP BY ta_id, ta_name, district_name
+      ),
+      all_tas AS (
+        SELECT
+          a3.id   AS ta_id,
+          a3.name AS ta_name,
+          d.name  AS district_name,
+          a3.geom,
+          COALESCE(a3.population_total, 0) AS ta_population
+        FROM admin3_units a3
+        LEFT JOIN districts d ON d.id = a3.district_id
+        ${taWhereClause}
+      ),
+      ta_features AS (
+        SELECT jsonb_build_object(
+          'type', 'Feature',
+          'id', CONCAT('ta-', at.ta_id),
+          'geometry', ST_AsGeoJSON(at.geom)::jsonb,
+          'properties', jsonb_build_object(
+            'feature_kind',        'ta',
+            'ta_id',               at.ta_id,
+            'ta_name',             at.ta_name,
+            'district_name',       at.district_name,
+            'ta_population',       at.ta_population,
+            'exposed_schools',     COALESCE(agg.exposed_schools,   0),
+            'students_at_risk',    COALESCE(agg.students_at_risk,  0),
+            'high_risk_schools',   COALESCE(agg.high_risk_schools, 0),
+            'medium_risk_schools', COALESCE(agg.medium_risk_schools, 0),
+            'low_risk_schools',    COALESCE(agg.low_risk_schools,  0)
+          )
+        ) AS feature
+        FROM all_tas at
+        LEFT JOIN ta_agg agg ON agg.ta_id = at.ta_id
+      ),
+      school_features AS (
+        SELECT jsonb_build_object(
+          'type', 'Feature',
+          'id', CONCAT('school-', e.facility_id),
+          'geometry', ST_AsGeoJSON(e.school_geom)::jsonb,
+          'properties', jsonb_build_object(
+            'feature_kind',   'school',
+            'facility_id',    e.facility_id,
+            'facility_name',  e.facility_name,
+            'ta_name',        e.ta_name,
+            'district_name',  e.district_name,
+            'risk_class',     e.risk_class,
+            'enrollment',     e.enrollment
+          )
+        ) AS feature
+        FROM exposed e
+        WHERE e.school_geom IS NOT NULL
+      )
+      SELECT jsonb_build_object(
+        'type', 'FeatureCollection',
+        'features', COALESCE(
+          (SELECT jsonb_agg(feature) FROM ta_features)
+          || COALESCE((SELECT jsonb_agg(feature) FROM school_features), '[]'::jsonb),
+          '[]'::jsonb
+        )
+      ) AS geojson;
+    `;
+
+    // Combine params: exposed filter params first, then TA boundary params
+    // Re-offset the TA condition placeholders since they were built with their own param array
+    const offsetTaConditions = taConditions.map(c =>
+      c.replace(/\$(\d+)/g, (_, n) => `$${Number(n) + params.length}`)
+    );
+    const offsetTaWhereClause = `WHERE ${offsetTaConditions.join(" AND ")}`;
+    const allParams = [...params, ...taParams];
+    const finalQuery = query.replace(taWhereClause, offsetTaWhereClause);
+
+    const result = await db.query(finalQuery, allParams);
+    res.json({
+      status: "success",
+      data: result.rows[0]?.geojson || { type: "FeatureCollection", features: [] },
+    });
+  } catch (err) {
+    console.error("Education flood-impact geojson error", { message: err.message, district });
     res.status(500).send("Server error");
   }
 });

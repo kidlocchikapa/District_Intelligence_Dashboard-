@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import "leaflet/dist/leaflet.css";
-import { GeoJSON, ImageOverlay, MapContainer, ZoomControl, useMap } from "react-leaflet";
+import L from "leaflet";
+import { CircleMarker, GeoJSON, ImageOverlay, MapContainer, Tooltip, ZoomControl, useMap } from "react-leaflet";
 import { useDistrict } from "../context/DistrictContext";
 import { getGeoBounds } from "../lib/geo";
 import EmptyState from "./EmptyState";
@@ -19,6 +20,7 @@ function MapFitter({ bounds }) {
 
 function PopulationRasterPanel({
   geojson,
+  pointsGeojson,
   title,
   subtitle,
   metadataUrl = DEFAULT_METADATA_URL,
@@ -351,6 +353,47 @@ function PopulationRasterPanel({
               }}
             />
           ) : null}
+
+          {/* School point overlay */}
+          {pointsGeojson?.features?.length
+            ? pointsGeojson.features
+                .filter(
+                  (f) =>
+                    f?.geometry?.type === "Point" &&
+                    Array.isArray(f.geometry.coordinates) &&
+                    f.geometry.coordinates.length >= 2,
+                )
+                .map((f) => {
+                  const [lng, lat] = f.geometry.coordinates;
+                  const name =
+                    f.properties?.school_name ||
+                    f.properties?.name ||
+                    "School";
+                  return (
+                    <CircleMarker
+                      key={f.id ?? `${lat}-${lng}-${name}`}
+                      center={[lat, lng]}
+                      radius={3.5}
+                      pathOptions={{
+                        color: "#ffffff",
+                        weight: 1.2,
+                        fillColor: "#f59e0b",
+                        fillOpacity: 0.92,
+                        opacity: 1,
+                      }}
+                    >
+                      <Tooltip
+                        direction="top"
+                        offset={[0, -6]}
+                        opacity={0.96}
+                        className="health-ta-tooltip"
+                      >
+                        {name}
+                      </Tooltip>
+                    </CircleMarker>
+                  );
+                })
+            : null}
         </MapContainer>
 
         {/* Subtle Background Loading Indicator */}
@@ -363,24 +406,82 @@ function PopulationRasterPanel({
           </div>
         )}
 
-        {legend || detailFeature ? (
-          <div className="pointer-events-none absolute inset-x-3 bottom-3 z-[401] flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
-            {detailFeature ? (
-              <div className="sm:min-w-0 sm:flex-1">
-                <div className="w-full rounded-2xl border border-white/80 bg-white/92 px-4 py-3 shadow-md backdrop-blur-md sm:max-w-[17.5rem]">
-                  <p className="mb-2 text-[9px] font-bold uppercase tracking-[0.14em] text-slate/50 leading-none">
-                    Selected Area
+        {legend ? (
+          <div className="pointer-events-none absolute right-4 bottom-4 z-[401] w-[190px] rounded-2xl border border-white/80 bg-white/92 px-4 py-3 shadow-md backdrop-blur-md">
+            <p className="text-[10px] font-bold uppercase tracking-[0.15em] text-slate/50">
+              Legend
+            </p>
+            <p className="mt-1 text-[12px] font-semibold leading-5 text-slate">
+              {legend.label || title || "Raster surface"}
+            </p>
+            <div
+              className="mt-3 h-3 w-full rounded-full border border-slate-200/80"
+              style={{ background: legendBackground(legend.colors) }}
+            />
+            <div className="mt-2 flex items-center justify-between text-[10px] font-bold uppercase tracking-[0.12em] text-slate/55">
+              <span>{legend.lowLabel || "Low"}</span>
+              <span>{legend.highLabel || "High"}</span>
+            </div>
+            {pointsGeojson?.features?.length ? (
+              <div className="mt-3 flex items-center gap-2 border-t border-slate-100 pt-2.5">
+                <span
+                  className="inline-block h-3 w-3 flex-shrink-0 rounded-full border-2 border-white shadow-sm"
+                  style={{ background: "#f59e0b" }}
+                />
+                <span className="text-[10px] font-bold uppercase tracking-[0.12em] text-slate/55">
+                  Schools
+                </span>
+              </div>
+            ) : null}
+          </div>
+        ) : null}
+
+        {hoveredFeature ? (
+          <div className="pointer-events-none absolute inset-x-4 bottom-4 flex items-end justify-start gap-4 z-[401]">
+            <div className="rounded-2xl border border-white/80 bg-white/92 px-5 py-4 shadow-md backdrop-blur-md min-w-[240px]">
+            <div>
+              <p className="text-[10px] font-bold uppercase tracking-[0.15em] text-slate/50 leading-none mb-2.5">
+                Hovering Area
+              </p>
+              {focusName ? (
+                <div className="space-y-3">
+                  <p className="text-[15px] font-black text-slate leading-none">
+                    {focusName}
                   </p>
-                  {selectedName ? (
-                    <div className="space-y-2.5">
-                      <p className="text-[18px] font-black text-slate leading-none">
-                        {selectedName}
+                  <div className="grid grid-cols-2 gap-3 text-[11px] font-semibold text-slate/65">
+                    <div>
+                      <p className="uppercase tracking-[0.12em] text-slate/40">
+                        Population
                       </p>
-                      <div className="grid grid-cols-2 gap-x-4 gap-y-2 text-[10px] text-slate/65">
-                        {metricItems.map((item) => (
-                          <div key={item.key} className="space-y-0.5">
-                            <p className="uppercase tracking-[0.11em] text-slate/45 font-semibold">
-                              {item.label}
+                      <p className="mt-1 text-[14px] font-black text-slate">
+                        {formatStat(focusProperties.population_total)}
+                      </p>
+                    </div>
+                    <div>
+                      <p className="uppercase tracking-[0.12em] text-slate/40">
+                        Density
+                      </p>
+                      <p className="mt-1 text-[14px] font-black text-slate">
+                        {formatStat(focusProperties.population_density, 1)}
+                      </p>
+                    </div>
+                    {customTooltipMetrics ? customTooltipMetrics.map(metric => (
+                      focusProperties[metric.key] !== undefined ? (
+                        <div key={metric.key}>
+                          <p className="uppercase tracking-[0.12em] text-slate/40">
+                            {metric.label}
+                          </p>
+                          <p className="mt-1 text-[14px] font-black text-slate">
+                            {metric.format === 'pct' ? `${formatStat(focusProperties[metric.key], 1)}%` : formatStat(focusProperties[metric.key], metric.digits || 0)}
+                          </p>
+                        </div>
+                      ) : null
+                    )) : (
+                      <>
+                        {focusProperties.beneficiary_count !== undefined ? (
+                          <div>
+                            <p className="uppercase tracking-[0.12em] text-slate/40">
+                              Beneficiaries
                             </p>
                             <p className="text-[15px] leading-none font-black text-slate">
                               {item.value}
