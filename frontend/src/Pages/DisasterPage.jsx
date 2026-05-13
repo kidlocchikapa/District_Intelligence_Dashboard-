@@ -5,6 +5,10 @@ import {
   Hospital,
   Map as MapIcon,
   Download,
+  Lightbulb,
+  ArrowRight,
+  BookOpen,
+  AlertTriangle,
 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { toast } from "react-hot-toast";
@@ -13,6 +17,8 @@ import {
   BarChart,
   CartesianGrid,
   Cell,
+  PieChart,
+  Pie,
   Rectangle,
   ResponsiveContainer,
   Tooltip,
@@ -22,6 +28,7 @@ import {
 import { useDashboardData } from "../hooks/useDashboardData";
 import { useDistrict } from "../context/DistrictContext";
 import { usePdfExport } from "../hooks/usePdfExport";
+import { formatNumber } from "../lib/format";
 import IntegrationSummaryPanel from "../components/IntegrationSummaryPanel";
 import SharedDistrictSelector from "../components/SharedDistrictSelector";
 import { buildDashboardPath } from "../lib/query";
@@ -147,6 +154,13 @@ function DisasterPage() {
     }),
   );
 
+  // Students at risk from flood (education flood-impact endpoint)
+  const educationFloodImpact = useDashboardData(
+    buildDashboardPath("/dashboard/education/flood-impact", {
+      district: disasterDistrictFilter || "Zomba",
+    }),
+  );
+
   const augmentedGeojson = useMemo(() => {
     if (!floodRiskZones.data || !floodRiskZones.data.features) {
       return floodRiskZones.data;
@@ -208,10 +222,17 @@ function DisasterPage() {
     (sum, row) => sum + Number(row.exposed_facilities || 0),
     0,
   );
+  const schoolsTotal = (educationFacilityExposureSummary.data || []).reduce(
+    (sum, row) => sum + Number(row.total_facilities || 0),
+    0,
+  );
 
   const healthFacilitiesExposed = (
     healthFacilityExposureSummary.data || []
   ).reduce((sum, row) => sum + Number(row.exposed_facilities || 0), 0);
+  const healthFacilitiesTotal = (
+    healthFacilityExposureSummary.data || []
+  ).reduce((sum, row) => sum + Number(row.total_facilities || 0), 0);
 
   const beneficiariesAffected = Number(
     disasterIntegration.data?.summary?.flood_affected_count || 0,
@@ -483,7 +504,7 @@ function DisasterPage() {
                   title="High-Resolution Flood Risk Map"
                   subtitle="Rasterized surface detailing flood exposure intensity across the district."
                   heightClass="h-full w-full"
-                  rasterMetadataPath={
+                  metadataUrl={
                     disasterDistrictFilter
                       ? `/worldpop/flood_risk_${disasterDistrictFilter.toLowerCase().replace(/ /g, "_").replace(/[()]/g, "")}.preview.json`
                       : "/worldpop/flood_risk_zomba.preview.json"
@@ -493,8 +514,8 @@ function DisasterPage() {
                     educationFacilityExposureSummaryTA.loading ||
                     healthFacilityExposureSummaryTA.loading
                   }
-                  selectedAreaName={selectedTa}
-                  onSelectArea={(feature) => {
+                  selectedFeatureName={selectedTa}
+                  onFeatureClick={(feature) => {
                     const nextTa = feature?.properties?.admin_unit_name || "";
                     if (nextTa && nextTa !== selectedTa) {
                       setSelectedTa(nextTa);
@@ -639,6 +660,302 @@ function DisasterPage() {
             </div>
           </div>
         </div>
+        {/* ── Facility Impact Panels ──────────────────────────────── */}
+        <div className="grid grid-cols-1 xl:grid-cols-2 gap-8 mb-10">
+
+          {/* Schools Impact */}
+          <div className="border border-gray-100 rounded p-6 shadow-sm bg-white">
+            <div className="flex items-center gap-2 mb-1">
+              <School className="h-4 w-4 text-blue-600" />
+              <h3 className="text-[15px] font-extrabold">Schools Flood Impact</h3>
+            </div>
+            <p className="text-xs text-gray-500 font-semibold mb-5">
+              Exposed schools vs total, and enrolled students at risk
+            </p>
+
+            {educationFacilityExposureSummary.loading || educationFloodImpact.loading ? (
+              <div className="h-48 animate-pulse rounded bg-gray-50" />
+            ) : (
+              <div className="flex flex-col gap-6">
+                {/* Donut + numbers row */}
+                <div className="flex items-center gap-6">
+                  <div className="flex-shrink-0">
+                    <ResponsiveContainer width={140} height={140}>
+                      <PieChart>
+                        <Pie
+                          data={[
+                            { name: "Exposed", value: schoolsExposed, fill: "#dc2626" },
+                            { name: "Safe", value: Math.max(schoolsTotal - schoolsExposed, 0), fill: "#e5e7eb" },
+                          ]}
+                          cx="50%" cy="50%"
+                          innerRadius={42} outerRadius={62}
+                          paddingAngle={2} dataKey="value" startAngle={90} endAngle={-270}
+                        >
+                          <Cell fill="#dc2626" />
+                          <Cell fill="#e5e7eb" />
+                        </Pie>
+                        <Tooltip
+                          formatter={(v, n) => [v.toLocaleString(), n]}
+                          contentStyle={{ fontSize: 11, borderRadius: 4, border: "none", boxShadow: "0 2px 8px rgba(0,0,0,.1)" }}
+                        />
+                      </PieChart>
+                    </ResponsiveContainer>
+                  </div>
+                  <div className="flex flex-col gap-3 flex-1">
+                    <div>
+                      <p className="text-[10px] font-bold uppercase tracking-wide text-gray-400">Exposed Schools</p>
+                      <p className="text-[28px] font-extrabold text-red-600 leading-none">{formatNumber(schoolsExposed)}</p>
+                      <p className="text-xs text-gray-400 font-semibold">of {formatNumber(schoolsTotal)} total</p>
+                    </div>
+                    <div>
+                      <p className="text-[10px] font-bold uppercase tracking-wide text-gray-400">Students at Risk</p>
+                      <p className="text-[28px] font-extrabold text-amber-600 leading-none">
+                        {formatNumber(educationFloodImpact.data?.summary?.students_at_risk || 0)}
+                      </p>
+                      <p className="text-xs text-gray-400 font-semibold">enrolled in exposed schools</p>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Risk breakdown bar */}
+                <div className="space-y-2">
+                  {[
+                    { label: "High Risk Schools",   value: educationFloodImpact.data?.summary?.high_risk_schools   || 0, students: educationFloodImpact.data?.summary?.high_risk_students   || 0, color: "#dc2626" },
+                    { label: "Medium Risk Schools", value: educationFloodImpact.data?.summary?.medium_risk_schools || 0, students: educationFloodImpact.data?.summary?.medium_risk_students || 0, color: "#f59e0b" },
+                    { label: "Low Risk Schools",    value: educationFloodImpact.data?.summary?.low_risk_schools    || 0, students: educationFloodImpact.data?.summary?.low_risk_students    || 0, color: "#3b82f6" },
+                  ].map(item => (
+                    <div key={item.label} className="flex items-center justify-between gap-3 rounded bg-gray-50 px-3 py-2">
+                      <div className="flex items-center gap-2">
+                        <span className="h-2.5 w-2.5 rounded-full flex-shrink-0" style={{ background: item.color }} />
+                        <span className="text-xs font-bold text-gray-600">{item.label}</span>
+                      </div>
+                      <div className="text-right">
+                        <span className="text-xs font-extrabold" style={{ color: item.color }}>{formatNumber(item.value)}</span>
+                        <span className="text-[10px] text-gray-400 font-semibold ml-2">({formatNumber(item.students)} students)</span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Health Facilities Impact */}
+          <div className="border border-gray-100 rounded p-6 shadow-sm bg-white">
+            <div className="flex items-center gap-2 mb-1">
+              <Hospital className="h-4 w-4 text-red-600" />
+              <h3 className="text-[15px] font-extrabold">Health Facilities Flood Impact</h3>
+            </div>
+            <p className="text-xs text-gray-500 font-semibold mb-5">
+              Exposed facilities vs total, and population losing health access
+            </p>
+
+            {healthFacilityExposureSummary.loading || disasterSummary.loading ? (
+              <div className="h-48 animate-pulse rounded bg-gray-50" />
+            ) : (
+              <div className="flex flex-col gap-6">
+                {/* Donut + numbers row */}
+                <div className="flex items-center gap-6">
+                  <div className="flex-shrink-0">
+                    <ResponsiveContainer width={140} height={140}>
+                      <PieChart>
+                        <Pie
+                          data={[
+                            { name: "Exposed", value: healthFacilitiesExposed, fill: "#dc2626" },
+                            { name: "Safe", value: Math.max(healthFacilitiesTotal - healthFacilitiesExposed, 0), fill: "#e5e7eb" },
+                          ]}
+                          cx="50%" cy="50%"
+                          innerRadius={42} outerRadius={62}
+                          paddingAngle={2} dataKey="value" startAngle={90} endAngle={-270}
+                        >
+                          <Cell fill="#dc2626" />
+                          <Cell fill="#e5e7eb" />
+                        </Pie>
+                        <Tooltip
+                          formatter={(v, n) => [v.toLocaleString(), n]}
+                          contentStyle={{ fontSize: 11, borderRadius: 4, border: "none", boxShadow: "0 2px 8px rgba(0,0,0,.1)" }}
+                        />
+                      </PieChart>
+                    </ResponsiveContainer>
+                  </div>
+                  <div className="flex flex-col gap-3 flex-1">
+                    <div>
+                      <p className="text-[10px] font-bold uppercase tracking-wide text-gray-400">Exposed Facilities</p>
+                      <p className="text-[28px] font-extrabold text-red-600 leading-none">{formatNumber(healthFacilitiesExposed)}</p>
+                      <p className="text-xs text-gray-400 font-semibold">of {formatNumber(healthFacilitiesTotal)} total</p>
+                    </div>
+                    <div>
+                      <p className="text-[10px] font-bold uppercase tracking-wide text-gray-400">Population Impacted</p>
+                      <p className="text-[28px] font-extrabold text-amber-600 leading-none">
+                        {formatNumber(disasterSummary.data?.exposed_population || 0, 0)}
+                      </p>
+                      <p className="text-xs text-gray-400 font-semibold">
+                        {formatNumber(disasterSummary.data?.exposed_population_pct || 0, 1)}% of district population
+                      </p>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Risk population breakdown */}
+                <div className="space-y-2">
+                  {[
+                    { label: "High Risk Zone Pop.",   value: disasterSummary.data?.high_risk_population   || 0, color: "#dc2626" },
+                    { label: "Medium Risk Zone Pop.", value: disasterSummary.data?.medium_risk_population || 0, color: "#f59e0b" },
+                    { label: "Low Risk Zone Pop.",    value: disasterSummary.data?.low_risk_population    || 0, color: "#3b82f6" },
+                  ].map(item => (
+                    <div key={item.label} className="flex items-center justify-between gap-3 rounded bg-gray-50 px-3 py-2">
+                      <div className="flex items-center gap-2">
+                        <span className="h-2.5 w-2.5 rounded-full flex-shrink-0" style={{ background: item.color }} />
+                        <span className="text-xs font-bold text-gray-600">{item.label}</span>
+                      </div>
+                      <span className="text-xs font-extrabold" style={{ color: item.color }}>{formatNumber(item.value, 0)}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* ── Insights & Recommendations ──────────────────────────────── */}
+        <DisasterRecommendations
+          disasterSummary={disasterSummary}
+          educationFacilityExposureSummary={educationFacilityExposureSummary}
+          healthFacilityExposureSummary={healthFacilityExposureSummary}
+          educationFloodImpact={educationFloodImpact}
+          schoolsExposed={schoolsExposed}
+          schoolsTotal={schoolsTotal}
+          healthFacilitiesExposed={healthFacilitiesExposed}
+          healthFacilitiesTotal={healthFacilitiesTotal}
+          scopeLabel={scopeLabel}
+        />
+
+      </div>
+    </div>
+  );
+}
+
+/* ─── Disaster Recommendations ────────────────────────────────────────── */
+function DisasterRecommendations({
+  disasterSummary, educationFacilityExposureSummary, healthFacilityExposureSummary,
+  educationFloodImpact, schoolsExposed, schoolsTotal, healthFacilitiesExposed,
+  healthFacilitiesTotal, scopeLabel,
+}) {
+  const loading = disasterSummary.loading || educationFacilityExposureSummary.loading ||
+    healthFacilityExposureSummary.loading || educationFloodImpact.loading;
+
+  const summary      = disasterSummary.data || {};
+  const eduImpact    = educationFloodImpact.data?.summary || {};
+  const exposedPop   = Number(summary.exposed_population || 0);
+  const totalPop     = Number(summary.total_population || 0);
+  const exposedPct   = Number(summary.exposed_population_pct || 0);
+  const studentsAtRisk = Number(eduImpact.students_at_risk || 0);
+  const highRiskPop  = Number(summary.high_risk_population || 0);
+
+  const priorityConfig = {
+    high:   { label: "Immediate Action",  classes: "bg-red-50 border-red-200 text-red-700",    dot: "bg-red-500"    },
+    medium: { label: "Short-Term Action", classes: "bg-amber-50 border-amber-200 text-amber-700", dot: "bg-amber-500" },
+    low:    { label: "Planning Note",     classes: "bg-blue-50 border-blue-200 text-blue-700",  dot: "bg-blue-500"   },
+  };
+
+  const recommendations = [
+    schoolsExposed > 0 && {
+      priority: "high",
+      icon: School,
+      title: "Temporary Learning Spaces for Flood Season",
+      body: `${formatNumber(schoolsExposed)} schools are in flood-exposed zones, putting ${formatNumber(studentsAtRisk)} enrolled students at risk of disrupted education. All are currently low-risk but require contingency plans before the rainy season. Identify and pre-position temporary learning spaces in elevated areas within Ta Mwambo.`,
+      action: "Pre-position temporary classrooms and establish school closure protocols for flood alerts",
+    },
+    studentsAtRisk > 0 && {
+      priority: "high",
+      icon: BookOpen,
+      title: "Student Continuity Plans Required",
+      body: `${formatNumber(studentsAtRisk)} students face potential school closure during flood events. Without a continuity plan, this translates directly to learning loss and increased dropout risk, particularly for girls and children from low-income households who are least likely to return after disruption.`,
+      action: "Develop and distribute flood-season learning continuity kits to all exposed schools",
+    },
+    healthFacilitiesExposed > 0 && {
+      priority: "high",
+      icon: Hospital,
+      title: "Health Service Continuity at Risk",
+      body: `${formatNumber(healthFacilitiesExposed)} health facilities are in flood-exposed zones. During flood events, these facilities may become inaccessible, cutting off ${formatNumber(exposedPop, 0)} people from essential health services. Emergency referral pathways to unaffected facilities must be established.`,
+      action: "Map alternative health facilities and establish emergency referral routes for flood-affected zones",
+    },
+    highRiskPop > 0 && {
+      priority: "high",
+      icon: AlertTriangle,
+      title: "High-Risk Zone Evacuation Planning",
+      body: `${formatNumber(highRiskPop, 0)} people live in high flood-risk zones. These communities need pre-identified evacuation routes, designated assembly points, and early warning system access. Coordination with district civil protection is essential before the next flood season.`,
+      action: "Establish community-level early warning systems and evacuation drills in high-risk zones",
+    },
+    exposedPct > 0 && {
+      priority: "medium",
+      icon: MapIcon,
+      title: "Flood-Resilient Infrastructure Investment",
+      body: `${formatNumber(exposedPct, 1)}% of the ${scopeLabel} population lives in flood-exposed areas covering ${formatNumber(summary.exposed_area_sq_km, 1)} sq km. New schools and health facilities in these zones must be built to flood-resilient standards — elevated foundations, flood-resistant materials, and drainage systems.`,
+      action: "Enforce flood-resilient building codes for all new public infrastructure in exposed zones",
+    },
+    {
+      priority: "medium",
+      icon: Users,
+      title: "Cross-Sector Flood Response Coordination",
+      body: `Flood exposure cuts across education, health, and welfare sectors simultaneously. A single flood event in Ta Mwambo can displace students, close health facilities, and cut off welfare beneficiaries at the same time. A unified district flood response plan covering all three sectors is needed.`,
+      action: "Establish a multi-sector flood response committee with education, health, and social welfare representation",
+    },
+    {
+      priority: "low",
+      icon: Lightbulb,
+      title: "Annual Flood Exposure Re-Analysis",
+      body: `Flood risk patterns shift with climate variability. The current analysis is based on the latest available flood raster. Annual re-runs of the flood exposure pipeline after each rainy season will ensure the dashboard reflects current risk and that planning decisions are based on up-to-date data.`,
+      action: "Schedule annual flood raster updates and re-run the exposure analysis pipeline each May",
+    },
+  ].filter(Boolean);
+
+  if (loading) {
+    return (
+      <div className="mt-10">
+        <div className="h-6 w-64 bg-gray-100 rounded animate-pulse mb-6" />
+        <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
+          {[...Array(4)].map((_, i) => <div key={i} className="h-36 animate-pulse rounded border border-gray-100 bg-gray-50" />)}
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="mt-2 mb-10">
+      <div className="flex items-center gap-3 mb-2">
+        <Lightbulb className="h-5 w-5 text-amber-500" />
+        <h3 className="text-[16px] font-extrabold">Insights & Recommendations</h3>
+      </div>
+      <p className="text-sm text-gray-500 font-semibold mb-6">
+        Planning actions derived from flood exposure analysis across population, schools, and health facilities in {scopeLabel}.
+      </p>
+      <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
+        {recommendations.map((rec, i) => {
+          const cfg = priorityConfig[rec.priority];
+          const Icon = rec.icon;
+          return (
+            <div key={i} className="rounded border border-gray-100 bg-white p-5 shadow-sm flex flex-col gap-3">
+              <div className="flex items-start justify-between gap-3">
+                <div className="flex items-center gap-2.5">
+                  <div className="flex-shrink-0 rounded-lg bg-gray-50 p-2">
+                    <Icon className="h-4 w-4 text-gray-600" />
+                  </div>
+                  <p className="text-[14px] font-extrabold text-black leading-tight">{rec.title}</p>
+                </div>
+                <span className={`flex-shrink-0 inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[10px] font-bold ${cfg.classes}`}>
+                  <span className={`h-1.5 w-1.5 rounded-full ${cfg.dot}`} />
+                  {cfg.label}
+                </span>
+              </div>
+              <p className="text-[13px] text-gray-600 leading-6">{rec.body}</p>
+              <div className="flex items-start gap-2 rounded bg-gray-50 px-3 py-2 mt-auto">
+                <ArrowRight className="h-3.5 w-3.5 text-gray-400 flex-shrink-0 mt-0.5" />
+                <p className="text-[11px] font-bold text-gray-500 uppercase tracking-wide leading-5">{rec.action}</p>
+              </div>
+            </div>
+          );
+        })}
       </div>
     </div>
   );
