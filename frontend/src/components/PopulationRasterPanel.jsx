@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import "leaflet/dist/leaflet.css";
 import { GeoJSON, ImageOverlay, MapContainer, ZoomControl, useMap } from "react-leaflet";
 import { useDistrict } from "../context/DistrictContext";
@@ -25,14 +25,15 @@ function PopulationRasterPanel({
   heightClass = "h-[460px]",
   loading = false,
   onFeatureClick,
+  onFeatureHover,
   selectedFeatureName,
+  hoveredFeatureName,
   featureNameResolver,
   customTooltipMetrics,
 }) {
   const { selectedDistrict, setSelectedDistrict } = useDistrict();
   const [metadata, setMetadata] = useState(null);
   const [hoveredDistrict, setHoveredDistrict] = useState(null);
-  const [hoveredFeature, setHoveredFeature] = useState(null);
   const [error, setError] = useState(null);
 
   useEffect(() => {
@@ -66,29 +67,8 @@ function PopulationRasterPanel({
   const defaultBounds = metadata?.bounds;
   const legend = metadata?.legend || null;
   const features = geojson?.features || [];
-  const activeBounds = useMemo(() => {
-    if (!metadata) {
-      return null;
-    }
-
-    if (!features.length) {
-      return defaultBounds;
-    }
-
-    const bounds = getGeoBounds(features);
-
-    if (bounds.minLat === Infinity) {
-      return defaultBounds;
-    }
-
-    return [
-      [bounds.minLat, bounds.minLon],
-      [bounds.maxLat, bounds.maxLon],
-    ];
-  }, [defaultBounds, features, metadata]);
-
-  const selectedFeature = useMemo(() => {
-    if (!selectedFeatureName) {
+  const findFeatureByName = useCallback((featureName) => {
+    if (!featureName) {
       return null;
     }
 
@@ -103,17 +83,48 @@ function PopulationRasterPanel({
         return (
           name &&
           String(name).toLowerCase() ===
-            String(selectedFeatureName).toLowerCase()
+            String(featureName).toLowerCase()
         );
       }) || null
     );
-  }, [featureNameResolver, features, selectedFeatureName]);
+  }, [featureNameResolver, features]);
 
-  const selectedProperties = selectedFeature?.properties || {};
+  const selectedFeature = useMemo(() => {
+    return findFeatureByName(selectedFeatureName);
+  }, [findFeatureByName, selectedFeatureName]);
+  const hoveredFeature = useMemo(() => {
+    return findFeatureByName(hoveredFeatureName);
+  }, [findFeatureByName, hoveredFeatureName]);
+  const detailFeature = selectedFeature || hoveredFeature;
+  const activeBounds = useMemo(() => {
+    if (!metadata) {
+      return null;
+    }
+
+    if (!features.length) {
+      return defaultBounds;
+    }
+
+    const bounds = getGeoBounds(
+      selectedFeature ? [selectedFeature] : features,
+    );
+
+    if (bounds.minLat === Infinity) {
+      return defaultBounds;
+    }
+
+    return [
+      [bounds.minLat, bounds.minLon],
+      [bounds.maxLat, bounds.maxLon],
+    ];
+  }, [defaultBounds, features, metadata, selectedFeature]);
+
+  const selectedProperties = detailFeature?.properties || {};
   const selectedName =
     selectedProperties.admin_unit_name ||
     selectedProperties.name ||
-    selectedFeatureName;
+    selectedFeatureName ||
+    hoveredFeatureName;
 
   const hasHeader = Boolean(title || subtitle);
   const wrapperClassName = hasHeader
@@ -265,7 +276,7 @@ function PopulationRasterPanel({
           <ImageOverlay bounds={defaultBounds} url={imageUrl} opacity={0.94} />
           {features.length ? (
             <GeoJSON
-              key={`pop-raster-geojson-${features.map((feature) => feature.id || getFeatureName(feature)).join("|")}-${selectedDistrict}-${selectedFeatureName || "all"}`}
+              key={`pop-raster-geojson-${features.map((feature) => feature.id || getFeatureName(feature)).join("|")}-${selectedDistrict}-${selectedFeatureName || "all"}-${hoveredFeatureName || "none"}`}
               data={geojson}
               style={(feature) => {
                 const featureName = getFeatureName(feature);
@@ -274,7 +285,13 @@ function PopulationRasterPanel({
                   featureName &&
                   String(featureName).toLowerCase() ===
                     String(selectedFeatureName).toLowerCase();
-                const isHovered = featureName === hoveredDistrict;
+                const isSharedHovered =
+                  hoveredFeatureName &&
+                  featureName &&
+                  String(featureName).toLowerCase() ===
+                    String(hoveredFeatureName).toLowerCase();
+                const isHovered =
+                  featureName === hoveredDistrict || isSharedHovered;
 
                 return {
                   color: isSelected ? "#111827" : "#5f6d5b",
@@ -293,7 +310,7 @@ function PopulationRasterPanel({
                 layer.on({
                   mouseover: (e) => {
                     setHoveredDistrict(name);
-                    setHoveredFeature(feature);
+                    onFeatureHover?.(feature, e);
                     const layer = e.target;
                     layer.setStyle({
                       weight: 3,
@@ -303,12 +320,20 @@ function PopulationRasterPanel({
                   },
                   mouseout: (e) => {
                     setHoveredDistrict(null);
-                    setHoveredFeature(null);
+                    onFeatureHover?.(null, e);
+                    const isSelected =
+                      selectedFeatureName &&
+                      name &&
+                      String(name).toLowerCase() ===
+                        String(selectedFeatureName).toLowerCase();
                     const layer = e.target;
                     layer.setStyle({
-                      weight: features.length === 1 ? 2.5 : 1.35,
-                      opacity: 0.82,
-                      fillOpacity: 0
+                      color: isSelected ? "#111827" : "#5f6d5b",
+                      weight:
+                        isSelected || features.length === 1 ? 2.7 : 1.35,
+                      opacity: isSelected ? 0.95 : 0.82,
+                      fillColor: isSelected ? "#5f6d5b" : "transparent",
+                      fillOpacity: isSelected ? 0.08 : 0
                     });
                   },
                   click: (e) => {
@@ -338,9 +363,9 @@ function PopulationRasterPanel({
           </div>
         )}
 
-        {legend || selectedFeature ? (
+        {legend || detailFeature ? (
           <div className="pointer-events-none absolute inset-x-3 bottom-3 z-[401] flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
-            {selectedFeature ? (
+            {detailFeature ? (
               <div className="sm:min-w-0 sm:flex-1">
                 <div className="w-full rounded-2xl border border-white/80 bg-white/92 px-4 py-3 shadow-md backdrop-blur-md sm:max-w-[17.5rem]">
                   <p className="mb-2 text-[9px] font-bold uppercase tracking-[0.14em] text-slate/50 leading-none">
