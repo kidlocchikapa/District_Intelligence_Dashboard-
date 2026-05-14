@@ -97,7 +97,6 @@ function PopulationRasterPanel({
   const hoveredFeature = useMemo(() => {
     return findFeatureByName(hoveredFeatureName);
   }, [findFeatureByName, hoveredFeatureName]);
-  const detailFeature = selectedFeature || hoveredFeature;
   const activeBounds = useMemo(() => {
     if (!metadata) {
       return null;
@@ -120,19 +119,6 @@ function PopulationRasterPanel({
       [bounds.maxLat, bounds.maxLon],
     ];
   }, [defaultBounds, features, metadata, selectedFeature]);
-
-  const selectedProperties = detailFeature?.properties || {};
-  const selectedName =
-    selectedProperties.admin_unit_name ||
-    selectedProperties.name ||
-    selectedFeatureName ||
-    hoveredFeatureName;
-  const focusProperties = hoveredFeature?.properties || selectedProperties;
-  const focusName =
-    focusProperties.admin_unit_name ||
-    focusProperties.name ||
-    hoveredFeatureName ||
-    selectedName;
 
   const hasHeader = Boolean(title || subtitle);
   const wrapperClassName = hasHeader
@@ -223,31 +209,11 @@ function PopulationRasterPanel({
         },
       ];
 
-  const metricItems = [
-    {
-      key: "population_total",
-      label: "Population",
-      value: formatStat(focusProperties.population_total),
-    },
-    {
-      key: "population_density",
-      label: "Density",
-      value: formatStat(focusProperties.population_density, 1),
-    },
-    ...tooltipMetrics
-      .filter((metric) => focusProperties[metric.key] !== undefined)
-      .map((metric) => ({
-        key: metric.key,
-        label: metric.label,
-        value:
-          metric.format === "pct"
-            ? `${formatStat(
-                focusProperties[metric.key],
-                metric.digits ?? 1,
-              )}%`
-            : formatStat(focusProperties[metric.key], metric.digits || 0),
-      })),
-  ];
+  const focusProperties = hoveredFeature?.properties || {};
+  const focusName =
+    (hoveredFeature ? getFeatureName(hoveredFeature) : null) ||
+    hoveredFeatureName ||
+    null;
 
   function legendBackground(colors = []) {
     if (!Array.isArray(colors) || !colors.length) {
@@ -445,35 +411,61 @@ function PopulationRasterPanel({
         {hoveredFeature ? (
           <div className="pointer-events-none absolute inset-x-4 bottom-4 flex items-end justify-start gap-4 z-[401]">
             <div className="rounded-2xl border border-white/80 bg-white/92 px-5 py-4 shadow-md backdrop-blur-md min-w-[240px]">
-              <div>
-                <p className="text-[10px] font-bold uppercase tracking-[0.15em] text-slate/50 leading-none mb-2.5">
-                  Hovering Area
-                </p>
-                {focusName ? (
-                  <div className="space-y-3">
-                    <p className="text-[15px] font-black text-slate leading-none">
-                      {focusName}
-                    </p>
-                    <div className="grid grid-cols-2 gap-3 text-[11px] font-semibold text-slate/65">
-                      {metricItems.map((item) => (
-                        <div key={item.key}>
+            <div>
+              <p className="text-[10px] font-bold uppercase tracking-[0.15em] text-slate/50 leading-none mb-2.5">
+                Hovering Area
+              </p>
+              {focusName ? (
+                <div className="space-y-3">
+                  <p className="text-[15px] font-black text-slate leading-none">
+                    {focusName}
+                  </p>
+                  <div className="grid grid-cols-2 gap-3 text-[11px] font-semibold text-slate/65">
+                    <div>
+                      <p className="uppercase tracking-[0.12em] text-slate/40">
+                        Population
+                      </p>
+                      <p className="mt-1 text-[14px] font-black text-slate">
+                        {formatStat(focusProperties.population_total)}
+                      </p>
+                    </div>
+                    <div>
+                      <p className="uppercase tracking-[0.12em] text-slate/40">
+                        Density
+                      </p>
+                      <p className="mt-1 text-[14px] font-black text-slate">
+                        {formatStat(focusProperties.population_density, 1)}
+                      </p>
+                    </div>
+                    {tooltipMetrics.map((metric) =>
+                      focusProperties[metric.key] !== undefined ? (
+                        <div key={metric.key}>
                           <p className="uppercase tracking-[0.12em] text-slate/40">
                             {item.label}
                           </p>
                           <p className="mt-1 text-[14px] font-black text-slate">
-                            {item.value}
+                            {metric.format === "pct"
+                              ? `${formatStat(
+                                  focusProperties[metric.key],
+                                  metric.digits ?? 1,
+                                )}%`
+                              : formatStat(
+                                  focusProperties[metric.key],
+                                  metric.digits || 0,
+                                )}
                           </p>
                         </div>
-                      ))}
-                    </div>
+                      ) : null
+                    )}
                   </div>
-                ) : (
-                  <p className="text-[12px] font-semibold text-slate/60">
-                    Select a TA to view its local stats.
-                  </p>
-                )}
+                </div>
+                  ) : (
+                    <p className="text-[12px] font-semibold text-slate/60">
+                      Select a TA to view its local stats.
+                    </p>
+                  )}
+                </div>
               </div>
-            </div>
 
             {legend ? (
               <div className="w-[148px] self-end rounded-xl border border-white/80 bg-white/92 px-3 py-2.5 shadow-md backdrop-blur-md sm:self-auto sm:shrink-0">
