@@ -1,9 +1,10 @@
 import { useMemo } from "react";
-import { Activity, HeartPulse, Bed, Users, Download, Building2, CheckCircle2, AlertCircle, Building } from "lucide-react";
+import { Activity, HeartPulse, Bed, Users, Download, Building2, CheckCircle2, AlertCircle, Building, Lightbulb, ArrowRight, AlertTriangle, TrendingUp } from "lucide-react";
 import { useDashboardData } from "../hooks/useDashboardData";
 import { useDistrict } from "../context/DistrictContext";
 import { buildDashboardPath } from "../lib/query";
 import { usePdfExport } from "../hooks/usePdfExport";
+import { formatNumber } from "../lib/format";
 import MapPanel from "../components/MapPanel";
 import PopulationRasterPanel from "../components/PopulationRasterPanel";
 import GlobalHospitalRegistry from "../components/GlobalHospitalRegistry";
@@ -119,6 +120,13 @@ function HealthPage() {
   const taAnalytics = useDashboardData(
     buildDashboardPath("/dashboard/health/analytics/ta", {
       district: districtScope,
+    }),
+  );
+
+  const healthDrilldown = useDashboardData(
+    buildDashboardPath("/dashboard/health/drilldown", {
+      district: districtScope,
+      admin_type: "District",
     }),
   );
 
@@ -1008,6 +1016,202 @@ function HealthPage() {
             loading={healthLocations.loading}
           />
         )}
+
+        {/* ── Health Insights & Recommendations ──────────────────── */}
+        <HealthRecommendations
+          healthSummary={healthSummary}
+          servedPopulationSummary={servedPopulationSummary}
+          healthDrilldown={healthDrilldown}
+          healthLocations={healthLocations}
+          healthIntegration={healthIntegration}
+          districtScope={districtScope}
+          accessTotal={accessTotal}
+          noAccessTotal={noAccessTotal}
+          accessShare={accessShare}
+          totalFacilities={totalFacilities}
+          functionalFacilities={functionalFacilities}
+          nonFunctionalFacilities={nonFunctionalFacilities}
+          govFacilities={govFacilities}
+          privateFacilities={privateFacilities}
+        />
+      </div>
+    </div>
+  );
+}
+
+/* ─── Health Recommendations ───────────────────────────────────────────── */
+function HealthRecommendations({
+  healthSummary, servedPopulationSummary, healthDrilldown, healthLocations,
+  healthIntegration, districtScope, accessTotal, noAccessTotal, accessShare,
+  totalFacilities, functionalFacilities, nonFunctionalFacilities,
+  govFacilities, privateFacilities,
+}) {
+  const loading = healthSummary.loading || servedPopulationSummary.loading || healthDrilldown.loading;
+
+  const drillSummary  = healthDrilldown.data?.summary || {};
+  const taBreakdown   = healthDrilldown.data?.ta_breakdown || [];
+  const facilities    = healthLocations.data?.features || [];
+
+  // Derive key metrics
+  const popPerFacility   = Number(drillSummary.population_per_facility || 0);
+  const totalPop         = Number(drillSummary.population_total || 0);
+  const facilityCount    = Number(drillSummary.facility_count || 0);
+
+  // Underserved TAs: top 3 by population per facility
+  const underservedTAs = [...taBreakdown]
+    .filter(r => Number(r.population_per_facility || 0) > 2000)
+    .sort((a, b) => Number(b.population_per_facility || 0) - Number(a.population_per_facility || 0))
+    .slice(0, 3);
+  const worstTA = underservedTAs[0];
+
+  // Workforce
+  const doctors = facilities.reduce((s, f) => s + Number(f.properties?.doctor_count || 0), 0);
+  const nurses  = facilities.reduce((s, f) => s + Number(f.properties?.nurse_midwife_count || 0), 0);
+  const doctorRatio = totalPop > 0 && doctors > 0 ? Math.round(totalPop / doctors) : null;
+  const nurseRatio  = totalPop > 0 && nurses  > 0 ? Math.round(totalPop / nurses)  : null;
+
+  // Flood-exposed facilities
+  const floodExposed = facilities.filter(f => f.properties?.flood_is_exposed).length;
+
+  // Welfare beneficiaries with health access
+  const welfareWithAccess = Number(healthIntegration.data?.summary?.health_access_count || 0);
+  const welfareTotal      = Number(healthIntegration.data?.summary?.total_beneficiaries || 0);
+
+  // Avg travel time
+  const travelTimes = facilities
+    .map(f => Number(f.properties?.avg_travel_time_min || 0))
+    .filter(v => v > 0);
+  const medianTravel = travelTimes.length
+    ? travelTimes.sort((a,b)=>a-b)[Math.floor(travelTimes.length/2)]
+    : null;
+
+  const priorityConfig = {
+    high:   { label: "Immediate Action",  classes: "bg-red-50 border-red-200 text-red-700",       dot: "bg-red-500"    },
+    medium: { label: "Short-Term Action", classes: "bg-amber-50 border-amber-200 text-amber-700",  dot: "bg-amber-500"  },
+    low:    { label: "Planning Note",     classes: "bg-blue-50 border-blue-200 text-blue-700",     dot: "bg-blue-500"   },
+  };
+
+  const recommendations = [
+    // 1 — Access gap
+    noAccessTotal > 0 && {
+      priority: "high",
+      icon: AlertTriangle,
+      title: "Critical Health Access Gap",
+      body: `${formatNumber(noAccessTotal, 0)} people in ${districtScope} lack access to a health facility within 8 km — ${formatNumber(100 - accessShare, 1)}% of the population. The access coverage map shows the largest unserved pockets in rural TAs. Expanding facility placement or mobile health outreach in these zones is the highest-priority intervention.`,
+      action: "Identify top 3 unserved population clusters from the coverage map and plan satellite clinic placement",
+    },
+    // 2 — Underserved TAs
+    underservedTAs.length > 0 && {
+      priority: "high",
+      icon: Building,
+      title: "Facility Shortage in High-Population TAs",
+      body: `${underservedTAs.length} TA${underservedTAs.length > 1 ? "s" : ""} exceed 2,000 people per facility — well above the recommended threshold.${worstTA ? ` ${worstTA.ta_name} is the most underserved with ${formatNumber(worstTA.population_per_facility, 0)} people per facility serving a population of ${formatNumber(worstTA.population_total, 0)}.` : ""} New facility construction or upgrading existing health posts to full clinics is needed.`,
+      action: `Prioritise new health facility construction in ${underservedTAs.map(t => t.ta_name).join(", ")}`,
+    },
+    // 3 — Non-functional facilities
+    nonFunctionalFacilities > 0 && {
+      priority: "high",
+      icon: AlertCircle,
+      title: "Non-Functional Facilities Reducing Effective Capacity",
+      body: `${formatNumber(nonFunctionalFacilities)} of ${formatNumber(totalFacilities)} facilities are non-functional or closed. These represent lost capacity that could serve existing populations without new construction. Rehabilitation of closed facilities is faster and cheaper than building new ones.`,
+      action: "Audit all non-functional facilities and prioritise rehabilitation of those in high-need TAs",
+    },
+    // 4 — Workforce
+    doctorRatio !== null && doctorRatio > 5000 && {
+      priority: "high",
+      icon: Users,
+      title: "Severe Doctor Shortage",
+      body: `The doctor-to-population ratio is 1:${formatNumber(doctorRatio, 0)}, far exceeding the WHO recommended 1:1,000. With only ${formatNumber(doctors, 0)} doctors serving ${formatNumber(totalPop, 0)} people, clinical capacity is severely constrained. Nurse-led care models and community health worker deployment can bridge the gap in the short term.`,
+      action: "Deploy community health workers to high-burden TAs and fast-track nurse practitioner training",
+    },
+    // 5 — Private sector balance
+    privateFacilities > govFacilities && {
+      priority: "medium",
+      icon: Building2,
+      title: "Private Sector Dominance — Equity Risk",
+      body: `${formatNumber(privateFacilities)} of ${formatNumber(totalFacilities)} facilities are privately operated, outnumbering government facilities. While private facilities expand coverage, they concentrate in urban and peri-urban areas, leaving rural populations dependent on fewer government facilities. Public-private partnership agreements should include rural service obligations.`,
+      action: "Negotiate PPP agreements requiring private facilities to serve a defined rural catchment population",
+    },
+    // 6 — Flood risk
+    floodExposed > 0 && {
+      priority: "medium",
+      icon: AlertTriangle,
+      title: "Flood-Exposed Health Facilities",
+      body: `${formatNumber(floodExposed)} health facilities are in flood-exposed zones. During flood events these facilities may become inaccessible or damaged, cutting off health services precisely when demand spikes. Emergency referral pathways and pre-positioned medical supplies at unaffected facilities are essential.`,
+      action: "Establish flood-season health service continuity plans and pre-position emergency medical supplies",
+    },
+    // 7 — Travel time
+    medianTravel !== null && medianTravel > 30 && {
+      priority: "medium",
+      icon: TrendingUp,
+      title: "Long Travel Times to Facilities",
+      body: `The median road travel time to the nearest health facility is ${medianTravel.toFixed(0)} minutes. For emergency obstetric care, stroke, and trauma, this delay is life-threatening. Ambulance pre-positioning and community first-responder training in high-travel-time areas can reduce preventable deaths.`,
+      action: "Pre-position ambulances in TAs with median travel times above 30 minutes",
+    },
+    // 8 — Welfare link
+    welfareWithAccess > 0 && {
+      priority: "low",
+      icon: Lightbulb,
+      title: "Link Health Access to Social Protection",
+      body: `${formatNumber(welfareWithAccess, 0)} welfare beneficiaries have a health facility within 8 km. Integrating health service utilisation data with welfare programme monitoring would allow identification of beneficiaries who are geographically close to facilities but not accessing care — enabling targeted outreach.`,
+      action: "Cross-reference welfare beneficiary data with health facility utilisation records to identify non-users",
+    },
+    // 9 — Interpretation note
+    {
+      priority: "low",
+      icon: Lightbulb,
+      title: "Map Interpretation: Coverage vs Utilisation",
+      body: `The 8 km buffer coverage maps show geographic proximity to facilities, not actual utilisation. A facility within 8 km may still be inaccessible due to road conditions, cost, or cultural barriers. The road-distance and travel-time rasters provide a more accurate picture of real-world access than straight-line buffers alone.`,
+      action: "Supplement coverage analysis with patient visit data and community health surveys to capture utilisation gaps",
+    },
+  ].filter(Boolean);
+
+  if (loading) {
+    return (
+      <div className="mt-10 mb-10">
+        <div className="h-6 w-64 bg-gray-100 rounded animate-pulse mb-6" />
+        <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
+          {[...Array(4)].map((_, i) => <div key={i} className="h-36 animate-pulse rounded border border-gray-100 bg-gray-50" />)}
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="mt-10 mb-10">
+      <div className="flex items-center gap-3 mb-2">
+        <Lightbulb className="h-5 w-5 text-amber-500" />
+        <h3 className="text-[16px] font-extrabold">Insights & Recommendations</h3>
+      </div>
+      <p className="text-sm text-gray-500 font-semibold mb-6">
+        Data-driven planning actions derived from facility coverage maps, access analysis, workforce data, and flood exposure for {districtScope}.
+      </p>
+      <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
+        {recommendations.map((rec, i) => {
+          const cfg = priorityConfig[rec.priority];
+          const Icon = rec.icon;
+          return (
+            <div key={i} className="rounded border border-gray-100 bg-white p-5 shadow-sm flex flex-col gap-3">
+              <div className="flex items-start justify-between gap-3">
+                <div className="flex items-center gap-2.5">
+                  <div className="flex-shrink-0 rounded-lg bg-gray-50 p-2">
+                    <Icon className="h-4 w-4 text-gray-600" />
+                  </div>
+                  <p className="text-[14px] font-extrabold text-black leading-tight">{rec.title}</p>
+                </div>
+                <span className={`flex-shrink-0 inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[10px] font-bold ${cfg.classes}`}>
+                  <span className={`h-1.5 w-1.5 rounded-full ${cfg.dot}`} />
+                  {cfg.label}
+                </span>
+              </div>
+              <p className="text-[13px] text-gray-600 leading-6">{rec.body}</p>
+              <div className="flex items-start gap-2 rounded bg-gray-50 px-3 py-2 mt-auto">
+                <ArrowRight className="h-3.5 w-3.5 text-gray-400 flex-shrink-0 mt-0.5" />
+                <p className="text-[11px] font-bold text-gray-500 uppercase tracking-wide leading-5">{rec.action}</p>
+              </div>
+            </div>
+          );
+        })}
       </div>
     </div>
   );
