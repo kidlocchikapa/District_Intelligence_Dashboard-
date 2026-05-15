@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import "leaflet/dist/leaflet.css";
 import L from "leaflet";
 import { CircleMarker, GeoJSON, ImageOverlay, MapContainer, Tooltip, ZoomControl, useMap } from "react-leaflet";
@@ -27,14 +27,15 @@ function PopulationRasterPanel({
   heightClass = "h-[460px]",
   loading = false,
   onFeatureClick,
+  onFeatureHover,
   selectedFeatureName,
+  hoveredFeatureName,
   featureNameResolver,
   customTooltipMetrics,
 }) {
   const { selectedDistrict, setSelectedDistrict } = useDistrict();
   const [metadata, setMetadata] = useState(null);
   const [hoveredDistrict, setHoveredDistrict] = useState(null);
-  const [hoveredFeature, setHoveredFeature] = useState(null);
   const [error, setError] = useState(null);
 
   useEffect(() => {
@@ -68,29 +69,8 @@ function PopulationRasterPanel({
   const defaultBounds = metadata?.bounds;
   const legend = metadata?.legend || null;
   const features = geojson?.features || [];
-  const activeBounds = useMemo(() => {
-    if (!metadata) {
-      return null;
-    }
-
-    if (!features.length) {
-      return defaultBounds;
-    }
-
-    const bounds = getGeoBounds(features);
-
-    if (bounds.minLat === Infinity) {
-      return defaultBounds;
-    }
-
-    return [
-      [bounds.minLat, bounds.minLon],
-      [bounds.maxLat, bounds.maxLon],
-    ];
-  }, [defaultBounds, features, metadata]);
-
-  const selectedFeature = useMemo(() => {
-    if (!selectedFeatureName) {
+  const findFeatureByName = useCallback((featureName) => {
+    if (!featureName) {
       return null;
     }
 
@@ -105,19 +85,40 @@ function PopulationRasterPanel({
         return (
           name &&
           String(name).toLowerCase() ===
-            String(selectedFeatureName).toLowerCase()
+            String(featureName).toLowerCase()
         );
       }) || null
     );
-  }, [featureNameResolver, features, selectedFeatureName]);
+  }, [featureNameResolver, features]);
 
-  const focusFeature = hoveredFeature || selectedFeature;
-  const focusProperties = focusFeature?.properties || {};
-  const focusName =
-    hoveredDistrict ||
-    focusProperties.admin_unit_name ||
-    focusProperties.name ||
-    selectedFeatureName;
+  const selectedFeature = useMemo(() => {
+    return findFeatureByName(selectedFeatureName);
+  }, [findFeatureByName, selectedFeatureName]);
+  const hoveredFeature = useMemo(() => {
+    return findFeatureByName(hoveredFeatureName);
+  }, [findFeatureByName, hoveredFeatureName]);
+  const activeBounds = useMemo(() => {
+    if (!metadata) {
+      return null;
+    }
+
+    if (!features.length) {
+      return defaultBounds;
+    }
+
+    const bounds = getGeoBounds(
+      selectedFeature ? [selectedFeature] : features,
+    );
+
+    if (bounds.minLat === Infinity) {
+      return defaultBounds;
+    }
+
+    return [
+      [bounds.minLat, bounds.minLon],
+      [bounds.maxLat, bounds.maxLon],
+    ];
+  }, [defaultBounds, features, metadata, selectedFeature]);
 
   const hasHeader = Boolean(title || subtitle);
   const wrapperClassName = hasHeader
@@ -182,6 +183,38 @@ function PopulationRasterPanel({
     );
   }
 
+  function resolveLegendLabel(rawLabel) {
+    if (!rawLabel) {
+      return "Raster surface";
+    }
+
+    if (/estimated people per grid cell/i.test(rawLabel)) {
+      return "People per grid cell";
+    }
+
+    return String(rawLabel);
+  }
+
+  const tooltipMetrics = customTooltipMetrics && customTooltipMetrics.length
+    ? customTooltipMetrics
+    : [
+        { key: "beneficiary_count", label: "Beneficiaries" },
+        { key: "flood_affected_count", label: "Flood Affected" },
+        { key: "exposed_population", label: "Flood Exposed" },
+        {
+          key: "exposed_population_pct",
+          label: "Exposure %",
+          format: "pct",
+          digits: 1,
+        },
+      ];
+
+  const focusProperties = hoveredFeature?.properties || {};
+  const focusName =
+    (hoveredFeature ? getFeatureName(hoveredFeature) : null) ||
+    hoveredFeatureName ||
+    null;
+
   function legendBackground(colors = []) {
     if (!Array.isArray(colors) || !colors.length) {
       return "linear-gradient(90deg, #e5e7eb, #9ca3af)";
@@ -217,7 +250,7 @@ function PopulationRasterPanel({
           <ImageOverlay bounds={defaultBounds} url={imageUrl} opacity={0.94} />
           {features.length ? (
             <GeoJSON
-              key={`pop-raster-geojson-${features.map((feature) => feature.id || getFeatureName(feature)).join("|")}-${selectedDistrict}-${selectedFeatureName || "all"}`}
+              key={`pop-raster-geojson-${features.map((feature) => feature.id || getFeatureName(feature)).join("|")}-${selectedDistrict}-${selectedFeatureName || "all"}-${hoveredFeatureName || "none"}`}
               data={geojson}
               style={(feature) => {
                 const featureName = getFeatureName(feature);
@@ -226,7 +259,13 @@ function PopulationRasterPanel({
                   featureName &&
                   String(featureName).toLowerCase() ===
                     String(selectedFeatureName).toLowerCase();
-                const isHovered = featureName === hoveredDistrict;
+                const isSharedHovered =
+                  hoveredFeatureName &&
+                  featureName &&
+                  String(featureName).toLowerCase() ===
+                    String(hoveredFeatureName).toLowerCase();
+                const isHovered =
+                  featureName === hoveredDistrict || isSharedHovered;
 
                 return {
                   color: isSelected ? "#111827" : "#5f6d5b",
@@ -242,19 +281,10 @@ function PopulationRasterPanel({
               }}
               onEachFeature={(feature, layer) => {
                 const name = getFeatureName(feature);
-                if (name) {
-                  layer.bindTooltip(String(name), {
-                    sticky: true,
-                    direction: "top",
-                    opacity: 0.96,
-                    className: "health-ta-tooltip",
-                    offset: L.point(0, -6),
-                  });
-                }
                 layer.on({
                   mouseover: (e) => {
                     setHoveredDistrict(name);
-                    setHoveredFeature(feature);
+                    onFeatureHover?.(feature, e);
                     const layer = e.target;
                     layer.setStyle({
                       weight: 3,
@@ -264,12 +294,20 @@ function PopulationRasterPanel({
                   },
                   mouseout: (e) => {
                     setHoveredDistrict(null);
-                    setHoveredFeature(null);
+                    onFeatureHover?.(null, e);
+                    const isSelected =
+                      selectedFeatureName &&
+                      name &&
+                      String(name).toLowerCase() ===
+                        String(selectedFeatureName).toLowerCase();
                     const layer = e.target;
                     layer.setStyle({
-                      weight: features.length === 1 ? 2.5 : 1.35,
-                      opacity: 0.82,
-                      fillOpacity: 0
+                      color: isSelected ? "#111827" : "#5f6d5b",
+                      weight:
+                        isSelected || features.length === 1 ? 2.7 : 1.35,
+                      opacity: isSelected ? 0.95 : 0.82,
+                      fillColor: isSelected ? "#5f6d5b" : "transparent",
+                      fillOpacity: isSelected ? 0.08 : 0
                     });
                   },
                   click: (e) => {
@@ -399,70 +437,54 @@ function PopulationRasterPanel({
                         {formatStat(focusProperties.population_density, 1)}
                       </p>
                     </div>
-                    {customTooltipMetrics ? customTooltipMetrics.map(metric => (
+                    {tooltipMetrics.map((metric) =>
                       focusProperties[metric.key] !== undefined ? (
                         <div key={metric.key}>
                           <p className="uppercase tracking-[0.12em] text-slate/40">
                             {metric.label}
                           </p>
                           <p className="mt-1 text-[14px] font-black text-slate">
-                            {metric.format === 'pct' ? `${formatStat(focusProperties[metric.key], 1)}%` : formatStat(focusProperties[metric.key], metric.digits || 0)}
+                            {metric.format === "pct"
+                              ? `${formatStat(
+                                  focusProperties[metric.key],
+                                  metric.digits ?? 1,
+                                )}%`
+                              : formatStat(
+                                  focusProperties[metric.key],
+                                  metric.digits || 0,
+                                )}
                           </p>
                         </div>
                       ) : null
-                    )) : (
-                      <>
-                        {focusProperties.beneficiary_count !== undefined ? (
-                          <div>
-                            <p className="uppercase tracking-[0.12em] text-slate/40">
-                              Beneficiaries
-                            </p>
-                            <p className="mt-1 text-[14px] font-black text-slate">
-                              {formatStat(focusProperties.beneficiary_count)}
-                            </p>
-                          </div>
-                        ) : null}
-                        {focusProperties.flood_affected_count !== undefined ? (
-                          <div>
-                            <p className="uppercase tracking-[0.12em] text-slate/40">
-                              Flood Affected
-                            </p>
-                            <p className="mt-1 text-[14px] font-black text-slate">
-                              {formatStat(focusProperties.flood_affected_count)}
-                            </p>
-                          </div>
-                        ) : null}
-                        {focusProperties.exposed_population !== undefined ? (
-                          <div>
-                            <p className="uppercase tracking-[0.12em] text-slate/40">
-                              Flood Exposed
-                            </p>
-                            <p className="mt-1 text-[14px] font-black text-slate">
-                              {formatStat(focusProperties.exposed_population)}
-                            </p>
-                          </div>
-                        ) : null}
-                        {focusProperties.exposed_population_pct !== undefined ? (
-                          <div>
-                            <p className="uppercase tracking-[0.12em] text-slate/40">
-                              Exposure %
-                            </p>
-                            <p className="mt-1 text-[14px] font-black text-slate">
-                              {formatStat(focusProperties.exposed_population_pct, 1)}%
-                            </p>
-                          </div>
-                        ) : null}
-                      </>
                     )}
                   </div>
                 </div>
-              ) : (
-                <p className="text-[12px] font-semibold text-slate/60">
-                  Hover a TA to view its local stats.
+                  ) : (
+                    <p className="text-[12px] font-semibold text-slate/60">
+                      Select a TA to view its local stats.
+                    </p>
+                  )}
+                </div>
+              </div>
+
+            {legend ? (
+              <div className="w-[148px] self-end rounded-xl border border-white/80 bg-white/92 px-3 py-2.5 shadow-md backdrop-blur-md sm:self-auto sm:shrink-0">
+                <p className="text-[9px] font-bold uppercase tracking-[0.14em] text-slate/50">
+                  Legend
                 </p>
-              )}
-            </div>
-          </div>
+                <p className="mt-1 text-[11px] font-semibold leading-4 text-slate">
+                  {resolveLegendLabel(legend.label || title || "Raster surface")}
+                </p>
+                <div
+                  className="mt-2 h-2.5 w-full rounded-full border border-slate-200/80"
+                  style={{ background: legendBackground(legend.colors) }}
+                />
+                <div className="mt-1.5 flex items-center justify-between text-[9px] font-bold uppercase tracking-[0.12em] text-slate/55">
+                  <span>{legend.lowLabel || "Low"}</span>
+                  <span>{legend.highLabel || "High"}</span>
+                </div>
+              </div>
+            ) : null}
           </div>
         ) : null}
       </div>
@@ -471,3 +493,4 @@ function PopulationRasterPanel({
 }
 
 export default PopulationRasterPanel;
+

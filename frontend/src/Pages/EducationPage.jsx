@@ -290,6 +290,63 @@ function EducationPage() {
   );
 
   const formatStat = (value, digits = 0) => formatNumber(value, digits);
+  const selectedAreaName = selectedTa
+    ? `TA: ${selectedTa}`
+    : selectedDistrict
+      ? `District: ${selectedDistrict}`
+      : "National";
+
+  const handleDownloadReport = async () => {
+    const selectedInsightRow = selectedInsight || {};
+    const rows = [
+      {
+        metric: "Total Schools",
+        value: formatStat(
+          selectedInsightRow.school_count || educationSummary.data?.school_count || 0,
+        ),
+      },
+      {
+        metric: "Total Students",
+        value: formatStat(
+          selectedInsightRow.student_enrollment_total || educationSummary.data?.student_enrollment_total || 0,
+        ),
+      },
+      {
+        metric: "Total Teachers",
+        value: formatStat(
+          selectedInsightRow.teacher_count_total || educationSummary.data?.teacher_count_total || 0,
+        ),
+      },
+      {
+        metric: "School Age Population",
+        value: formatStat(
+          selectedInsightRow.school_age_population_total || educationSummary.data?.school_age_population_total || 0,
+        ),
+      },
+      {
+        metric: "Out-of-School Population",
+        value: formatStat(
+          selectedInsightRow.not_in_school_total || educationSummary.data?.not_in_school_total || 0,
+        ),
+      },
+    ];
+
+    await exportDataPdf({
+      title: "Education Area Analysis",
+      selectedArea: selectedAreaName,
+      sections: [
+        {
+          title: "Education Summary",
+          columns: [
+            { key: "metric", label: "Metric", width: 260 },
+            { key: "value", label: "Value", width: 180 },
+          ],
+          rows,
+        },
+      ],
+    });
+  };
+
   const allInsightRows = districtInsights.data?.all_districts || [];
   const insightRows = districtInsights.data?.districts || [];
   const benchmarkSummary = districtInsights.data?.summary || {};
@@ -576,11 +633,11 @@ function EducationPage() {
 
         <div className="flex gap-4 mb-6">
           <button
-            onClick={exportPdf}
+            onClick={handleDownloadReport}
             className="flex items-center gap-2 border border-gray-300 rounded px-3 py-1.5 text-[13px] font-bold hover:bg-gray-50 transition-all shadow-sm active:scale-95"
           >
             <Download className="h-4 w-4" />
-            Download PDF
+            Download Area Analysis
           </button>
           <SharedDistrictSelector />
 

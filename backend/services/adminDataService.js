@@ -68,50 +68,59 @@ async function writeAuditEntry(
   );
 }
 
-async function fetchAdministrativeUnit(client, unitId, expectedType) {
-  if (!unitId) {
+async function fetchDistrict(client, districtId) {
+  if (!districtId) {
     return null;
   }
 
   const result = await client.query(
     `
-      SELECT id, name, type, parent_id
-      FROM administrative_units
+      SELECT id, name
+      FROM districts
       WHERE id = $1
       LIMIT 1
     `,
-    [unitId],
+    [districtId],
   );
 
   if (!result.rowCount) {
-    throw new Error(`Administrative unit ${unitId} was not found`);
+    throw new Error(`District ${districtId} was not found`);
   }
 
-  const row = result.rows[0];
-  if (
-    expectedType &&
-    row.type &&
-    String(row.type).toLowerCase() !== String(expectedType).toLowerCase()
-  ) {
-    throw new Error(`Administrative unit ${unitId} is not a ${expectedType}`);
+  return result.rows[0];
+}
+
+async function fetchWard(client, wardId) {
+  if (!wardId) {
+    return null;
   }
 
-  return row;
+  const result = await client.query(
+    `
+      SELECT id, name, type, district_id
+      FROM admin3_units
+      WHERE id = $1
+      LIMIT 1
+    `,
+    [wardId],
+  );
+
+  if (!result.rowCount) {
+    throw new Error(`Administrative unit ${wardId} was not found`);
+  }
+
+  return result.rows[0];
 }
 
 async function validateDistrictWardRelationship(client, districtId, wardId) {
-  const district = districtId
-    ? await fetchAdministrativeUnit(client, districtId, "District")
-    : null;
-  const ward = wardId
-    ? await fetchAdministrativeUnit(client, wardId, "Ward")
-    : null;
+  const district = districtId ? await fetchDistrict(client, districtId) : null;
+  const ward = wardId ? await fetchWard(client, wardId) : null;
 
   if (
     district &&
     ward &&
-    ward.parent_id &&
-    Number(ward.parent_id) !== Number(district.id)
+    ward.district_id &&
+    Number(ward.district_id) !== Number(district.id)
   ) {
     throw new Error("ward_id does not belong to the selected district_id");
   }
@@ -124,7 +133,7 @@ async function validateWardExists(client, wardId) {
     return null;
   }
 
-  return fetchAdministrativeUnit(client, wardId, "Ward");
+  return fetchWard(client, wardId);
 }
 
 function markDepartmentStale(department) {

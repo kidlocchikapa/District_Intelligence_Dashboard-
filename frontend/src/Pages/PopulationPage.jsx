@@ -1,4 +1,5 @@
 import { Download, Users2 } from "lucide-react";
+import { toast } from "react-hot-toast";
 import {
   Bar,
   BarChart,
@@ -57,7 +58,7 @@ function formatTaAxisLabel(value) {
 
 function PopulationPage() {
   const { selectedDistrict, selectedTa, setSelectedTa } = useDistrict();
-  const { contentRef, exportPdf } = usePdfExport("Population_Report.pdf");
+  const { contentRef, exportDataPdf } = usePdfExport("Population_Report.pdf");
   const summary = useDashboardData(
     buildDashboardPath("/dashboard/summary", {
       district: selectedDistrict,
@@ -101,6 +102,65 @@ function PopulationPage() {
     0,
   );
 
+  const handleDownloadReport = async () => {
+    const selectedAreaName = selectedTa
+      ? `TA: ${selectedTa}`
+      : selectedDistrict
+        ? `District: ${selectedDistrict}`
+        : "National";
+
+    const rows = [
+      {
+        metric: "Estimated Population",
+        value: totalPopulation.toLocaleString(),
+      },
+      {
+        metric: "Population Density",
+        value: formatStat(summary.data?.total_population_density || 0),
+      },
+      {
+        metric: "Flood Exposed Population",
+        value: formatStat(summary.data?.exposed_population || 0),
+      },
+      {
+        metric: "Not Exposed Population",
+        value: formatStat(summary.data?.not_exposed_population || 0),
+      },
+    ];
+
+    const topRows = chartData
+      .slice(0, 8)
+      .map((item) => ({
+        metric: item.label,
+        value: Number(item.population || 0).toLocaleString(),
+      }));
+
+    await exportDataPdf({
+      title: "Population Area Analysis",
+      selectedArea: selectedAreaName,
+      sections: [
+        {
+          title: "Population Summary",
+          columns: [
+            { key: "metric", label: "Metric", width: 260 },
+            { key: "value", label: "Value", width: 180 },
+          ],
+          rows,
+        },
+        {
+          title: "Top Location Population",
+          columns: [
+            { key: "metric", label: selectedDistrict ? "TA" : "District", width: 260 },
+            { key: "value", label: "Population", width: 180 },
+          ],
+          rows: topRows.length ? topRows : [
+            { metric: "No population rows", value: "No data available" },
+          ],
+        },
+      ],
+    });
+  };
+
   return (
     <div
       ref={contentRef}
@@ -122,11 +182,11 @@ function PopulationPage() {
 
         <div className="mb-8 flex gap-4">
           <button
-            onClick={exportPdf}
+            onClick={handleDownloadReport}
             className="flex items-center gap-2 rounded border border-gray-300 px-3 py-1.5 text-[13px] font-bold transition-all hover:bg-gray-50 active:scale-95 shadow-sm"
           >
             <Download className="h-4 w-4" />
-            Download PDF
+            Download Area Analysis
           </button>
           <SharedDistrictSelector />
 

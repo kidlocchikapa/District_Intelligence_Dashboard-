@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { toast } from "react-hot-toast";
 import {
   UserCheck,
   Heart,
@@ -146,7 +147,7 @@ function StatCard({ label, value, icon: Icon, helper }) {
 
 function WelfarePage() {
   const { selectedDistrict, selectedTa, setSelectedTa } = useDistrict();
-  const { contentRef, exportPdf } = usePdfExport("Welfare_Integration_Report.pdf");
+  const { contentRef, exportDataPdf } = usePdfExport("Welfare_Integration_Report.pdf");
   const [adminType, setAdminType] = useState("TA");
   const [areaSearch, setAreaSearch] = useState("");
   const [beneficiarySearch, setBeneficiarySearch] = useState("");
@@ -200,6 +201,35 @@ function WelfarePage() {
     : selectedDistrict
       ? selectedDistrict
       : "all TAs";
+
+  const handleDownloadReport = async () => {
+    const currentSummary = summary || {};
+    const rows = Object.entries(currentSummary).map(([key, value]) => ({
+      metric: key.replace(/_/g, " "),
+      value: formatNumber(value, 0),
+    }));
+
+    await exportDataPdf({
+      title: "Social Welfare Area Analysis",
+      selectedArea: selectedTa
+        ? `TA: ${selectedTa}`
+        : selectedDistrict
+          ? `District: ${selectedDistrict}`
+          : "National",
+      sections: [
+        {
+          title: "Welfare Summary",
+          columns: [
+            { key: "metric", label: "Metric", width: 260 },
+            { key: "value", label: "Value", width: 180 },
+          ],
+          rows: rows.length > 0 ? rows : [
+            { metric: "Welfare summary", value: "No data available" },
+          ],
+        },
+      ],
+    });
+  };
 
   const pieData = programBreakdown.map((item) => ({
     name: item.program_name,
@@ -537,11 +567,11 @@ function WelfarePage() {
 
         <div className="flex flex-wrap gap-4 mb-8">
           <button
-            onClick={exportPdf}
+            onClick={handleDownloadReport}
             className="flex items-center gap-2 border border-gray-300 rounded px-3 py-1.5 text-[13px] font-bold hover:bg-gray-50 transition-all shadow-sm active:scale-95"
           >
             <Download className="h-4 w-4" />
-            Download PDF
+            Download Area Analysis
           </button>
           <SharedDistrictSelector />
 

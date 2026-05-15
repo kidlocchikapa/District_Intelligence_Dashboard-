@@ -1,25 +1,51 @@
-import React, { useState, useEffect } from "react";
+import React, { useMemo, useState, useEffect } from "react";
 
-const TAAnalyticsTable = () => {
-  const [data, setData] = useState([]);
-  const [loading, setLoading] = useState(true);
+const TAAnalyticsTable = ({
+  data: providedData,
+  loading: providedLoading,
+  selectedTa = "",
+  onSelectTa,
+}) => {
+  const [fetchedData, setFetchedData] = useState([]);
+  const [fetchLoading, setFetchLoading] = useState(true);
+  const hasProvidedData = Array.isArray(providedData);
+  const data = hasProvidedData ? providedData : fetchedData;
+  const loading =
+    typeof providedLoading === "boolean" ? providedLoading : fetchLoading;
 
   useEffect(() => {
+    if (hasProvidedData) {
+      setFetchLoading(false);
+      return;
+    }
+
     const fetchData = async () => {
       try {
         const response = await fetch("/api/v1/dashboard/health/analytics/ta");
         const json = await response.json();
         if (json.status === "success") {
-          setData(json.data);
+          setFetchedData(json.data);
         }
       } catch (error) {
         console.error("Error fetching TA analytics:", error);
       } finally {
-        setLoading(false);
+        setFetchLoading(false);
       }
     };
     fetchData();
-  }, []);
+  }, [hasProvidedData]);
+
+  const visibleData = useMemo(() => {
+    if (!selectedTa) {
+      return data;
+    }
+
+    return data.filter(
+      (row) =>
+        String(row.admin_unit_name || "").toLowerCase() ===
+        selectedTa.toLowerCase(),
+    );
+  }, [data, selectedTa]);
 
   if (loading) {
     return <div className="h-64 flex items-center justify-center text-gray-500">Loading TA Analytics...</div>;
@@ -38,8 +64,24 @@ const TAAnalyticsTable = () => {
           </tr>
         </thead>
         <tbody>
-          {data.map((row, index) => (
-            <tr key={index} className="bg-white border-b hover:bg-gray-50">
+          {visibleData.map((row, index) => {
+            const isSelected =
+              selectedTa &&
+              String(row.admin_unit_name || "").toLowerCase() ===
+                selectedTa.toLowerCase();
+
+            return (
+            <tr
+              key={row.admin_unit_name || index}
+              onClick={() => onSelectTa?.(row.admin_unit_name || "")}
+              className={`border-b transition-colors ${
+                onSelectTa ? "cursor-pointer" : ""
+              } ${
+                isSelected
+                  ? "bg-purple-50 hover:bg-purple-50"
+                  : "bg-white hover:bg-gray-50"
+              }`}
+            >
               <td className="px-6 py-4 font-medium text-gray-900 whitespace-nowrap">
                 {row.admin_unit_name}
               </td>
@@ -67,9 +109,15 @@ const TAAnalyticsTable = () => {
                 {Number(row.student_enrolment_affected || 0).toLocaleString()}
               </td>
             </tr>
-          ))}
+            );
+          })}
         </tbody>
       </table>
+      {!loading && !visibleData.length ? (
+        <div className="px-6 py-8 text-center text-sm font-semibold text-gray-500">
+          No TA analytics are available for {selectedTa || "this view"}.
+        </div>
+      ) : null}
     </div>
   );
 };

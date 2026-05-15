@@ -14,6 +14,7 @@ import {
   Users,
   X,
 } from "lucide-react";
+import { toast } from "react-hot-toast";
 import { fetchJson, patchJson } from "../lib/api";
 
 const SCHOOL_COLUMNS = [
@@ -48,7 +49,8 @@ const DEPARTMENT_TABLES = {
       id: "flood_exposed_schools",
       label: "Flood Exposed Schools",
       icon: ShieldAlert,
-      endpoint: "education?filter=flood_exposed",
+      endpoint: "education",
+      fixedParams: { filter: "flood_exposed" },
       columns: SCHOOL_COLUMNS,
       editable: true,
     },
@@ -72,15 +74,17 @@ const DEPARTMENT_TABLES = {
       id: "flood_exposed_health",
       label: "Flood Exposed Health",
       icon: ShieldAlert,
-      endpoint: "health?filter=flood_exposed",
+      endpoint: "health",
+      fixedParams: { filter: "flood_exposed" },
       columns: ["name", "type", "healthcare", "district_name", "ward_name"],
     },
     {
-      id: "health_summary",
-      label: "Health Summary",
+      id: "health_all_records",
+      label: "All Health Records",
       icon: FileText,
-      endpoint: "health/summary",
-      columns: ["admin_unit_name", "facility_count", "beds_total"],
+      endpoint: "health",
+      fixedParams: { include_archived: "true" },
+      columns: ["name", "type", "healthcare", "district_name", "ward_name", "is_active", "updated_at"],
     },
   ],
   social_welfare: [
@@ -92,11 +96,12 @@ const DEPARTMENT_TABLES = {
       columns: ["program_name", "beneficiary_count", "district_name", "ward_name"],
     },
     {
-      id: "welfare_indicator",
-      label: "Beneficiary Indicators",
+      id: "welfare_all_records",
+      label: "All Welfare Records",
       icon: Activity,
-      endpoint: "social_welfare/indicators",
-      columns: ["beneficiary_id", "indicator_name", "indicator_value", "last_updated"],
+      endpoint: "social_welfare",
+      fixedParams: { include_archived: "true" },
+      columns: ["program_name", "beneficiary_count", "district_name", "ward_name", "is_active", "updated_at"],
     },
     {
       id: "welfare_programs",
@@ -145,6 +150,8 @@ const SCHOOL_EDIT_FIELDS = [
   { key: "water_equipment_facility_count", label: "Water equipment facilities", type: "number", payloadKey: "waterEquipmentFacilityCount" },
   { key: "classroom_pressure", label: "Classroom pressure", type: "number", payloadKey: "classroomPressure" },
   { key: "teacher_pressure", label: "Teacher pressure", type: "number", payloadKey: "teacherPressure" },
+  { key: "latitude", label: "Latitude", type: "number", payloadKey: "latitude" },
+  { key: "longitude", label: "Longitude", type: "number", payloadKey: "longitude" },
   { key: "district_id", label: "District ID", type: "number", payloadKey: "districtId" },
   { key: "ward_id", label: "TA ID", type: "number", payloadKey: "wardId" },
   { key: "is_active", label: "Active", type: "checkbox", payloadKey: "isActive" },
@@ -154,8 +161,6 @@ const READ_ONLY_SCHOOL_FIELDS = [
   ["school_id", "School ID"],
   ["district_name", "District"],
   ["ward_name", "TA"],
-  ["latitude", "Latitude"],
-  ["longitude", "Longitude"],
   ["x_coordinate", "X coordinate"],
   ["y_coordinate", "Y coordinate"],
   ["created_at", "Created"],
@@ -200,6 +205,14 @@ function toPayloadValue(value, type) {
   return value === "" ? null : value;
 }
 
+function hasSamePayloadValue(left, right) {
+  if (left === right) {
+    return true;
+  }
+
+  return Number.isNaN(left) && Number.isNaN(right);
+}
+
 export default function AdminDataStewardship({ department, deptConfig }) {
   const tables = useMemo(() => DEPARTMENT_TABLES[department] || [], [department]);
   const [selectedTableId, setSelectedTableId] = useState(tables[0]?.id || "");
@@ -240,6 +253,7 @@ export default function AdminDataStewardship({ department, deptConfig }) {
           page,
           page_size: 25,
           search: searchQuery,
+          ...(selectedTable.fixedParams || {}),
         },
       });
 
@@ -283,9 +297,42 @@ export default function AdminDataStewardship({ department, deptConfig }) {
     }
 
     const payload = {};
+    const nextPayloadValues = {};
     SCHOOL_EDIT_FIELDS.forEach((field) => {
-      payload[field.payloadKey] = toPayloadValue(editValues[field.key], field.type);
+      const nextValue = toPayloadValue(editValues[field.key], field.type);
+      const currentValue = toPayloadValue(editingRecord[field.key], field.type);
+      nextPayloadValues[field.payloadKey] = nextValue;
+
+      if (!hasSamePayloadValue(nextValue, currentValue)) {
+        payload[field.payloadKey] = nextValue;
+      }
     });
+
+    const hasLatitudeChange = Object.prototype.hasOwnProperty.call(payload, "latitude");
+    const hasLongitudeChange = Object.prototype.hasOwnProperty.call(payload, "longitude");
+
+    if (hasLatitudeChange || hasLongitudeChange) {
+      const nextLatitude = nextPayloadValues.latitude;
+      const nextLongitude = nextPayloadValues.longitude;
+
+      if (
+        nextLatitude === null ||
+        nextLongitude === null ||
+        Number.isNaN(nextLatitude) ||
+        Number.isNaN(nextLongitude)
+      ) {
+        setErrorMessage("Latitude and longitude must both be valid numbers.");
+        return;
+      }
+
+      payload.latitude = nextLatitude;
+      payload.longitude = nextLongitude;
+    }
+
+    if (Object.keys(payload).length === 0) {
+      setEditingRecord(null);
+      return;
+    }
 
     try {
       setSaving(true);
@@ -300,9 +347,12 @@ export default function AdminDataStewardship({ department, deptConfig }) {
         await loadTableData();
       }
       setEditingRecord(null);
+      toast.success("School record updated successfully.");
     } catch (err) {
       console.error("Failed to update school record", err);
-      setErrorMessage(err?.response?.data?.message || "Unable to update this school record.");
+      const message = err?.response?.data?.message || "Unable to update this school record.";
+      setErrorMessage(message);
+      toast.error(message);
     } finally {
       setSaving(false);
     }
@@ -472,7 +522,7 @@ export default function AdminDataStewardship({ department, deptConfig }) {
               <div>
                 <h3 className="text-xl font-bold text-slate-950">{displayValue(editingRecord.name)}</h3>
                 <p className="mt-1 text-sm font-medium text-slate-500">
-                  Update school record details. Coordinates are read-only.
+                  Update school record details, including coordinates.
                 </p>
               </div>
               <button

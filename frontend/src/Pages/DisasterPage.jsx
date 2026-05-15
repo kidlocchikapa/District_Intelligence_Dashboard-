@@ -11,6 +11,7 @@ import {
   AlertTriangle,
 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
+import { toast } from "react-hot-toast";
 import {
   Bar,
   BarChart,
@@ -60,7 +61,7 @@ function getExposureBarColor(value, maxValue) {
 
 function DisasterPage() {
   const { selectedDistrict, selectedTa, setSelectedTa } = useDistrict();
-  const { contentRef, exportPdf } = usePdfExport("DisasterRisk_Report.pdf");
+  const { contentRef, exportDataPdf } = usePdfExport("DisasterRisk_Report.pdf");
 
   useEffect(() => {
     setSelectedTa("");
@@ -246,6 +247,71 @@ function DisasterPage() {
     return withUnit ? `${formatted} ${withUnit}` : formatted;
   };
 
+  const handleDownloadReport = async () => {
+    const selectedAreaName = selectedTa
+      ? `TA: ${selectedTa}`
+      : selectedDistrict
+        ? `District: ${selectedDistrict}`
+        : "National";
+
+    const disasterRows = [
+      {
+        metric: "Exposed Population",
+        value: formatStat(disasterSummary.data?.exposed_population),
+      },
+      {
+        metric: "Area Exposed (sq/km)",
+        value: formatStat(disasterSummary.data?.exposed_area_sq_km, "sq/km"),
+      },
+      {
+        metric: "Schools Exposed",
+        value: formatStat(schoolsExposed),
+      },
+      {
+        metric: "Health Facilities Exposed",
+        value: formatStat(healthFacilitiesExposed),
+      },
+      {
+        metric: "Beneficiaries Affected",
+        value: formatStat(beneficiariesAffected),
+      },
+    ];
+
+    const facilitiesRows = [
+      {
+        metric: "Exposed Education Facilities",
+        value: formatStat(schoolsExposed),
+      },
+      {
+        metric: "Exposed Health Facilities",
+        value: formatStat(healthFacilitiesExposed),
+      },
+    ];
+
+    await exportDataPdf({
+      title: "Disaster Risk Area Analysis",
+      selectedArea: selectedAreaName,
+      sections: [
+        {
+          title: "Disaster Summary",
+          columns: [
+            { key: "metric", label: "Metric", width: 260 },
+            { key: "value", label: "Value", width: 180 },
+          ],
+          rows: disasterRows,
+        },
+        {
+          title: "Facility Exposure",
+          columns: [
+            { key: "metric", label: "Metric", width: 260 },
+            { key: "value", label: "Value", width: 180 },
+          ],
+          rows: facilitiesRows,
+        },
+      ],
+    });
+  };
+
   const StatCardSkeleton = () => (
     <div className="border border-gray-100 rounded p-6 shadow-md bg-white animate-pulse">
       <div className="h-4 w-32 bg-gray-200 rounded mb-4"></div>
@@ -343,11 +409,11 @@ function DisasterPage() {
         {/* Actions Row */}
         <div className="flex gap-4 mb-8">
           <button
-            onClick={exportPdf}
+            onClick={handleDownloadReport}
             className="flex items-center gap-2 border border-gray-300 rounded px-3 py-1.5 text-[13px] font-bold hover:bg-gray-50 transition-all shadow-sm active:scale-95"
           >
             <Download className="h-4 w-4" />
-            Download PDF
+            Download Area Analysis
           </button>
           <SharedDistrictSelector />
         </div>

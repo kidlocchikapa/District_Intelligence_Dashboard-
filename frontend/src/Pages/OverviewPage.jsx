@@ -1,5 +1,6 @@
 import {
   useMemo,
+  useState,
 } from "react";
 import {
   Download,
@@ -9,6 +10,7 @@ import {
   HeartPulse,
   Accessibility,
 } from "lucide-react";
+import { toast } from "react-hot-toast";
 import { useDashboardData } from "../hooks/useDashboardData";
 import { useDistrict } from "../context/DistrictContext";
 import { buildDashboardPath } from "../lib/query";
@@ -109,6 +111,37 @@ function OverviewPage() {
       admin_type: "TA",
     }),
   );
+  const taServiceStats = useDashboardData(
+    buildDashboardPath("/dashboard/ta-service-stats", {
+      district: districtScope,
+      type: "TA",
+    }),
+  );
+
+  const educationSummary = useDashboardData(
+    buildDashboardPath("/dashboard/education/summary", {
+      district: districtScope,
+      ta: selectedTa,
+      admin_type: selectedTa ? "TA" : "District",
+    }),
+  );
+
+  const healthSummary = useDashboardData(
+    buildDashboardPath("/dashboard/health/summary", {
+      district: districtScope,
+      ta: selectedTa,
+      admin_type: selectedTa ? "TA" : "District",
+    }),
+  );
+
+  const welfareIntegration = useDashboardData(
+    buildDashboardPath("/dashboard/welfare/integration", {
+      district: districtScope,
+      ta: selectedTa,
+      admin_type: selectedTa ? "TA" : "District",
+      preview_limit: 0,
+    }),
+  );
 
   const chartData = (populationDistribution.data || []).map((item) => ({
     admin3Id: item.admin3_id,
@@ -139,6 +172,23 @@ function OverviewPage() {
     return lookup;
   }, [taFloodExposure.data]);
 
+  const taServiceLookup = useMemo(() => {
+    const lookup = new Map();
+
+    (taServiceStats.data || []).forEach((row) => {
+      const taId = Number(row.ta_id);
+      if (Number.isFinite(taId)) {
+        lookup.set(taId, row);
+      }
+
+      if (row.ta_name) {
+        lookup.set(`name:${String(row.ta_name).toLowerCase()}`, row);
+      }
+    });
+
+    return lookup;
+  }, [taServiceStats.data]);
+
   const mapGeojson = useMemo(() => {
     if (!densityMap.data) {
       return densityMap.data;
@@ -152,6 +202,11 @@ function OverviewPage() {
       .map((feature) => {
         const name = feature?.properties?.name || "";
         const floodStats = taFloodLookup.get(name.toLowerCase()) || {};
+        const featureId = Number(feature?.id);
+        const serviceStats =
+          (Number.isFinite(featureId) && taServiceLookup.get(featureId)) ||
+          taServiceLookup.get(`name:${name.toLowerCase()}`) ||
+          {};
 
         return {
           ...feature,
@@ -161,6 +216,12 @@ function OverviewPage() {
             exposed_population: floodStats.exposedPopulation || 0,
             exposed_population_pct: floodStats.exposedPopulationPct || 0,
             risk_level: floodStats.riskLevel,
+            schools_count: Number(serviceStats.schools_count || 0),
+            hospitals_count: Number(serviceStats.hospitals_count || 0),
+            beneficiaries_count: Number(serviceStats.beneficiaries_count || 0),
+            health_facilities_count: Number(
+              serviceStats.health_facilities_count || 0,
+            ),
           },
         };
       });
@@ -169,7 +230,7 @@ function OverviewPage() {
       ...densityMap.data,
       features,
     };
-  }, [densityMap.data, selectedTa, taFloodLookup]);
+  }, [densityMap.data, selectedTa, taFloodLookup, taServiceLookup]);
 
   const selectTa = (taName) => {
     setSelectedTa(taName || "");
@@ -192,14 +253,120 @@ function OverviewPage() {
     0,
   );
 
-  const { contentRef, exportPdf } = usePdfExport("Overview_Report.pdf");
+  const formatStat = (val) => {
+    if (!val && val !== 0) return "0";
+    return Number(val).toLocaleString(undefined, { maximumFractionDigits: 0 });
+  };
+
+  const { exportDataPdf } = usePdfExport("Overview_AreaAnalysis.pdf");
   const { targetRef: mapRef, downloadImage } = useImageDownload(
     "Zomba_Overview_Map.png",
   );
 
-  const formatStat = (val) => {
-    if (!val) return "0";
-    return Number(val).toLocaleString(undefined, { maximumFractionDigits: 0 });
+  const handleDownloadReport = async () => {
+    if (!selectedDistrict && !selectedTa) {
+      toast.error("Select a district or TA first to download area analysis.");
+      return;
+    }
+
+    const selectedAreaName = selectedTa
+      ? `TA: ${selectedTa}`
+      : `District: ${selectedDistrict}`;
+
+    const educationData = educationSummary.data || {};
+    const healthRows = Array.isArray(healthSummary.data)
+      ? healthSummary.data.map((row) => ({
+          metric: row.metric_name,
+          value: row.metric_value,
+        }))
+      : [];
+
+    const welfareSummary = welfareIntegration.data?.summary || {};
+    const welfareRows = Object.entries(welfareSummary).map(([key, value]) => ({
+      metric: key.replace(/_/g, " "),
+      value: formatStat(value),
+    }));
+
+    const disasterRows = [
+      { metric: "Flood Exposed Population", value: formatStat(exposedPopulation) },
+      { metric: "Not Exposed Population", value: formatStat(notExposedPopulation) },
+    ];
+
+    const sections = [
+      {
+        title: "Population",
+        columns: [
+          { key: "metric", label: "Metric", width: 260 },
+          { key: "value", label: "Value", width: 180 },
+        ],
+        rows: [
+          {
+            metric: "Estimated Population",
+            value: formatStat(summary.data?.total_estimated_population || 0),
+          },
+          {
+            metric: "Total Population Density",
+            value: formatStat(summary.data?.total_population_density || 0),
+          },
+          {
+            metric: "Flood Exposed Population",
+            value: formatStat(exposedPopulation),
+          },
+          {
+            metric: "Not Exposed Population",
+            value: formatStat(notExposedPopulation),
+          },
+        ],
+      },
+      {
+        title: "Education",
+        columns: [
+          { key: "metric", label: "Metric", width: 260 },
+          { key: "value", label: "Value", width: 180 },
+        ],
+        rows: [
+          { metric: "School Count", value: formatStat(educationData.school_count || 0) },
+          { metric: "Student Enrollment", value: formatStat(educationData.student_enrollment_total || 0) },
+          { metric: "Teacher Count", value: formatStat(educationData.teacher_count_total || 0) },
+          { metric: "School Age Population", value: formatStat(educationData.school_age_population_total || 0) },
+          { metric: "Out-of-School Population", value: formatStat(educationData.not_in_school_total || 0) },
+        ],
+      },
+      {
+        title: "Health",
+        columns: [
+          { key: "metric", label: "Metric", width: 260 },
+          { key: "value", label: "Value", width: 180 },
+        ],
+        rows: healthRows.length > 0 ? healthRows : [
+          { metric: "Health metrics", value: "No data available" },
+        ],
+      },
+      {
+        title: "Social Welfare",
+        columns: [
+          { key: "metric", label: "Metric", width: 260 },
+          { key: "value", label: "Value", width: 180 },
+        ],
+        rows: welfareRows.length > 0 ? welfareRows : [
+          { metric: "Welfare metrics", value: "No data available" },
+        ],
+      },
+      {
+        title: "Disaster Risk",
+        columns: [
+          { key: "metric", label: "Metric", width: 260 },
+          { key: "value", label: "Value", width: 180 },
+        ],
+        rows: disasterRows,
+      },
+    ];
+
+    await exportDataPdf({
+      title: "Selected Area Sector Analysis",
+      selectedArea: selectedAreaName,
+      sections,
+    });
   };
 
   const StatCardSkeleton = () => (
@@ -229,10 +396,7 @@ function OverviewPage() {
   );
 
   return (
-    <div
-      ref={contentRef}
-      className="min-h-screen bg-white text-black font-sans pb-10"
-    >
+    <div className="min-h-screen bg-white text-black font-sans pb-10">
       {/* Header Area */}
       <div className="flex items-center gap-4 px-8 py-8 border-b border-gray-200">
         <h1 className="text-[28px] font-extrabold tracking-tight">OVERVIEW</h1>
@@ -250,11 +414,13 @@ function OverviewPage() {
         {/* Actions Row */}
         <div className="flex gap-4 mb-8">
           <button
-            onClick={exportPdf}
-            className="flex items-center gap-2 border border-gray-300 rounded px-3 py-1.5 text-[13px] font-bold hover:bg-gray-50 transition-all shadow-sm active:scale-95"
+            onClick={handleDownloadReport}
+            disabled={(!selectedDistrict && !selectedTa) || summary.loading}
+            title={selectedDistrict || selectedTa ? "Download analysis for selected area" : "Select a district or TA first"}
+            className="flex items-center gap-2 border border-gray-300 rounded px-3 py-1.5 text-[13px] font-bold hover:bg-gray-50 transition-all shadow-sm active:scale-95 disabled:cursor-not-allowed disabled:opacity-50"
           >
             <Download className="h-4 w-4" />
-            Download PDF
+            Download Area Analysis
           </button>
           <button
             onClick={downloadImage}
@@ -322,7 +488,7 @@ function OverviewPage() {
 
         {/* Middle Row (Map + Bar Chart) */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-10">
-          <div className="border border-gray-100 rounded p-8 shadow-sm bg-white flex flex-col h-[640px]">
+          <div className="border border-gray-100 rounded p-8 shadow-sm bg-white flex flex-col h-160">
             <h3 className="text-[16px] font-extrabold mb-6">
               {selectedTa ? `${selectedTa} Map Overview` : "TA Map Overview"}
             </h3>
@@ -338,6 +504,18 @@ function OverviewPage() {
                 loading={densityMap.loading}
                 metadataUrl="/worldpop/zomba_ppp_2020.preview.json"
                 selectedFeatureName={selectedTa}
+                customTooltipMetrics={[
+                  { key: "schools_count", label: "Schools" },
+                  { key: "hospitals_count", label: "Hospitals" },
+                  { key: "beneficiaries_count", label: "Beneficiaries" },
+                  { key: "exposed_population", label: "Flood Exposed" },
+                  {
+                    key: "exposed_population_pct",
+                    label: "Exposure %",
+                    format: "pct",
+                    digits: 1,
+                  },
+                ]}
                 onFeatureClick={(feature) =>
                   selectTa(feature?.properties?.name || "")
                 }
@@ -345,7 +523,7 @@ function OverviewPage() {
             </div>
           </div>
 
-          <div className="border border-gray-100 rounded p-8 shadow-sm bg-white flex flex-col min-h-[460px]">
+          <div className="border border-gray-100 rounded p-8 shadow-sm bg-white flex flex-col min-h-115">
             <h3 className="text-[16px] font-extrabold mb-6">
               {selectedTa ? `Population for ${selectedTa}` : "Population by TA"}
             </h3>
@@ -451,7 +629,7 @@ function OverviewPage() {
             Flood Exposure Distribution for {scopeLabel}
           </h3>
           <div className="w-full flex flex-col md:flex-row items-center justify-start gap-16">
-            <div className="h-[280px] w-full md:w-[400px]">
+            <div className="h-70 w-full md:w-100">
               {floodSummary.loading ? (
                 <div className="flex items-center justify-center h-full text-gray-400">
                   Loading flood exposure data...
