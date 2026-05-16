@@ -17,6 +17,7 @@ const {
   validateDisasterCreate,
   validateDisasterUpdate,
   validateWelfareProgramCreate,
+  validateWelfareBeneficiaryCreate,
 } = require("../validators/adminDataValidation");
 const {
   getAuthUser,
@@ -954,42 +955,103 @@ router.get("/education", async (req, res) => {
 
 /**
  * @openapi
- * /api/v1/admin-data/education/flood_summary:
+ * /api/v1/admin-data/education/facility_access:
  *   get:
- *     summary: List education flood exposure summary records
+ *     summary: List education facility access metrics
  *     tags:
  *       - Admin Data
  *     security:
  *       - BearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: page
+ *         schema:
+ *           type: integer
+ *       - in: query
+ *         name: page_size
+ *         schema:
+ *           type: integer
+ *       - in: query
+ *         name: district_id
+ *         schema:
+ *           type: integer
+ *       - in: query
+ *         name: ward_id
+ *         schema:
+ *           type: integer
+ *       - in: query
+ *         name: search
+ *         schema:
+ *           type: string
  *     responses:
  *       200:
- *         description: Flood exposure summary records
+ *         description: Education facility access metrics
  */
-router.get("/education/flood_summary", async (req, res) => {
+router.get("/education/facility_access", async (req, res) => {
   try {
     const page = parsePositiveInteger(req.query.page, 1);
     const pageSize = Math.min(parsePositiveInteger(req.query.page_size, 25), 100);
     const offset = (page - 1) * pageSize;
 
+    const conditions = [];
+    const params = [];
+
+    const districtId = parsePositiveInteger(req.query.district_id, null);
+    if (districtId) {
+      params.push(districtId);
+      conditions.push(`ef.district_id = $${params.length}`);
+    }
+
+    const wardId = parsePositiveInteger(req.query.ward_id, null);
+    if (wardId) {
+      params.push(wardId);
+      conditions.push(`ef.ta_id = $${params.length}`);
+    }
+
+    if (req.query.search && String(req.query.search).trim()) {
+      params.push(`%${String(req.query.search).trim()}%`);
+      conditions.push(`COALESCE(ef.school_name, '') ILIKE $${params.length}`);
+    }
+
+    const whereClause = conditions.length ? `WHERE ${conditions.join(" AND ")}` : "";
+
     const countResult = await db.query(
-      `SELECT COUNT(*)::int AS total FROM analysis_results WHERE analysis_type = 'education_flood_exposure'`
+      `
+        SELECT COUNT(*)::int AS total
+        FROM education_facility_access_metrics eam
+        JOIN education_facilities ef ON ef.school_id = eam.facility_id
+        ${whereClause}
+      `,
+      params
     );
 
+    const dataParams = [...params, pageSize, offset];
     const rowsResult = await db.query(
       `
-        SELECT 
-          id, 
-          admin_unit_name, 
-          metric_name, 
-          metric_value, 
-          metric_unit,
-          calculated_at
-        FROM analysis_results 
-        WHERE analysis_type = 'education_flood_exposure'
-        ORDER BY admin_unit_name ASC, metric_name ASC
-        LIMIT $1 OFFSET $2
+        SELECT
+          eam.facility_id,
+          ef.school_name                              AS name,
+          ward.name                                   AS ward_name,
+          district.name                               AS district_name,
+          eam.coverage_distance_km,
+          eam.worldpop_population_within_buffer,
+          eam.welfare_beneficiaries_within_buffer,
+          eam.avg_network_distance_km,
+          eam.avg_travel_time_min,
+          eam.calculated_at
+        FROM education_facility_access_metrics eam
+        JOIN education_facilities ef
+          ON ef.school_id = eam.facility_id
+        LEFT JOIN admin3_units ward
+          ON ward.id = ef.ta_id
+        LEFT JOIN districts district
+          ON district.id = COALESCE(ef.district_id, ward.district_id)
+        ${whereClause}
+        ORDER BY district.name ASC NULLS LAST, ward.name ASC NULLS LAST, ef.school_name ASC NULLS LAST
+        LIMIT $${dataParams.length - 1}
+        OFFSET $${dataParams.length}
       `,
-      [pageSize, offset]
+      dataParams
     );
 
     const total = countResult.rows[0]?.total || 0;
@@ -997,18 +1059,206 @@ router.get("/education/flood_summary", async (req, res) => {
     return res.json({
       status: "success",
       data: {
-        items: rowsResult.rows,
+        items: rowsResult.rows.map((row) => ({
+          facility_id: Number(row.facility_id),
+          name: row.name || null,
+          ward_name: row.ward_name || null,
+          district_name: row.district_name || null,
+          coverage_distance_km: row.coverage_distance_km != null ? Number(row.coverage_distance_km) : null,
+          worldpop_population_within_buffer: row.worldpop_population_within_buffer != null
+            ? Math.round(Number(row.worldpop_population_within_buffer))
+            : null,
+          welfare_beneficiaries_within_buffer: row.welfare_beneficiaries_within_buffer != null
+            ? Number(row.welfare_beneficiaries_within_buffer)
+            : null,
+          avg_network_distance_km: row.avg_network_distance_km != null
+            ? Number(Number(row.avg_network_distance_km).toFixed(2))
+            : null,
+          avg_travel_time_min: row.avg_travel_time_min != null
+            ? Number(Number(row.avg_travel_time_min).toFixed(1))
+            : null,
+          calculated_at: row.calculated_at || null,
+        })),
         page,
         page_size: pageSize,
         total,
-        total_pages: total ? Math.ceil(total / pageSize) : 0
-      }
+        total_pages: total ? Math.ceil(total / pageSize) : 0,
+        filters: {
+          search: req.query.search || "",
+          district_id: districtId,
+          ward_id: wardId,
+        },
+      },
     });
   } catch (error) {
-    console.error("Admin education flood summary error:", error.message);
+    console.error("Admin education facility access error:", error.message);
     return res.status(500).json({
       status: "error",
-      message: "Unable to load flood exposure summary records"
+      message: "Unable to load education facility access metrics",
+    });
+  }
+});
+
+/**
+ * @openapi
+ * /api/v1/admin-data/education/flood_exposed:
+ *   get:
+ *     summary: List flood-exposed education facilities from flood_facility_exposure
+ *     tags:
+ *       - Admin Data
+ *     security:
+ *       - BearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: page
+ *         schema:
+ *           type: integer
+ *       - in: query
+ *         name: page_size
+ *         schema:
+ *           type: integer
+ *       - in: query
+ *         name: district_id
+ *         schema:
+ *           type: integer
+ *       - in: query
+ *         name: ta_id
+ *         schema:
+ *           type: integer
+ *       - in: query
+ *         name: risk_class
+ *         schema:
+ *           type: string
+ *           enum: [low, medium, high]
+ *       - in: query
+ *         name: exposed_only
+ *         schema:
+ *           type: boolean
+ *     responses:
+ *       200:
+ *         description: Flood-exposed education facilities
+ */
+router.get("/education/flood_exposed", async (req, res) => {
+  try {
+    const page = parsePositiveInteger(req.query.page, 1);
+    const pageSize = Math.min(parsePositiveInteger(req.query.page_size, 25), 100);
+    const offset = (page - 1) * pageSize;
+
+    const conditions = ["LOWER(ffe.facility_type) = 'education'"];
+    const params = [];
+
+    // Always use the latest analysis date
+    conditions.push(
+      `ffe.analysis_date = (SELECT MAX(analysis_date) FROM flood_facility_exposure WHERE LOWER(facility_type) = 'education')`
+    );
+
+    const districtId = parsePositiveInteger(req.query.district_id, null);
+    if (districtId) {
+      params.push(districtId);
+      conditions.push(`ffe.district_id = $${params.length}`);
+    }
+
+    const taId = parsePositiveInteger(req.query.ta_id, null);
+    if (taId) {
+      params.push(taId);
+      conditions.push(`ffe.ta_id = $${params.length}`);
+    }
+
+    const riskClass = req.query.risk_class
+      ? String(req.query.risk_class).trim().toLowerCase()
+      : null;
+    if (riskClass && ["low", "medium", "high"].includes(riskClass)) {
+      params.push(riskClass);
+      conditions.push(`LOWER(ffe.risk_class) = $${params.length}`);
+    }
+
+    const exposedOnly = parseBooleanFilter(req.query.exposed_only);
+    if (exposedOnly === true) {
+      conditions.push("ffe.is_exposed = TRUE");
+    }
+
+    const whereClause = `WHERE ${conditions.join(" AND ")}`;
+
+    const countResult = await db.query(
+      `SELECT COUNT(*)::int AS total FROM flood_facility_exposure ffe ${whereClause}`,
+      params
+    );
+
+    const dataParams = [...params, pageSize, offset];
+    const rowsResult = await db.query(
+      `
+        SELECT
+          ffe.id,
+          ffe.facility_id,
+          ffe.facility_name,
+          ffe.district_id,
+          ffe.district_name,
+          ffe.ta_id,
+          ffe.ta_name,
+          ffe.flood_value,
+          ffe.risk_class,
+          ffe.is_exposed,
+          ffe.analysis_date,
+          ef.school_name                              AS school_name,
+          ef.student_enrollment_total,
+          ef.teacher_count,
+          ef.status                                   AS school_status,
+          ST_Y(ef.geom)                               AS latitude,
+          ST_X(ef.geom)                               AS longitude
+        FROM flood_facility_exposure ffe
+        LEFT JOIN education_facilities ef
+          ON ef.school_id = ffe.facility_id
+        ${whereClause}
+        ORDER BY ffe.is_exposed DESC, ffe.risk_class DESC, ffe.district_name ASC, ffe.ta_name ASC, ffe.facility_name ASC
+        LIMIT $${dataParams.length - 1}
+        OFFSET $${dataParams.length}
+      `,
+      dataParams
+    );
+
+    const total = countResult.rows[0]?.total || 0;
+
+    return res.json({
+      status: "success",
+      data: {
+        items: rowsResult.rows.map((row) => ({
+          id: Number(row.id),
+          facility_id: Number(row.facility_id),
+          facility_name: row.facility_name || row.school_name || null,
+          school_name: row.school_name || null,
+          district_id: Number(row.district_id),
+          district_name: row.district_name || null,
+          ta_id: Number(row.ta_id),
+          ta_name: row.ta_name || null,
+          flood_value: row.flood_value != null ? Number(Number(row.flood_value).toFixed(4)) : null,
+          risk_class: row.risk_class || null,
+          is_exposed: Boolean(row.is_exposed),
+          analysis_date: row.analysis_date || null,
+          student_enrollment_total: row.student_enrollment_total != null
+            ? Number(row.student_enrollment_total)
+            : null,
+          teacher_count: row.teacher_count != null ? Number(row.teacher_count) : null,
+          school_status: row.school_status || null,
+          latitude: row.latitude != null ? Number(row.latitude) : null,
+          longitude: row.longitude != null ? Number(row.longitude) : null,
+        })),
+        page,
+        page_size: pageSize,
+        total,
+        total_pages: total ? Math.ceil(total / pageSize) : 0,
+        filters: {
+          district_id: districtId,
+          ta_id: taId,
+          risk_class: riskClass,
+          exposed_only: exposedOnly,
+        },
+      },
+    });
+  } catch (error) {
+    console.error("Admin education flood exposed error:", error.message);
+    return res.status(500).json({
+      status: "error",
+      message: "Unable to load flood-exposed education facilities",
     });
   }
 });
@@ -1101,40 +1351,58 @@ router.get("/health", async (req, res) => {
  * @openapi
  * /api/v1/admin-data/social_welfare:
  *   get:
- *     summary: List welfare records
+ *     summary: List individual welfare beneficiary records
  *     tags:
  *       - Admin Data
  *     security:
  *       - BearerAuth: []
  *     responses:
  *       200:
- *         description: Welfare records
+ *         description: Welfare beneficiary records
  */
 router.get("/social_welfare", async (req, res) => {
   try {
-    const welfareWardColumn = await getWelfareWardColumn();
     const page = parsePositiveInteger(req.query.page, 1);
-    const pageSize = Math.min(
-      parsePositiveInteger(req.query.page_size, 25),
-      100,
-    );
+    const pageSize = Math.min(parsePositiveInteger(req.query.page_size, 25), 100);
     const offset = (page - 1) * pageSize;
-    const { whereClause, params, districtId, wardId, isActive } =
-      buildWelfareListFilters(req.query, welfareWardColumn);
-    const orderBy = normalizeSortColumn(
-      req.query.sort_by,
-      WELFARE_SORT_COLUMNS,
-      "updated_at",
-    );
-    const orderDirection = normalizeSortOrder(req.query.sort_order);
+
+    const conditions = [];
+    const params = [];
+
+    if (req.query.search && String(req.query.search).trim()) {
+      params.push(`%${String(req.query.search).trim()}%`);
+      conditions.push(`(
+        COALESCE(wb.firstname, '') ILIKE $${params.length}
+        OR COALESCE(wb.lastname, '') ILIKE $${params.length}
+        OR COALESCE(wp.program_name, '') ILIKE $${params.length}
+      )`);
+    }
+
+    const districtId = parsePositiveInteger(req.query.district_id, null);
+    if (districtId) {
+      params.push(districtId);
+      conditions.push(`wb.district_id = $${params.length}`);
+    }
+
+    const wardId = parsePositiveInteger(req.query.ward_id, null);
+    if (wardId) {
+      params.push(wardId);
+      conditions.push(`wb.ta_id = $${params.length}`);
+    }
+
+    const programId = parsePositiveInteger(req.query.program_id, null);
+    if (programId) {
+      params.push(programId);
+      conditions.push(`wb.program_id = $${params.length}`);
+    }
+
+    const whereClause = conditions.length ? `WHERE ${conditions.join(" AND ")}` : "";
 
     const countResult = await db.query(
-      `
-        SELECT COUNT(*)::int AS total
-        FROM welfare_beneficiaries wb
-        LEFT JOIN admin3_units ward ON ward.id = wb.${welfareWardColumn}
-        ${whereClause}
-      `,
+      `SELECT COUNT(*)::int AS total
+       FROM welfare_beneficiary wb
+       LEFT JOIN welfare_programs wp ON wp.program_id = wb.program_id
+       ${whereClause}`,
       params,
     );
 
@@ -1142,12 +1410,31 @@ router.get("/social_welfare", async (req, res) => {
     const rowsResult = await db.query(
       `
         SELECT
-          ${buildWelfareSelectFields(welfareWardColumn)}
-        FROM welfare_beneficiaries wb
-        LEFT JOIN admin3_units ward ON ward.id = wb.${welfareWardColumn}
-        LEFT JOIN districts district ON district.id = ward.district_id
+          wb.id,
+          wb.program_id,
+          COALESCE(wp.program_name, CONCAT('Program ', wb.program_id::text)) AS program_name,
+          wb.firstname,
+          wb.lastname,
+          wb.gender,
+          wb.age,
+          wb.district_id,
+          wb.ta_id,
+          wb.household_size,
+          wb.status,
+          wb.start_date,
+          wb.end_date,
+          d.name  AS district_name,
+          a3.name AS ta_name,
+          wb.created_at,
+          wb.updated_at,
+          ST_Y(wb.geom) AS latitude,
+          ST_X(wb.geom) AS longitude
+        FROM welfare_beneficiary wb
+        LEFT JOIN welfare_programs wp ON wp.program_id = wb.program_id
+        LEFT JOIN districts d  ON d.id  = wb.district_id
+        LEFT JOIN admin3_units a3 ON a3.id = wb.ta_id
         ${whereClause}
-        ORDER BY ${orderBy} ${orderDirection}, wb.id DESC
+        ORDER BY wb.updated_at DESC NULLS LAST, wb.id DESC
         LIMIT $${dataParams.length - 1}
         OFFSET $${dataParams.length}
       `,
@@ -1168,17 +1455,242 @@ router.get("/social_welfare", async (req, res) => {
           search: req.query.search || "",
           district_id: districtId,
           ward_id: wardId,
-          is_active: isActive,
-          include_archived:
-            String(req.query.include_archived).toLowerCase() === "true",
+          program_id: programId,
         },
       },
     });
   } catch (error) {
-    console.error("Admin welfare list error:", error.message);
+    console.error("Admin welfare beneficiary list error:", error.message);
     return res.status(500).json({
       status: "error",
-      message: "Unable to load welfare records",
+      message: "Unable to load welfare beneficiary records",
+    });
+  }
+});
+
+/**
+ * @openapi
+ * /api/v1/admin-data/social_welfare/beneficiary_indicators:
+ *   get:
+ *     summary: List welfare beneficiary indicators
+ *     tags:
+ *       - Admin Data
+ *     security:
+ *       - BearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Welfare beneficiary indicator records
+ */
+router.get("/social_welfare/beneficiary_indicators", async (req, res) => {
+  try {
+    const page = parsePositiveInteger(req.query.page, 1);
+    const pageSize = Math.min(parsePositiveInteger(req.query.page_size, 25), 100);
+    const offset = (page - 1) * pageSize;
+
+    const conditions = [];
+    const params = [];
+
+    const districtId = parsePositiveInteger(req.query.district_id, null);
+    if (districtId) {
+      params.push(districtId);
+      conditions.push(`wbi.district_id = $${params.length}`);
+    }
+
+    const wardId = parsePositiveInteger(req.query.ward_id, null);
+    if (wardId) {
+      params.push(wardId);
+      conditions.push(`wbi.ta_id = $${params.length}`);
+    }
+
+    const programId = parsePositiveInteger(req.query.program_id, null);
+    if (programId) {
+      params.push(programId);
+      conditions.push(`wbi.program_id = $${params.length}`);
+    }
+
+    if (req.query.affected_by_flood === "true") {
+      conditions.push("wbi.affected_by_flood = TRUE");
+    }
+
+    const whereClause = conditions.length ? `WHERE ${conditions.join(" AND ")}` : "";
+
+    const countResult = await db.query(
+      `SELECT COUNT(*)::int AS total FROM welfare_beneficiary_indicators wbi ${whereClause}`,
+      params,
+    );
+
+    const dataParams = [...params, pageSize, offset];
+    const rowsResult = await db.query(
+      `
+        SELECT
+          wbi.id,
+          wbi.beneficiary_id,
+          CONCAT(wb.firstname, ' ', wb.lastname) AS beneficiary_name,
+          COALESCE(wp.program_name, CONCAT('Program ', wbi.program_id::text)) AS program_name,
+          d.name  AS district_name,
+          a3.name AS ta_name,
+          wbi.affected_by_flood,
+          wbi.has_school_access,
+          wbi.has_health_facility_access,
+          wbi.created_at,
+          wbi.updated_at
+        FROM welfare_beneficiary_indicators wbi
+        LEFT JOIN welfare_beneficiary wb ON wb.id = wbi.beneficiary_id
+        LEFT JOIN welfare_programs wp    ON wp.program_id = wbi.program_id
+        LEFT JOIN districts d            ON d.id  = wbi.district_id
+        LEFT JOIN admin3_units a3        ON a3.id = wbi.ta_id
+        ${whereClause}
+        ORDER BY wbi.updated_at DESC NULLS LAST, wbi.id DESC
+        LIMIT $${dataParams.length - 1}
+        OFFSET $${dataParams.length}
+      `,
+      dataParams,
+    );
+
+    const total = countResult.rows[0]?.total || 0;
+
+    return res.json({
+      status: "success",
+      data: {
+        items: rowsResult.rows.map((row) => ({
+          ...row,
+          affected_by_flood: Boolean(row.affected_by_flood),
+          has_school_access: Boolean(row.has_school_access),
+          has_health_facility_access: Boolean(row.has_health_facility_access),
+        })),
+        page,
+        page_size: pageSize,
+        total,
+        total_pages: total ? Math.ceil(total / pageSize) : 0,
+        filters: { district_id: districtId, ward_id: wardId, program_id: programId },
+      },
+    });
+  } catch (error) {
+    console.error("Admin welfare indicators list error:", error.message);
+    return res.status(500).json({
+      status: "error",
+      message: "Unable to load welfare beneficiary indicators",
+    });
+  }
+});
+
+/**
+ * @openapi
+ * /api/v1/admin-data/social_welfare/facility_travel:
+ *   get:
+ *     summary: List beneficiary facility travel records
+ *     tags:
+ *       - Admin Data
+ *     security:
+ *       - BearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Beneficiary facility travel records
+ */
+router.get("/social_welfare/facility_travel", async (req, res) => {
+  try {
+    const page = parsePositiveInteger(req.query.page, 1);
+    const pageSize = Math.min(parsePositiveInteger(req.query.page_size, 25), 100);
+    const offset = (page - 1) * pageSize;
+
+    const conditions = [];
+    const params = [];
+
+    const facilityType = req.query.facility_type
+      ? String(req.query.facility_type).trim().toLowerCase()
+      : null;
+    if (facilityType && ["health", "school"].includes(facilityType)) {
+      params.push(facilityType);
+      conditions.push(`LOWER(bft.facility_type) = $${params.length}`);
+    }
+
+    const routingStatus = req.query.routing_status
+      ? String(req.query.routing_status).trim().toLowerCase()
+      : null;
+    if (routingStatus) {
+      params.push(routingStatus);
+      conditions.push(`LOWER(bft.routing_status) = $${params.length}`);
+    }
+
+    if (req.query.search && String(req.query.search).trim()) {
+      params.push(`%${String(req.query.search).trim()}%`);
+      conditions.push(`(
+        COALESCE(bft.facility_name, '') ILIKE $${params.length}
+        OR COALESCE(wb.firstname, '') ILIKE $${params.length}
+        OR COALESCE(wb.lastname, '') ILIKE $${params.length}
+      )`);
+    }
+
+    const whereClause = conditions.length ? `WHERE ${conditions.join(" AND ")}` : "";
+
+    const countResult = await db.query(
+      `SELECT COUNT(*)::int AS total FROM beneficiary_facility_travel bft
+       LEFT JOIN welfare_beneficiary wb ON wb.id = bft.beneficiary_id
+       ${whereClause}`,
+      params,
+    );
+
+    const dataParams = [...params, pageSize, offset];
+    const rowsResult = await db.query(
+      `
+        SELECT
+          bft.id,
+          bft.beneficiary_id,
+          CONCAT(wb.firstname, ' ', wb.lastname) AS beneficiary_name,
+          d.name  AS district_name,
+          a3.name AS ta_name,
+          bft.facility_type,
+          bft.facility_id,
+          bft.facility_name,
+          ROUND(bft.network_distance_km::numeric, 2)       AS network_distance_km,
+          ROUND(bft.travel_time_min::numeric, 1)           AS travel_time_min,
+          ROUND(bft.straight_line_distance_km::numeric, 2) AS straight_line_distance_km,
+          bft.routing_status,
+          bft.calculated_at
+        FROM beneficiary_facility_travel bft
+        LEFT JOIN welfare_beneficiary wb ON wb.id = bft.beneficiary_id
+        LEFT JOIN districts d            ON d.id  = wb.district_id
+        LEFT JOIN admin3_units a3        ON a3.id = wb.ta_id
+        ${whereClause}
+        ORDER BY bft.calculated_at DESC NULLS LAST, bft.id DESC
+        LIMIT $${dataParams.length - 1}
+        OFFSET $${dataParams.length}
+      `,
+      dataParams,
+    );
+
+    const total = countResult.rows[0]?.total || 0;
+
+    return res.json({
+      status: "success",
+      data: {
+        items: rowsResult.rows.map((row) => ({
+          id: Number(row.id),
+          beneficiary_id: Number(row.beneficiary_id),
+          beneficiary_name: row.beneficiary_name || null,
+          district_name: row.district_name || null,
+          ta_name: row.ta_name || null,
+          facility_type: row.facility_type || null,
+          facility_id: row.facility_id != null ? Number(row.facility_id) : null,
+          facility_name: row.facility_name || null,
+          network_distance_km: row.network_distance_km != null ? Number(row.network_distance_km) : null,
+          travel_time_min: row.travel_time_min != null ? Number(row.travel_time_min) : null,
+          straight_line_distance_km: row.straight_line_distance_km != null ? Number(row.straight_line_distance_km) : null,
+          routing_status: row.routing_status || null,
+          calculated_at: row.calculated_at || null,
+        })),
+        page,
+        page_size: pageSize,
+        total,
+        total_pages: total ? Math.ceil(total / pageSize) : 0,
+        filters: { facility_type: facilityType, routing_status: routingStatus },
+      },
+    });
+  } catch (error) {
+    console.error("Admin welfare facility travel list error:", error.message);
+    return res.status(500).json({
+      status: "error",
+      message: "Unable to load beneficiary facility travel records",
     });
   }
 });
@@ -1198,22 +1710,57 @@ router.get("/social_welfare", async (req, res) => {
  */
 router.get("/social_welfare/programs", async (req, res) => {
   try {
+    const page = parsePositiveInteger(req.query.page, 1);
+    const pageSize = Math.min(parsePositiveInteger(req.query.page_size, 25), 100);
+    const offset = (page - 1) * pageSize;
+
+    const conditions = [];
+    const params = [];
+
+    if (req.query.search && String(req.query.search).trim()) {
+      params.push(`%${String(req.query.search).trim()}%`);
+      conditions.push(`(
+        COALESCE(program_name, '') ILIKE $${params.length}
+        OR COALESCE(department, '') ILIKE $${params.length}
+        OR COALESCE(description, '') ILIKE $${params.length}
+      )`);
+    }
+
+    const whereClause = conditions.length ? `WHERE ${conditions.join(" AND ")}` : "";
+
+    const countResult = await db.query(
+      `SELECT COUNT(*)::int AS total FROM welfare_programs ${whereClause}`,
+      params,
+    );
+
+    const dataParams = [...params, pageSize, offset];
     const result = await db.query(
       `
         SELECT
           program_id,
           program_name,
           department,
-          description
+          description,
+          updated_at
         FROM welfare_programs
+        ${whereClause}
         ORDER BY program_name
+        LIMIT $${dataParams.length - 1}
+        OFFSET $${dataParams.length}
       `,
+      dataParams,
     );
+
+    const total = countResult.rows[0]?.total || 0;
 
     return res.json({
       status: "success",
       data: {
         items: result.rows,
+        page,
+        page_size: pageSize,
+        total,
+        total_pages: total ? Math.ceil(total / pageSize) : 0,
       },
     });
   } catch (error) {
@@ -2151,6 +2698,453 @@ router.post("/social_welfare/programs", async (req, res) => {
     res.status(500).json({
       status: "error",
       message: err.message || "Unable to create welfare program",
+    });
+  }
+});
+
+/**
+ * @openapi
+ * /api/v1/admin-data/social_welfare/beneficiary:
+ *   post:
+ *     summary: Create an individual welfare beneficiary record
+ *     tags:
+ *       - Admin Data
+ *     security:
+ *       - BearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [programId, firstname, lastname, latitude, longitude]
+ *     responses:
+ *       201:
+ *         description: Welfare beneficiary created
+ */
+router.post("/social_welfare/beneficiary", async (req, res) => {
+  const { error, value } = validateWelfareBeneficiaryCreate(req.body);
+  if (error) {
+    return res.status(400).json({ status: "error", message: error });
+  }
+
+  try {
+    const authUser = getAuthUser(req);
+    const client = await db.pool.connect();
+    try {
+      await client.query("BEGIN");
+
+      // Verify program exists
+      const programCheck = await client.query(
+        "SELECT program_id FROM welfare_programs WHERE program_id = $1",
+        [value.programId],
+      );
+      if (!programCheck.rows.length) {
+        await client.query("ROLLBACK");
+        return res.status(400).json({
+          status: "error",
+          message: `Program with id ${value.programId} does not exist`,
+        });
+      }
+
+      const insertResult = await client.query(
+        `
+          INSERT INTO welfare_beneficiary (
+            program_id,
+            firstname,
+            lastname,
+            gender,
+            age,
+            household_size,
+            status,
+            start_date,
+            end_date,
+            district_id,
+            ta_id,
+            center_lat,
+            center_long,
+            geom,
+            updated_at
+          )
+          VALUES (
+            $1, $2, $3, $4, $5, $6, $7,
+            $8::date, $9::date,
+            $10, $11,
+            $12, $13,
+            ST_SetSRID(ST_MakePoint($13, $12), 4326),
+            CURRENT_TIMESTAMP
+          )
+          RETURNING id
+        `,
+        [
+          value.programId,
+          value.firstname,
+          value.lastname,
+          value.gender ?? null,
+          value.age ?? null,
+          value.householdSize ?? null,
+          value.status ?? null,
+          value.startDate ?? null,
+          value.endDate ?? null,
+          value.districtId ?? null,
+          value.taId ?? null,
+          value.latitude,
+          value.longitude,
+        ],
+      );
+
+      const newId = insertResult.rows[0].id;
+
+      // Fetch the created record to return
+      const recordResult = await client.query(
+        `
+          SELECT
+            wb.id,
+            wb.program_id,
+            COALESCE(wp.program_name, CONCAT('Program ', wb.program_id::text)) AS program_name,
+            wb.firstname,
+            wb.lastname,
+            wb.gender,
+            wb.age,
+            wb.household_size,
+            wb.status,
+            wb.start_date,
+            wb.end_date,
+            d.name  AS district_name,
+            a3.name AS ta_name,
+            wb.created_at,
+            wb.updated_at
+          FROM welfare_beneficiary wb
+          LEFT JOIN welfare_programs wp ON wp.program_id = wb.program_id
+          LEFT JOIN districts d         ON d.id  = wb.district_id
+          LEFT JOIN admin3_units a3     ON a3.id = wb.ta_id
+          WHERE wb.id = $1
+        `,
+        [newId],
+      );
+
+      await writeAuditEntry(client, {
+        tableName: "welfare_beneficiary",
+        recordId: newId,
+        action: "create",
+        userId: authUser.id,
+        beforeData: null,
+        afterData: recordResult.rows[0],
+      });
+
+      await client.query("COMMIT");
+
+      return res.status(201).json({
+        status: "success",
+        message: "Welfare beneficiary created successfully",
+        data: { record: recordResult.rows[0] },
+      });
+    } catch (err) {
+      await client.query("ROLLBACK");
+      throw err;
+    } finally {
+      client.release();
+    }
+  } catch (err) {
+    console.error("Admin welfare beneficiary create error:", err.message);
+    return res.status(400).json({
+      status: "error",
+      message: err.message || "Unable to create welfare beneficiary",
+    });
+  }
+});
+
+/**
+ * @openapi
+ * /api/v1/admin-data/social_welfare/beneficiary/{id}:
+ *   patch:
+ *     summary: Update an individual welfare beneficiary
+ *     tags: [Admin Data]
+ *     security: [{BearerAuth: []}]
+ *     responses:
+ *       200:
+ *         description: Beneficiary updated
+ */
+router.patch("/social_welfare/beneficiary/:id", async (req, res) => {
+  const id = parsePositiveInteger(req.params.id, null);
+  if (!id) {
+    return res.status(400).json({ status: "error", message: "Valid beneficiary id required" });
+  }
+
+  const allowed = [
+    "programId", "firstname", "lastname", "gender", "age",
+    "householdSize", "status", "startDate", "endDate",
+    "districtId", "taId", "latitude", "longitude",
+  ];
+  const payload = {};
+  allowed.forEach((key) => {
+    if (Object.prototype.hasOwnProperty.call(req.body, key)) {
+      payload[key] = req.body[key];
+    }
+  });
+
+  if (!Object.keys(payload).length) {
+    return res.status(400).json({ status: "error", message: "No editable fields provided" });
+  }
+
+  try {
+    const authUser = getAuthUser(req);
+    const client = await db.pool.connect();
+    try {
+      await client.query("BEGIN");
+
+      const existing = await client.query(
+        "SELECT * FROM welfare_beneficiary WHERE id = $1", [id]
+      );
+      if (!existing.rows.length) {
+        await client.query("ROLLBACK");
+        return res.status(404).json({ status: "error", message: "Beneficiary not found" });
+      }
+
+      const setClauses = [];
+      const params = [];
+
+      const columnMap = {
+        programId: "program_id",
+        firstname: "firstname",
+        lastname: "lastname",
+        gender: "gender",
+        age: "age",
+        householdSize: "household_size",
+        status: "status",
+        startDate: "start_date",
+        endDate: "end_date",
+        districtId: "district_id",
+        taId: "ta_id",
+      };
+
+      Object.entries(columnMap).forEach(([payloadKey, col]) => {
+        if (Object.prototype.hasOwnProperty.call(payload, payloadKey)) {
+          params.push(payload[payloadKey] ?? null);
+          setClauses.push(`${col} = $${params.length}`);
+        }
+      });
+
+      const hasLat = Object.prototype.hasOwnProperty.call(payload, "latitude");
+      const hasLng = Object.prototype.hasOwnProperty.call(payload, "longitude");
+      if (hasLat || hasLng) {
+        const lat = hasLat ? payload.latitude : existing.rows[0].center_lat;
+        const lng = hasLng ? payload.longitude : existing.rows[0].center_long;
+        params.push(lat, lng);
+        setClauses.push(`center_lat = $${params.length - 1}`);
+        setClauses.push(`center_long = $${params.length}`);
+        setClauses.push(
+          `geom = ST_SetSRID(ST_MakePoint($${params.length}, $${params.length - 1}), 4326)`
+        );
+      }
+
+      setClauses.push("updated_at = CURRENT_TIMESTAMP");
+      params.push(id);
+
+      await client.query(
+        `UPDATE welfare_beneficiary SET ${setClauses.join(", ")} WHERE id = $${params.length}`,
+        params,
+      );
+
+      const updated = await client.query(
+        `SELECT wb.id, wb.program_id,
+           COALESCE(wp.program_name, CONCAT('Program ', wb.program_id::text)) AS program_name,
+           wb.firstname, wb.lastname, wb.gender, wb.age, wb.household_size,
+           wb.status, wb.start_date, wb.end_date, wb.district_id, wb.ta_id,
+           d.name AS district_name, a3.name AS ta_name,
+           wb.created_at, wb.updated_at,
+           ST_Y(wb.geom) AS latitude, ST_X(wb.geom) AS longitude
+         FROM welfare_beneficiary wb
+         LEFT JOIN welfare_programs wp ON wp.program_id = wb.program_id
+         LEFT JOIN districts d ON d.id = wb.district_id
+         LEFT JOIN admin3_units a3 ON a3.id = wb.ta_id
+         WHERE wb.id = $1`,
+        [id],
+      );
+
+      await writeAuditEntry(client, {
+        tableName: "welfare_beneficiary",
+        recordId: id,
+        action: "update",
+        userId: authUser.id,
+        beforeData: existing.rows[0],
+        afterData: updated.rows[0],
+      });
+
+      await client.query("COMMIT");
+      return res.json({
+        status: "success",
+        message: "Beneficiary updated successfully",
+        data: { record: updated.rows[0] },
+      });
+    } catch (err) {
+      await client.query("ROLLBACK");
+      throw err;
+    } finally {
+      client.release();
+    }
+  } catch (err) {
+    console.error("Admin welfare beneficiary update error:", err.message);
+    return res.status(400).json({
+      status: "error",
+      message: err.message || "Unable to update beneficiary",
+    });
+  }
+});
+
+/**
+ * @openapi
+ * /api/v1/admin-data/social_welfare/beneficiary/{id}:
+ *   delete:
+ *     summary: Delete an individual welfare beneficiary
+ *     tags: [Admin Data]
+ *     security: [{BearerAuth: []}]
+ *     responses:
+ *       200:
+ *         description: Beneficiary deleted
+ */
+router.delete("/social_welfare/beneficiary/:id", async (req, res) => {
+  const id = parsePositiveInteger(req.params.id, null);
+  if (!id) {
+    return res.status(400).json({ status: "error", message: "Valid beneficiary id required" });
+  }
+
+  try {
+    const authUser = getAuthUser(req);
+    const client = await db.pool.connect();
+    try {
+      await client.query("BEGIN");
+
+      const existing = await client.query(
+        "SELECT * FROM welfare_beneficiary WHERE id = $1", [id]
+      );
+      if (!existing.rows.length) {
+        await client.query("ROLLBACK");
+        return res.status(404).json({ status: "error", message: "Beneficiary not found" });
+      }
+
+      await client.query("DELETE FROM welfare_beneficiary WHERE id = $1", [id]);
+
+      await writeAuditEntry(client, {
+        tableName: "welfare_beneficiary",
+        recordId: id,
+        action: "delete",
+        userId: authUser.id,
+        beforeData: existing.rows[0],
+        afterData: null,
+      });
+
+      await client.query("COMMIT");
+      return res.json({ status: "success", message: "Beneficiary deleted successfully" });
+    } catch (err) {
+      await client.query("ROLLBACK");
+      throw err;
+    } finally {
+      client.release();
+    }
+  } catch (err) {
+    console.error("Admin welfare beneficiary delete error:", err.message);
+    return res.status(500).json({
+      status: "error",
+      message: err.message || "Unable to delete beneficiary",
+    });
+  }
+});
+
+/**
+ * @openapi
+ * /api/v1/admin-data/social_welfare/programs/{id}:
+ *   patch:
+ *     summary: Update a welfare program
+ *     tags: [Admin Data]
+ *     security: [{BearerAuth: []}]
+ *     responses:
+ *       200:
+ *         description: Program updated
+ */
+router.patch("/social_welfare/programs/:id", async (req, res) => {
+  const id = parsePositiveInteger(req.params.id, null);
+  if (!id) {
+    return res.status(400).json({ status: "error", message: "Valid program id required" });
+  }
+
+  const { program_name, department, description } = req.body;
+  const setClauses = [];
+  const params = [];
+
+  if (program_name !== undefined) {
+    params.push(String(program_name).trim());
+    setClauses.push(`program_name = $${params.length}`);
+  }
+  if (department !== undefined) {
+    params.push(department ?? null);
+    setClauses.push(`department = $${params.length}`);
+  }
+  if (description !== undefined) {
+    params.push(description ?? null);
+    setClauses.push(`description = $${params.length}`);
+  }
+
+  if (!setClauses.length) {
+    return res.status(400).json({ status: "error", message: "No editable fields provided" });
+  }
+
+  setClauses.push("updated_at = CURRENT_TIMESTAMP");
+  params.push(id);
+
+  try {
+    const result = await db.query(
+      `UPDATE welfare_programs SET ${setClauses.join(", ")} WHERE program_id = $${params.length} RETURNING *`,
+      params,
+    );
+    if (!result.rows.length) {
+      return res.status(404).json({ status: "error", message: "Program not found" });
+    }
+    return res.json({
+      status: "success",
+      message: "Program updated successfully",
+      data: { record: result.rows[0] },
+    });
+  } catch (err) {
+    console.error("Admin welfare program update error:", err.message);
+    return res.status(400).json({
+      status: "error",
+      message: err.message || "Unable to update program",
+    });
+  }
+});
+
+/**
+ * @openapi
+ * /api/v1/admin-data/social_welfare/programs/{id}:
+ *   delete:
+ *     summary: Delete a welfare program
+ *     tags: [Admin Data]
+ *     security: [{BearerAuth: []}]
+ *     responses:
+ *       200:
+ *         description: Program deleted
+ */
+router.delete("/social_welfare/programs/:id", async (req, res) => {
+  const id = parsePositiveInteger(req.params.id, null);
+  if (!id) {
+    return res.status(400).json({ status: "error", message: "Valid program id required" });
+  }
+
+  try {
+    const result = await db.query(
+      "DELETE FROM welfare_programs WHERE program_id = $1 RETURNING program_id",
+      [id],
+    );
+    if (!result.rows.length) {
+      return res.status(404).json({ status: "error", message: "Program not found" });
+    }
+    return res.json({ status: "success", message: "Program deleted successfully" });
+  } catch (err) {
+    console.error("Admin welfare program delete error:", err.message);
+    return res.status(500).json({
+      status: "error",
+      message: err.message || "Unable to delete program",
     });
   }
 });

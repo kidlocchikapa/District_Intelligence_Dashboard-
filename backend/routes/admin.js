@@ -147,6 +147,20 @@ const presetTaskDefinitions = {
       },
     ],
   },
+  welfare_insights: {
+    label: "Recalculate welfare insights",
+    description:
+      "Recomputes beneficiary travel access and refreshes welfare access indicators used by dashboard views.",
+    stages: () => [
+      {
+        label: "Welfare analysis",
+        args: buildEtlArgs({
+          type: "routing",
+          sourceType: "file",
+        }),
+      },
+    ],
+  },
   road_travel_access: {
     label: "Recalculate road travel access",
     description:
@@ -292,6 +306,7 @@ const TASK_DEPARTMENT_MAP = {
   worldpop_age_sex: "education",
   education_insights: "education",
   health_insights: "health",
+  welfare_insights: "welfare",
   road_travel_access: "welfare",
   roads_overpass_sync: "welfare",
   disaster_insights: "disaster",
