@@ -1,10 +1,17 @@
 const express = require("express");
 const router = express.Router();
 const db = require("../db");
+const auth = require("../middleware/auth");
+const requireDepartmentAccess = require("../middleware/requireDepartmentAccess");
 const {
   appendDistrictGeometryCondition,
   appendDistrictNameCondition,
 } = require("./queryFilters");
+
+// All welfare routes require authentication and social_welfare department read access.
+// welfare_admin role is automatically granted access by the RBAC service.
+router.use(auth);
+router.use(requireDepartmentAccess("social_welfare", "read"));
 
 let welfareProgramIdColumnPromise;
 

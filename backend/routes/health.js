@@ -1,11 +1,18 @@
 const express = require("express");
 const router = express.Router();
 const db = require("../db");
+const auth = require("../middleware/auth");
+const requireDepartmentAccess = require("../middleware/requireDepartmentAccess");
 const {
   appendDistrictGeometryCondition,
   appendDistrictNameCondition,
   resolveDistrictFilterValues,
 } = require("./queryFilters");
+
+// All health routes require authentication and health department read access.
+// health_admin role is automatically granted access by the RBAC service.
+router.use(auth);
+router.use(requireDepartmentAccess("health", "read"));
 
 function normalizeAdminType(adminType = "District") {
   const normalized = String(adminType || "District")
