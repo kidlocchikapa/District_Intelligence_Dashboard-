@@ -1,7 +1,14 @@
 const express = require("express");
 const router = express.Router();
 const db = require("../db");
+const auth = require("../middleware/auth");
+const requireDepartmentAccess = require("../middleware/requireDepartmentAccess");
 const { appendDistrictNameCondition } = require("./queryFilters");
+
+// All disaster routes require authentication and disaster department read access.
+// disaster_admin role is automatically granted access by the RBAC service.
+router.use(auth);
+router.use(requireDepartmentAccess("disaster", "read"));
 
 function normalizeAdminType(adminType = "District") {
   const normalized = String(adminType || "District")

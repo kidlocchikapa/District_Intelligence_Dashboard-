@@ -2761,8 +2761,6 @@ router.post("/social_welfare/beneficiary", async (req, res) => {
             end_date,
             district_id,
             ta_id,
-            center_lat,
-            center_long,
             geom,
             updated_at
           )
@@ -2770,7 +2768,6 @@ router.post("/social_welfare/beneficiary", async (req, res) => {
             $1, $2, $3, $4, $5, $6, $7,
             $8::date, $9::date,
             $10, $11,
-            $12, $13,
             ST_SetSRID(ST_MakePoint($13, $12), 4326),
             CURRENT_TIMESTAMP
           )
@@ -2813,7 +2810,9 @@ router.post("/social_welfare/beneficiary", async (req, res) => {
             d.name  AS district_name,
             a3.name AS ta_name,
             wb.created_at,
-            wb.updated_at
+            wb.updated_at,
+            ST_Y(wb.geom) AS latitude,
+            ST_X(wb.geom) AS longitude
           FROM welfare_beneficiary wb
           LEFT JOIN welfare_programs wp ON wp.program_id = wb.program_id
           LEFT JOIN districts d         ON d.id  = wb.district_id
@@ -2928,11 +2927,24 @@ router.patch("/social_welfare/beneficiary/:id", async (req, res) => {
       const hasLat = Object.prototype.hasOwnProperty.call(payload, "latitude");
       const hasLng = Object.prototype.hasOwnProperty.call(payload, "longitude");
       if (hasLat || hasLng) {
-        const lat = hasLat ? payload.latitude : existing.rows[0].center_lat;
-        const lng = hasLng ? payload.longitude : existing.rows[0].center_long;
-        params.push(lat, lng);
-        setClauses.push(`center_lat = $${params.length - 1}`);
-        setClauses.push(`center_long = $${params.length}`);
+        const existingCoordinateResult = await client.query(
+          "SELECT ST_Y(geom) AS latitude, ST_X(geom) AS longitude FROM welfare_beneficiary WHERE id = $1",
+          [id],
+        );
+        const currentLatitude = existingCoordinateResult.rows[0]?.latitude;
+        const currentLongitude = existingCoordinateResult.rows[0]?.longitude;
+        const nextLatitude = hasLat ? payload.latitude : currentLatitude;
+        const nextLongitude = hasLng ? payload.longitude : currentLongitude;
+
+        if (
+          nextLatitude === null ||
+          nextLatitude === undefined ||
+          nextLongitude === null ||
+          nextLongitude === undefined
+        ) {
+          throw new Error("Latitude and longitude are required to update beneficiary geometry");
+        }
+        params.push(nextLatitude, nextLongitude);
         setClauses.push(
           `geom = ST_SetSRID(ST_MakePoint($${params.length}, $${params.length - 1}), 4326)`
         );
