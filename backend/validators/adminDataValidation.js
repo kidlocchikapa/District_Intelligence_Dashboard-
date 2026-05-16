@@ -234,6 +234,38 @@ const welfareProgramCreateSchema = Joi.object({
   description: Joi.string().trim().allow("", null),
 });
 
+const welfareBeneficiaryCreateSchema = Joi.object({
+  programId: Joi.number().integer().positive().required().messages({
+    "any.required": "programId is required",
+  }),
+  firstname: Joi.string().trim().max(100).required().messages({
+    "any.required": "firstname is required",
+    "string.empty": "firstname is required",
+  }),
+  lastname: Joi.string().trim().max(100).required().messages({
+    "any.required": "lastname is required",
+    "string.empty": "lastname is required",
+  }),
+  gender: Joi.string().trim().valid("Male", "Female", "Other").allow(null),
+  age: Joi.number().integer().min(0).max(150).allow(null),
+  householdSize: Joi.number().integer().min(1).allow(null),
+  status: Joi.string().trim().max(50).allow("", null),
+  startDate: Joi.string().isoDate().allow("", null),
+  endDate: Joi.string().isoDate().allow("", null),
+  districtId: Joi.number().integer().positive().allow(null),
+  taId: Joi.number().integer().positive().allow(null),
+  latitude: latitudeSchema.required().messages({
+    "any.required": "latitude is required",
+  }),
+  longitude: longitudeSchema.required().messages({
+    "any.required": "longitude is required",
+  }),
+});
+
+function validateWelfareBeneficiaryCreate(payload) {
+  return validateWithSchema(welfareBeneficiaryCreateSchema, payload);
+}
+
 function validateWelfareProgramCreate(payload) {
   return validateWithSchema(welfareProgramCreateSchema, payload);
 }
@@ -248,4 +280,5 @@ module.exports = {
   validateDisasterCreate,
   validateDisasterUpdate,
   validateWelfareProgramCreate,
+  validateWelfareBeneficiaryCreate,
 };
