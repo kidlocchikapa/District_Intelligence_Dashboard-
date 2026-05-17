@@ -20,6 +20,97 @@ import {
 import { toast } from "react-hot-toast";
 import { fetchJson, patchJson, postJson, deleteJson } from "../lib/api";
 
+const HEALTH_FLOOD_EXPOSED_COLUMNS = [
+  "id",
+  "analysis_date",
+  "facility_id",
+  "facility_name",
+  "district_name",
+  "ta_name",
+  "flood_value",
+  "risk_class",
+  "is_exposed",
+  "code",
+  "name",
+  "common_name",
+  "type",
+  "ownership",
+  "status",
+  "zone",
+  "district_label",
+  "ward_name",
+  "doctor_count",
+  "nurse_midwife_count",
+  "bed_capacity",
+  "beds_count",
+  "capacity_persons",
+  "patient_visits_total",
+  "services_offered",
+  "latitude",
+  "longitude",
+  "is_active",
+  "exposure_created_at",
+  "exposure_updated_at",
+  "facility_created_at",
+  "facility_updated_at",
+];
+
+const HEALTH_ACCESS_METRICS_COLUMNS = [
+  "facility_id",
+  "coverage_distance_km",
+  "worldpop_population_within_buffer",
+  "welfare_beneficiaries_within_buffer",
+  "welfare_beneficiaries_served_by_8km_network",
+  "avg_network_distance_km",
+  "avg_travel_time_min",
+  "calculated_at",
+  "code",
+  "name",
+  "common_name",
+  "type",
+  "ownership",
+  "status",
+  "zone",
+  "district_label",
+  "district_name",
+  "ward_name",
+  "doctor_count",
+  "nurse_midwife_count",
+  "bed_capacity",
+  "beds_count",
+  "capacity_persons",
+  "patient_visits_total",
+  "services_offered",
+  "latitude",
+  "longitude",
+  "is_active",
+];
+
+const HEALTH_FACILITY_COLUMNS = [
+  "id",
+  "code",
+  "name",
+  "common_name",
+  "type",
+  "ownership",
+  "status",
+  "zone",
+  "district_label",
+  "district_name",
+  "ward_name",
+  "doctor_count",
+  "nurse_midwife_count",
+  "bed_capacity",
+  "beds_count",
+  "capacity_persons",
+  "patient_visits_total",
+  "services_offered",
+  "latitude",
+  "longitude",
+  "is_active",
+  "updated_at",
+];
+
 const SCHOOL_COLUMNS = [
   "name",
   "status",
@@ -91,23 +182,25 @@ const DEPARTMENT_TABLES = {
       label: "Health Facilities",
       icon: Activity,
       endpoint: "health",
-      columns: ["name", "type", "healthcare", "district_name", "ward_name", "beds_count", "patient_visits_total"],
+      columns: HEALTH_FACILITY_COLUMNS,
+      editable: true,
+      deletable: true,
+      canCreate: true,
+      editType: "health_facility",
     },
     {
       id: "flood_exposed_health",
       label: "Flood Exposed Health",
       icon: ShieldAlert,
-      endpoint: "health",
-      fixedParams: { filter: "flood_exposed" },
-      columns: ["name", "type", "healthcare", "district_name", "ward_name"],
+      endpoint: "health/flood_exposed",
+      columns: HEALTH_FLOOD_EXPOSED_COLUMNS,
     },
     {
-      id: "health_all_records",
-      label: "All Health Records",
+      id: "health_facility_access",
+      label: "Health Access Metrics",
       icon: FileText,
-      endpoint: "health",
-      fixedParams: { include_archived: "true" },
-      columns: ["name", "type", "healthcare", "district_name", "ward_name", "is_active", "updated_at"],
+      endpoint: "health/facility_access",
+      columns: HEALTH_ACCESS_METRICS_COLUMNS,
     },
   ],
   social_welfare: [
@@ -192,21 +285,87 @@ const DEPARTMENT_TABLES = {
       label: "Flood Facility Exposure",
       icon: Activity,
       endpoint: "disaster/facility_exposure",
-      columns: ["name", "type", "risk_level", "flood_depth"],
+      columns: [
+        "id",
+        "analysis_date",
+        "facility_type",
+        "facility_id",
+        "facility_name",
+        "district_name",
+        "ta_name",
+        "flood_value",
+        "risk_class",
+        "is_exposed",
+        "health_name",
+        "health_code",
+        "health_type",
+        "health_status",
+        "school_name",
+        "school_status",
+        "student_enrollment_total",
+        "teacher_count",
+        "latitude",
+        "longitude",
+        "created_at",
+        "updated_at",
+      ],
     },
     {
-      id: "flood_exposure_summary",
-      label: "Exposure Summary",
+      id: "flood_facility_exposure_summary",
+      label: "Flood Exposure Summary",
       icon: FileText,
       endpoint: "disaster/exposure_summary",
-      columns: ["admin_unit_name", "total_facilities", "at_risk_count", "risk_percentage"],
+      columns: [
+        "id",
+        "analysis_date",
+        "district_name",
+        "ta_name",
+        "facility_type",
+        "total_facilities",
+        "exposed_facilities",
+        "low_risk_count",
+        "medium_risk_count",
+        "high_risk_count",
+        "exposed_percentage",
+        "created_at",
+        "updated_at",
+      ],
+    },
+    {
+      id: "flood_risk_polygons",
+      label: "Flood Risk Polygons",
+      icon: ShieldAlert,
+      endpoint: "disaster/flood_risk_polygons",
+      columns: [
+        "id",
+        "analysis_date",
+        "risk_level",
+        "source_raster",
+        "area_sq_km",
+        "latitude",
+        "longitude",
+        "created_at",
+      ],
     },
     {
       id: "flood_zones",
       label: "Flood Zones",
-      icon: ShieldAlert,
-      endpoint: "disaster",
-      columns: ["event_type", "risk_level", "population_at_risk"],
+      icon: Database,
+      endpoint: "disaster/flood_zones",
+      columns: [
+        "id",
+        "analysis_date",
+        "district_name",
+        "ta_name",
+        "total_population",
+        "exposed_population",
+        "low_risk_population",
+        "medium_risk_population",
+        "high_risk_population",
+        "exposed_area_sq_km",
+        "created_at",
+        "updated_at",
+      ],
     },
   ],
 };
@@ -230,6 +389,37 @@ const SCHOOL_EDIT_FIELDS = [
   { key: "district_id", label: "District ID", type: "number", payloadKey: "districtId" },
   { key: "ward_id", label: "TA ID", type: "number", payloadKey: "wardId" },
   { key: "is_active", label: "Active", type: "checkbox", payloadKey: "isActive" },
+];
+
+const HEALTH_EDIT_FIELDS = [
+  { key: "code", label: "Facility code", type: "text", payloadKey: "code" },
+  { key: "name", label: "Facility name", type: "text", payloadKey: "name" },
+  { key: "common_name", label: "Common name", type: "text", payloadKey: "commonName" },
+  { key: "type", label: "Facility type", type: "text", payloadKey: "type" },
+  { key: "ownership", label: "Ownership", type: "text", payloadKey: "ownership" },
+  { key: "status", label: "Status", type: "text", payloadKey: "status" },
+  { key: "zone", label: "Zone", type: "text", payloadKey: "zone" },
+  { key: "district_label", label: "District label", type: "text", payloadKey: "districtLabel" },
+  { key: "doctor_count", label: "Doctor count", type: "number", payloadKey: "doctorCount" },
+  { key: "nurse_midwife_count", label: "Nurse / midwife count", type: "number", payloadKey: "nurseMidwifeCount" },
+  { key: "bed_capacity", label: "Bed capacity", type: "number", payloadKey: "bedCapacity" },
+  { key: "beds_count", label: "Beds count", type: "number", payloadKey: "bedsCount" },
+  { key: "capacity_persons", label: "Capacity (persons)", type: "number", payloadKey: "capacityPersons" },
+  { key: "patient_visits_total", label: "Patient visits total", type: "number", payloadKey: "patientVisitsTotal" },
+  { key: "services_offered", label: "Services offered", type: "text", payloadKey: "servicesOffered" },
+  { key: "latitude", label: "Latitude", type: "number", payloadKey: "latitude" },
+  { key: "longitude", label: "Longitude", type: "number", payloadKey: "longitude" },
+  { key: "district_id", label: "District ID", type: "number", payloadKey: "districtId" },
+  { key: "ward_id", label: "TA ID", type: "number", payloadKey: "wardId" },
+  { key: "is_active", label: "Active", type: "checkbox", payloadKey: "isActive" },
+];
+
+const READ_ONLY_HEALTH_FIELDS = [
+  ["id", "Facility ID"],
+  ["district_name", "District"],
+  ["ward_name", "TA"],
+  ["created_at", "Created"],
+  ["updated_at", "Updated"],
 ];
 
 const READ_ONLY_SCHOOL_FIELDS = [
@@ -293,7 +483,19 @@ function displayValue(value) {
     return value ? "Yes" : "No";
   }
 
+  if (Array.isArray(value)) {
+    return value.length ? value.join(", ") : "-";
+  }
+
   return String(value);
+}
+
+function servicesOfferedForInput(value) {
+  if (Array.isArray(value)) {
+    return value.join(", ");
+  }
+
+  return value === null || value === undefined ? "" : String(value);
 }
 
 function valueForInput(value, type) {
@@ -339,6 +541,10 @@ function getTableRecordId(record, table) {
 
   if (table.editType === "welfare_program") {
     return record.program_id ?? null;
+  }
+
+  if (table.editType === "health_facility") {
+    return record.id ?? null;
   }
 
   return record.school_id ?? null;
@@ -471,9 +677,36 @@ export default function AdminDataStewardship({ department, deptConfig }) {
     }
   }
 
+  function openHealthEditor(record) {
+    if (!selectedTable?.editable || !record?.id) {
+      return;
+    }
+
+    const nextValues = {};
+    HEALTH_EDIT_FIELDS.forEach((field) => {
+      if (field.key === "services_offered") {
+        nextValues[field.key] = servicesOfferedForInput(record[field.key]);
+        return;
+      }
+
+      if (field.key === "ward_id") {
+        nextValues[field.key] = valueForInput(record.ward_id ?? record.ta_id, field.type);
+        return;
+      }
+
+      nextValues[field.key] = valueForInput(record[field.key], field.type);
+    });
+
+    setEditingRecord(record);
+    setEditValues(nextValues);
+    setErrorMessage("");
+  }
+
   function openEditor(record) {
     if (department === "education") {
       openSchoolEditor(record);
+    } else if (department === "health") {
+      openHealthEditor(record);
     } else {
       openWelfareEditor(record);
     }
@@ -502,9 +735,25 @@ export default function AdminDataStewardship({ department, deptConfig }) {
     }
   }
 
+  function openHealthCreator() {
+    if (!selectedTable?.canCreate) {
+      return;
+    }
+
+    const nextValues = {};
+    HEALTH_EDIT_FIELDS.forEach((field) => {
+      nextValues[field.key] = field.type === "checkbox" ? true : "";
+    });
+    setCreateValues(nextValues);
+    setCreatingRecord(true);
+    setErrorMessage("");
+  }
+
   function handleOpenCreator() {
     if (department === "education") {
       openSchoolCreator();
+    } else if (department === "health") {
+      openHealthCreator();
     } else {
       openWelfareCreator();
     }
@@ -525,6 +774,15 @@ export default function AdminDataStewardship({ department, deptConfig }) {
       toast.success("Welfare analysis recomputation queued.", { duration: 3000 });
     } catch (err) {
       console.warn("Welfare recompute trigger failed (non-blocking):", err?.message);
+    }
+  }
+
+  async function triggerHealthRecompute() {
+    try {
+      await postJson("/admin/run-task", { task: "health_insights" });
+      toast.success("Health analysis recomputation queued.", { duration: 3000 });
+    } catch (err) {
+      console.warn("Health recompute trigger failed (non-blocking):", err?.message);
     }
   }
 
@@ -806,6 +1064,165 @@ export default function AdminDataStewardship({ department, deptConfig }) {
     }
   }
 
+  async function saveHealthRecord(event) {
+    event.preventDefault();
+    if (!editingRecord?.id) {
+      return;
+    }
+
+    const payload = {};
+    const nextPayloadValues = {};
+    HEALTH_EDIT_FIELDS.forEach((field) => {
+      const nextValue =
+        field.key === "services_offered"
+          ? servicesOfferedForInput(editValues[field.key])
+          : toPayloadValue(editValues[field.key], field.type);
+      const currentValue =
+        field.key === "services_offered"
+          ? servicesOfferedForInput(editingRecord[field.key])
+          : toPayloadValue(
+              field.key === "ward_id"
+                ? editingRecord.ward_id ?? editingRecord.ta_id
+                : editingRecord[field.key],
+              field.type,
+            );
+      nextPayloadValues[field.payloadKey] = nextValue;
+
+      if (!hasSamePayloadValue(nextValue, currentValue)) {
+        payload[field.payloadKey] = nextValue;
+      }
+    });
+
+    const hasLatitudeChange = Object.prototype.hasOwnProperty.call(payload, "latitude");
+    const hasLongitudeChange = Object.prototype.hasOwnProperty.call(payload, "longitude");
+
+    if (hasLatitudeChange || hasLongitudeChange) {
+      const nextLatitude = nextPayloadValues.latitude;
+      const nextLongitude = nextPayloadValues.longitude;
+
+      if (
+        nextLatitude === null ||
+        nextLongitude === null ||
+        Number.isNaN(nextLatitude) ||
+        Number.isNaN(nextLongitude)
+      ) {
+        setErrorMessage("Latitude and longitude must both be valid numbers.");
+        return;
+      }
+
+      payload.latitude = nextLatitude;
+      payload.longitude = nextLongitude;
+    }
+
+    if (Object.keys(payload).length === 0) {
+      setEditingRecord(null);
+      return;
+    }
+
+    try {
+      setSaving(true);
+      setErrorMessage("");
+      const response = await patchJson(`/admin-data/health/${editingRecord.id}`, payload);
+      const updatedRecord = response?.data?.record;
+      if (updatedRecord) {
+        setRecords((items) =>
+          items.map((item) => (item.id === updatedRecord.id ? updatedRecord : item)),
+        );
+      } else {
+        await loadTableData();
+      }
+      setEditingRecord(null);
+      toast.success("Health facility updated. Recomputing analysis…");
+      triggerHealthRecompute();
+    } catch (err) {
+      console.error("Failed to update health facility", err);
+      const message = err?.response?.data?.message || "Unable to update this health facility.";
+      setErrorMessage(message);
+      toast.error(message);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function createHealthRecord(event) {
+    event.preventDefault();
+
+    const payload = {};
+    HEALTH_EDIT_FIELDS.forEach((field) => {
+      const value =
+        field.key === "services_offered"
+          ? servicesOfferedForInput(createValues[field.key])
+          : toPayloadValue(createValues[field.key], field.type);
+      if (value !== null && value !== undefined && value !== "") {
+        payload[field.payloadKey] = value;
+      }
+    });
+
+    if (!payload.name) {
+      setErrorMessage("Facility name is required.");
+      return;
+    }
+
+    if (payload.latitude === undefined || payload.longitude === undefined) {
+      setErrorMessage("Latitude and longitude are required.");
+      return;
+    }
+
+    if (Number.isNaN(payload.latitude) || Number.isNaN(payload.longitude)) {
+      setErrorMessage("Latitude and longitude must be valid numbers.");
+      return;
+    }
+
+    try {
+      setSaving(true);
+      setErrorMessage("");
+      await postJson("/admin-data/health", payload);
+      setCreatingRecord(false);
+      await loadTableData();
+      toast.success("Health facility created. Recomputing analysis…");
+      triggerHealthRecompute();
+    } catch (err) {
+      console.error("Failed to create health facility", err);
+      const message = err?.response?.data?.message || "Unable to create this health facility.";
+      setErrorMessage(message);
+      toast.error(message);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function deleteHealthRecord(record) {
+    if (!selectedTable?.deletable || !record?.id) {
+      return;
+    }
+
+    const label = record.name || `facility #${record.id}`;
+    if (!window.confirm(`Archive ${label}? It will be marked inactive and hidden from active lists.`)) {
+      return;
+    }
+
+    try {
+      setSaving(true);
+      setErrorMessage("");
+      await postJson(`/admin-data/health/${record.id}/archive`);
+      setRecords((items) => items.filter((item) => item.id !== record.id));
+      setMeta((current) => ({
+        ...current,
+        total: Math.max(0, current.total - 1),
+        total_pages: Math.max(0, Math.ceil(Math.max(0, current.total - 1) / 25)),
+      }));
+      toast.success("Health facility archived. Recomputing analysis…");
+      triggerHealthRecompute();
+    } catch (err) {
+      console.error("Failed to archive health facility", err);
+      const message = err?.response?.data?.message || "Unable to archive this health facility.";
+      setErrorMessage(message);
+      toast.error(message);
+    } finally {
+      setSaving(false);
+    }
+  }
+
   async function deleteWelfareRecord(record) {
     if (!selectedTable?.deletable) {
       return;
@@ -855,6 +1272,15 @@ export default function AdminDataStewardship({ department, deptConfig }) {
     }
   }
 
+  function handleDeleteRecord(record) {
+    if (department === "health") {
+      deleteHealthRecord(record);
+      return;
+    }
+
+    deleteWelfareRecord(record);
+  }
+
   const fromRecord = meta.total ? (page - 1) * 25 + 1 : 0;
   const toRecord = Math.min(page * 25, meta.total);
 
@@ -900,6 +1326,8 @@ export default function AdminDataStewardship({ department, deptConfig }) {
                 ? "Add Program"
                 : selectedTable.createType === "welfare_beneficiary"
                 ? "Add Beneficiary"
+                : department === "health"
+                ? "Add Facility"
                 : "Add School"}
             </button>
           )}
@@ -989,7 +1417,7 @@ export default function AdminDataStewardship({ department, deptConfig }) {
                       {selectedTable?.deletable && (
                         <button
                           type="button"
-                          onClick={() => deleteWelfareRecord(record)}
+                          onClick={() => handleDeleteRecord(record)}
                           disabled={saving}
                           className="rounded-lg border border-red-200 bg-white px-3 py-1.5 text-xs font-bold text-red-700 transition-all hover:border-red-700 hover:bg-red-700 hover:text-white disabled:opacity-60"
                         >
@@ -1048,7 +1476,95 @@ export default function AdminDataStewardship({ department, deptConfig }) {
 
       {editingRecord && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/45 px-4 py-6">
-          {department === "education" ? (
+          {department === "health" ? (
+            <form
+              onSubmit={saveHealthRecord}
+              className="flex max-h-[92vh] w-full max-w-5xl flex-col overflow-hidden rounded-2xl bg-white shadow-2xl"
+            >
+              <div className="flex items-start justify-between gap-4 border-b border-slate-200 p-5">
+                <div>
+                  <h3 className="text-xl font-bold text-slate-950">{displayValue(editingRecord.name)}</h3>
+                  <p className="mt-1 text-sm font-medium text-slate-500">
+                    Update health facility details, including coordinates.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setEditingRecord(null)}
+                  className="rounded-lg p-2 text-slate-500 hover:bg-slate-100 hover:text-slate-900"
+                >
+                  <X size={18} />
+                </button>
+              </div>
+
+              <div className="grid gap-6 overflow-y-auto p-5 lg:grid-cols-[1fr_280px]">
+                <div className="grid gap-4 sm:grid-cols-2">
+                  {HEALTH_EDIT_FIELDS.map((field) => (
+                    <label key={field.key} className={field.key === "name" ? "sm:col-span-2" : ""}>
+                      <span className="mb-1.5 block text-xs font-bold uppercase tracking-widest text-slate-500">
+                        {field.label}
+                      </span>
+                      {field.type === "checkbox" ? (
+                        <div className="flex h-11 items-center rounded-xl border border-slate-300 px-3">
+                          <input
+                            type="checkbox"
+                            checked={Boolean(editValues[field.key])}
+                            onChange={(event) =>
+                              setEditValues((current) => ({ ...current, [field.key]: event.target.checked }))
+                            }
+                            className="h-4 w-4 rounded border-slate-300 text-slate-900 focus:ring-slate-900/20"
+                          />
+                          <span className="ml-2 text-sm font-semibold text-slate-800">Record is active</span>
+                        </div>
+                      ) : (
+                        <input
+                          type={field.type}
+                          step={field.type === "number" ? "any" : undefined}
+                          value={editValues[field.key] ?? ""}
+                          onChange={(event) =>
+                            setEditValues((current) => ({ ...current, [field.key]: event.target.value }))
+                          }
+                          className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm font-semibold text-slate-950 caret-slate-950 outline-none placeholder:text-slate-400 focus:border-slate-900 focus:ring-4 focus:ring-slate-900/10"
+                        />
+                      )}
+                    </label>
+                  ))}
+                </div>
+
+                <aside className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                  <h4 className="text-sm font-bold text-slate-900">Record details</h4>
+                  <dl className="mt-4 space-y-3">
+                    {READ_ONLY_HEALTH_FIELDS.map(([key, label]) => (
+                      <div key={key}>
+                        <dt className="text-[10px] font-bold uppercase tracking-widest text-slate-500">{label}</dt>
+                        <dd className="mt-0.5 break-words text-sm font-semibold text-slate-800">
+                          {displayValue(editingRecord[key])}
+                        </dd>
+                      </div>
+                    ))}
+                  </dl>
+                </aside>
+              </div>
+
+              <div className="flex justify-end gap-3 border-t border-slate-200 bg-slate-50 p-4">
+                <button
+                  type="button"
+                  onClick={() => setEditingRecord(null)}
+                  className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-bold text-slate-700 hover:bg-slate-100"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={saving}
+                  className="flex items-center gap-2 rounded-xl bg-slate-900 px-4 py-2 text-sm font-bold text-white shadow-lg shadow-slate-900/10 hover:bg-slate-800 disabled:opacity-60"
+                >
+                  {saving ? <RefreshCw size={16} className="animate-spin" /> : <Save size={16} />}
+                  Save changes
+                </button>
+              </div>
+            </form>
+          ) : department === "education" ? (
             <form
               onSubmit={saveSchoolRecord}
               className="flex max-h-[92vh] w-full max-w-5xl flex-col overflow-hidden rounded-2xl bg-white shadow-2xl"
@@ -1245,8 +1761,51 @@ export default function AdminDataStewardship({ department, deptConfig }) {
 
       {creatingRecord && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/45 px-4 py-6">
+          {/* ── Health facility create form ── */}
+          {department === "health" && selectedTable?.canCreate && (
+            <form
+              onSubmit={createHealthRecord}
+              className="flex max-h-[92vh] w-full max-w-5xl flex-col overflow-hidden rounded-2xl bg-white shadow-2xl"
+            >
+              <div className="flex items-start justify-between gap-4 border-b border-slate-200 p-5">
+                <div>
+                  <h3 className="text-xl font-bold text-slate-950">Add Health Facility</h3>
+                  <p className="mt-1 text-sm font-medium text-slate-500">
+                    Fill in facility details. Latitude and longitude are required to place the facility on the map.
+                  </p>
+                </div>
+                <button type="button" onClick={() => { setCreatingRecord(false); setErrorMessage(""); }} className="rounded-lg p-2 text-slate-500 hover:bg-slate-100 hover:text-slate-900"><X size={18} /></button>
+              </div>
+              {errorMessage && <div className="border-b border-red-100 bg-red-50 px-5 py-3 text-sm font-semibold text-red-700">{errorMessage}</div>}
+              <div className="overflow-y-auto p-5">
+                <div className="grid gap-4 sm:grid-cols-2">
+                  {HEALTH_EDIT_FIELDS.map((field) => (
+                    <label key={field.key} className={field.key === "name" ? "sm:col-span-2" : ""}>
+                      <span className="mb-1.5 block text-xs font-bold uppercase tracking-widest text-slate-500">{field.label}</span>
+                      {field.type === "checkbox" ? (
+                        <div className="flex h-11 items-center rounded-xl border border-slate-300 px-3">
+                          <input type="checkbox" checked={Boolean(createValues[field.key])} onChange={(e) => setCreateValues((c) => ({ ...c, [field.key]: e.target.checked }))} className="h-4 w-4 rounded border-slate-300" />
+                          <span className="ml-2 text-sm font-semibold text-slate-800">Record is active</span>
+                        </div>
+                      ) : (
+                        <input type={field.type} step={field.type === "number" ? "any" : undefined} value={createValues[field.key] ?? ""} onChange={(e) => setCreateValues((c) => ({ ...c, [field.key]: e.target.value }))} className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm font-semibold text-slate-950 outline-none focus:border-slate-900 focus:ring-4 focus:ring-slate-900/10" />
+                      )}
+                    </label>
+                  ))}
+                </div>
+              </div>
+              <div className="flex justify-end gap-3 border-t border-slate-200 bg-slate-50 p-4">
+                <button type="button" onClick={() => { setCreatingRecord(false); setErrorMessage(""); }} className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-bold text-slate-700 hover:bg-slate-100">Cancel</button>
+                <button type="submit" disabled={saving} className="flex items-center gap-2 rounded-xl bg-emerald-600 px-4 py-2 text-sm font-bold text-white hover:bg-emerald-700 disabled:opacity-60">
+                  {saving ? <RefreshCw size={16} className="animate-spin" /> : <Plus size={16} />}
+                  Create facility
+                </button>
+              </div>
+            </form>
+          )}
+
           {/* ── School create form ── */}
-          {(!selectedTable?.createType || selectedTable.createType === "school") && (
+          {department === "education" && (!selectedTable?.createType || selectedTable.createType === "school") && (
             <form
               onSubmit={createSchoolRecord}
               className="flex max-h-[92vh] w-full max-w-5xl flex-col overflow-hidden rounded-2xl bg-white shadow-2xl"

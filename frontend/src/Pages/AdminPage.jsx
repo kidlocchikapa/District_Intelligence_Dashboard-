@@ -3,6 +3,8 @@ import EmptyState from "../components/EmptyState";
 import PageHeader from "../components/PageHeader";
 import Panel from "../components/Panel";
 import AdminDataStewardship from "../components/AdminDataStewardship";
+import GlobalAdminStewardship from "../components/GlobalAdminStewardship";
+import GlobalAdminOperations from "../components/GlobalAdminOperations";
 import {
   AUTH_EVENT_NAME,
   fetchJson,
@@ -110,7 +112,7 @@ const departmentConfig = {
     label: "Health",
     endpoint: "health",
     idKey: "id",
-    columns: ["name", "type", "healthcare", "district_name"],
+    columns: ["name", "type", "district_name", "ward_name", "latitude", "longitude"],
   },
   social_welfare: {
     label: "Social Welfare",
@@ -125,9 +127,9 @@ const departmentConfig = {
   },
   disaster: {
     label: "Disaster",
-    endpoint: "disaster",
+    endpoint: "disaster/facility_exposure",
     idKey: "id",
-    columns: ["event_type", "risk_level", "population_at_risk"],
+    columns: ["facility_name", "facility_type", "district_name", "risk_class"],
   },
 };
 
@@ -159,16 +161,22 @@ function AdminPage() {
     () => Object.keys(departmentConfig),
     [],
   );
+  const isGlobalAdmin = useMemo(
+    () =>
+      Boolean(
+        authProfile?.is_global_admin ||
+          authProfile?.role === "super_admin" ||
+          authProfile?.role === "admin",
+      ),
+    [authProfile],
+  );
+
   const allowedDepartments = useMemo(() => {
     if (!authProfile) {
       return [];
     }
 
-    if (
-      authProfile.is_global_admin ||
-      authProfile.role === "super_admin" ||
-      authProfile.role === "admin"
-    ) {
+    if (isGlobalAdmin) {
       return availableDepartments;
     }
 
@@ -179,7 +187,23 @@ function AdminPage() {
     return profileDepartments.filter((department) =>
       availableDepartments.includes(department),
     );
-  }, [authProfile, availableDepartments]);
+  }, [authProfile, availableDepartments, isGlobalAdmin]);
+
+  useEffect(() => {
+    if (!authProfile) {
+      return;
+    }
+
+    if (isGlobalAdmin) {
+      setActiveTab((current) =>
+        ["system", "operations", "departments", "logs"].includes(current)
+          ? current
+          : "system",
+      );
+    } else if (!["stewardship", "operations", "logs"].includes(activeTab)) {
+      setActiveTab("stewardship");
+    }
+  }, [authProfile, isGlobalAdmin]);
 
   useEffect(() => {
     function syncAuthState(event) {
@@ -320,24 +344,72 @@ function AdminPage() {
             <div className="h-10 w-10 bg-slate-900 rounded-xl flex items-center justify-center text-white">
               <Database size={20} />
             </div>
-            Data Management Portal
+            {isGlobalAdmin ? "Global Admin Portal" : "Data Management Portal"}
           </h1>
           <p className="mt-1 text-sm text-slate-500">
-            Manage your department's datasets, run pipeline updates, and monitor
-            system health.
+            {isGlobalAdmin
+              ? "Manage system reference data, run full pipeline operations, and oversee all departments."
+              : "Manage your department's datasets, run pipeline updates, and monitor system health."}
           </p>
         </div>
 
         <div className="flex w-full overflow-x-auto rounded border border-slate-200 bg-white p-1 shadow-none lg:w-auto">
-          <TabButton active={activeTab === 'stewardship'} onClick={() => setActiveTab('stewardship')} icon={LayoutDashboard} label="Data Stewardship" />
-          <TabButton active={activeTab === 'operations'} onClick={() => setActiveTab('operations')} icon={UploadCloud} label="Operations" />
-          <TabButton active={activeTab === 'logs'} onClick={() => setActiveTab('logs')} icon={Terminal} label="System Logs" />
+          {isGlobalAdmin ? (
+            <>
+              <TabButton active={activeTab === "system"} onClick={() => setActiveTab("system")} icon={Database} label="System Data" />
+              <TabButton active={activeTab === "operations"} onClick={() => setActiveTab("operations")} icon={UploadCloud} label="Operations" />
+              <TabButton active={activeTab === "departments"} onClick={() => setActiveTab("departments")} icon={LayoutDashboard} label="Department Data" />
+              <TabButton active={activeTab === "logs"} onClick={() => setActiveTab("logs")} icon={Terminal} label="System Logs" />
+            </>
+          ) : (
+            <>
+              <TabButton active={activeTab === "stewardship"} onClick={() => setActiveTab("stewardship")} icon={LayoutDashboard} label="Data Stewardship" />
+              <TabButton active={activeTab === "operations"} onClick={() => setActiveTab("operations")} icon={UploadCloud} label="Operations" />
+              <TabButton active={activeTab === "logs"} onClick={() => setActiveTab("logs")} icon={Terminal} label="System Logs" />
+            </>
+          )}
         </div>
       </div>
 
       <div className="flex-1 min-h-[640px] lg:min-h-0">
-        {activeTab === 'stewardship' && (
-          selectedDepartment ? (
+        {isGlobalAdmin && activeTab === "system" && <GlobalAdminStewardship />}
+
+        {isGlobalAdmin && activeTab === "operations" && (
+          <>
+            <GlobalAdminOperations
+              onJobQueued={(jobId) => setSelectedJobId(jobId)}
+              onStatus={setStatus}
+            />
+            {status && (
+              <div className="mt-4 rounded-xl border border-slate-100 bg-slate-50 px-4 py-3 text-xs font-mono text-slate-600">
+                {status}
+              </div>
+            )}
+          </>
+        )}
+
+        {((isGlobalAdmin && activeTab === "departments") ||
+          (!isGlobalAdmin && activeTab === "stewardship")) && (
+          <>
+            {isGlobalAdmin && allowedDepartments.length > 0 && (
+              <div className="mb-4 flex flex-wrap items-center gap-3">
+                <label className="text-sm font-bold text-slate-700">
+                  Department
+                  <select
+                    value={selectedDepartment}
+                    onChange={(event) => setSelectedDepartment(event.target.value)}
+                    className="ml-3 rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-900 outline-none focus:ring-2 focus:ring-slate-900/10"
+                  >
+                    {allowedDepartments.map((department) => (
+                      <option key={department} value={department}>
+                        {department.replace("_", " ")}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              </div>
+            )}
+            {selectedDepartment ? (
             <AdminDataStewardship
               department={selectedDepartment}
               deptConfig={departmentConfig[selectedDepartment]}
@@ -347,10 +419,11 @@ function AdminPage() {
               title="No Department Access"
               description="This account is authenticated but has no department read permissions assigned. Ask a super admin to grant access in User Permissions."
             />
-          )
+          )}
+          </>
         )}
 
-        {activeTab === "operations" && (
+        {!isGlobalAdmin && activeTab === "operations" && (
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 h-full overflow-auto pb-8">
             <Panel
               title="Dataset Ingestion"
