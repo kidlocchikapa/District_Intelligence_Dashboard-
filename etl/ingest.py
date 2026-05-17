@@ -81,15 +81,14 @@ def safe_run_step(step_name, user_message_on_error, fn, *args, **kwargs):
     log_step(step_name, 'completed')
     return result
 
-# normalize column names by converting to lowercase, replacing non-alphanumeric characters with underscores,
-# and collapsing multiple underscores
+# normalize column names
 def normalize_column_name(name):
     sanitized = ''.join(char if char.isalnum() else '_' for char in str(name).strip().lower())
     while '__' in sanitized:
         sanitized = sanitized.replace('__', '_')
     return sanitized.strip('_')
 
-# Normalize missing values by converting None, NaN, empty strings, and specific tokens to pd.NA
+# Normalize missing values 
 def normalize_missing_values(df):
     def normalize_cell(value):
         if value is None or pd.isna(value):
@@ -117,7 +116,7 @@ def normalize_missing_values(df):
 
     return working
 
-# Read a file based on its extension and return a prepared DataFrame or GeoDataFrame
+# Read a file based on its extension
 def read_file(file_path):
     ext = os.path.splitext(file_path)[1].lower()
 
@@ -136,8 +135,7 @@ def read_file(file_path):
 
     return prepare_dataframe(df)
 
-# Extract files from a zip archive while ensuring security by validating file paths 
-# and preventing directory traversal
+# Extract files from a zip archive
 def extract_zip_archive(zip_path, destination_dir):
     with zipfile.ZipFile(zip_path) as archive:
         members = [member for member in archive.infolist() if not member.is_dir()]
@@ -221,7 +219,7 @@ def read_archive(file_path):
 
         return read_file(selected_path)
 
-# Extract data from an API endpoint, handle different response formats, and return a prepared DataFrame
+# Extract data from an API endpoint
 def extract_from_api(api_url, headers=None, timeout=30):
     request = Request(api_url, headers=headers or {})
 
@@ -240,7 +238,7 @@ def extract_from_api(api_url, headers=None, timeout=30):
 
     return prepare_dataframe(df)
 
-
+# Normalize and enhance an Overpass API query to ensure it returns JSON with geometry included
 def normalize_overpass_query(query):
     if not query:
         return query
@@ -251,7 +249,7 @@ def normalize_overpass_query(query):
         normalized = f"{normalized}\nout geom;"
     return normalized
 
-
+# Extract road data from the Overpass API based on a provided query
 def extract_from_overpass(api_url, query, timeout=60, user_agent=None):
     if not api_url:
         raise ValueError('overpass_url is required for Overpass extraction')
@@ -305,7 +303,7 @@ def extract_from_overpass(api_url, query, timeout=60, user_agent=None):
     road_gdf = gpd.GeoDataFrame(rows, geometry='geometry', crs='EPSG:4326')
     return prepare_dataframe(road_gdf)
 
-# Main extraction function that determines the source type and calls the appropriate extraction method
+# Extraction function that determines the source type and calls the appropriate extraction method
 def extract_source(
     source_type,
     file_path=None,
@@ -348,8 +346,7 @@ def extract_source(
 
     raise ValueError(f'Unsupported source type for tabular extraction: {source_type}')
 
-# Prepare a DataFrame by normalizing column names, handling missing values, and ensuring geometry 
-# columns are properly set for GeoDataFrames
+# Prepare a DataFrame by normalizing column names, handling missing values
 def prepare_dataframe(df):
     if df is None:
         return pd.DataFrame()
@@ -373,7 +370,7 @@ def prepare_dataframe(df):
 
     return working
 
-# Load a reference gazetteer from a specified path or from the database, and return it as a prepared DataFrame
+# Load a reference gazetteer from a specified path or from the database
 def load_reference_gazetteer(session, gazetteer_path=None):
     try:
         if gazetteer_path and os.path.exists(gazetteer_path):

@@ -73,7 +73,7 @@ DEFAULT_OVERPASS_URL = os.getenv('OVERPASS_API_URL', 'https://overpass-api.de/ap
 DEFAULT_OVERPASS_TIMEOUT = int(os.getenv('OVERPASS_TIMEOUT', '180'))
 DEFAULT_OVERPASS_DISTRICTS = os.getenv('OVERPASS_ROADS_DISTRICTS', '')
 
-# Custom exception class for ETL pipeline errors
+#######     Custom exception class for ETL pipeline errors ########################3
 class ETLPipelineError(Exception):
     def __init__(self, user_message, step_name, original_error=None):
         self.user_message = user_message
@@ -81,7 +81,6 @@ class ETLPipelineError(Exception):
         self.original_error = original_error
         super().__init__(f"{user_message} (step: {step_name})")
 
-# 
 def setup_logging():
     if LOGGER.handlers:
         return
@@ -113,7 +112,7 @@ def run_step(step_name, user_message_on_error, fn, *args, **kwargs):
     log_step(step_name, 'completed')
     return result
 
-
+# Utility function to parse comma-separated lists from environment variables or config
 def parse_csv_list(value):
     if not value:
         return []
@@ -884,7 +883,7 @@ def parse_headers(header_values):
         headers[key.strip()] = value.strip()
     return headers
 
-# Helper function to determine the appropriate table name for logging based on dataset type, especially for flood and analysis datasets
+# Helper function to determine the appropriate table name for logging based on dataset type
 def resolve_table_name_for_failure(dataset_type):
     if dataset_type == 'flood':
         return 'flood_zones'

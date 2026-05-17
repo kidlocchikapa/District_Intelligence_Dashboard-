@@ -50,7 +50,6 @@ def generate_zomba_preview():
         out_meta = src.meta.copy()
         
         # Calculate bounds for Leaflet ImageOverlay
-        # Leaflet expects [[lat_min, lon_min], [lat_max, lon_max]]
         bounds = rasterio.transform.array_bounds(out_image.shape[1], out_image.shape[2], out_transform)
         # bounds is (lon_min, lat_min, lon_max, lat_max)
         leaflet_bounds = [[bounds[1], bounds[0]], [bounds[3], bounds[2]]]
@@ -63,15 +62,12 @@ def generate_zomba_preview():
     mask = (data == nodata) | np.isnan(data)
     
     # Transform: log1p as in the original
-    # We add a small epsilon to avoid log(0) if not using log1p
-    # The original uses log1p
     transformed = np.log1p(np.where(mask, 0, data))
     
     # Normalize to [0, 1]
-    # Use percentiles to clip outliers for better contrast, similar to original's 99.85
     valid_data = transformed[~mask]
     if valid_data.size > 0:
-        vmin = 0 # Assume 0 is min for population
+        vmin = 0
         vmax = np.percentile(valid_data, 99.85)
         normalized = np.clip((transformed - vmin) / (vmax - vmin), 0, 1)
     else:

@@ -45,7 +45,7 @@ def run_step(step_name, user_message_on_error, fn, *args, **kwargs):
     log_step(step_name, 'completed')
     return result
 
-#This function handles fetching administrative unit data from the database and create a lookup structure
+# Fetch administrative unit data from the database and create a lookup structure
 def fetch_admin_unit_lookup(session):
     query = text(
         """
@@ -171,7 +171,7 @@ def _coalesce_row_values(row, columns):
                 return text
     return None
 
-#Find a spatial match for a given point
+# Find a spatial match for a given point
 def _find_spatial_match(point, polygons):
     if point is None:
         return None
@@ -411,8 +411,7 @@ def _coerce_array(value):
         return value
     return [item.strip() for item in str(value).split(',') if item.strip()]
 
-# Loading a GeoDataFrame into PostGIS, with special handling for boundary d
-# atasets to load them into normalized tables
+# Loading a GeoDataFrame into PostGIS, with special handling for boundary datasets
 def load_to_postgis(session, gdf, dataset_type, if_exists='append'):
     try:
         engine = session.bind

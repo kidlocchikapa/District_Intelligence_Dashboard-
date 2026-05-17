@@ -37,6 +37,7 @@ WORLDPOP_SIMPLIFY_TOLERANCES = [0, 0.0001, 0.0005, 0.001, 0.005, 0.01, 0.02, 0.0
 LOGGER = logging.getLogger('etl.worldpop')
 
 
+## Custom exception class for WorldPop-related errors
 class WorldPopError(Exception):
     def __init__(self, user_message, step_name, original_error=None):
         self.user_message = user_message
@@ -68,7 +69,7 @@ def run_step(step_name, user_message_on_error, fn, *args, **kwargs):
 
 
 
-## Helper function to normalize WorldPop catalog URL, ensuring it points to the correct API endpoint
+## Normalize WorldPop catalog URL, ensuring it points to the correct API endpoint
 def normalize_world_catalog_url(url):
     if not url:
         return DEFAULT_WORLDPOP_CATALOG_URL
@@ -83,7 +84,7 @@ def normalize_world_catalog_url(url):
     
     return normalized
 
-## Helper function to extract geometry from a row, checking both 'geometry' and 'geom' fields
+## Extract geometry from a row, checking both 'geometry' and 'geom' fields
 def get_row_geometry(row):
     geometry = row.get('geometry') or row.get('geom')
     if geometry is not None:
@@ -91,7 +92,7 @@ def get_row_geometry(row):
     
     raise ValueError("Row does not contain 'geometry' or 'geom' field with valid geometry data.")
 
-## Helper function to fetch JSON data with retries and error handling
+## Fetch JSON data with retries and error handling
 def fetch_json(url, timeout=60, retries=3, backoff_seconds=2):
     request = Request(url, headers={'User-Agent': 'district-intelligence-etl/1.0'})
 
@@ -106,14 +107,13 @@ def fetch_json(url, timeout=60, retries=3, backoff_seconds=2):
             time.sleep(backoff_seconds * (attempt + 1))
 
 
-## Main function to load WorldPop catalog data, normalizing the URL and fetching the JSON data
+## Load WorldPop catalog data, normalizing the URL and fetching the JSON data
 def load_worldpop_catalog(url=None, timeout=60):
     catalog_url = normalize_world_catalog_url(url)
     return fetch_json(catalog_url, timeout=timeout)
 
 
-## Function to select the most appropriate WorldPop dataset based on year a
-# nd ISO3 country code, ensuring it is a GeoTIFF format
+## Select the most appropriate WorldPop dataset based on year and ISO country code
 def select_worldpop_dataset(catalog, year=DEFAULT_WORLDPOP_YEAR, iso3='MWI'):
     entries = catalog.get('data', []) if isinstance(catalog, dict) else catalog
     if not isinstance(entries, list):
@@ -153,8 +153,7 @@ def select_worldpop_dataset(catalog, year=DEFAULT_WORLDPOP_YEAR, iso3='MWI'):
     }
 
 
-## Function to download a WorldPop raster file from a given URL, saving it to a specified 
-# directory with optional filename and timeout settings
+## Download a WorldPop raster file from a given URL,
 def download_worldpop_raster(raster_url, download_dir, filename=None, timeout=300):
     try:
         os.makedirs(download_dir, exist_ok=True)
@@ -266,7 +265,7 @@ def validate_raster_readable(raster_path, strict=False):
     except Exception:
         return False
 
-## Function to resolve the appropriate WorldPop raster dataset for a given year 
+## Resolve the appropriate WorldPop raster dataset for a given year 
 # and ISO3 country code, downloading the raster file and returning metadata about the selected dataset
 def resolve_worldpop_raster(
     api_url=None,
@@ -285,8 +284,7 @@ def resolve_worldpop_raster(
     selected['raster_path'] = raster_path
     return selected
 
-## Helper function to convert a geometry object to a GeoJSON FeatureCollection format,
-#  ensuring it is compatible with WorldPop API requirements
+## Convert a geometry object to a GeoJSON FeatureCollection format
 def geometry_to_feature_collection(geometry):
     return {
         'type': 'FeatureCollection',
@@ -300,14 +298,12 @@ def geometry_to_feature_collection(geometry):
     }
 
 
-## Helper function to serialize a geometry object into a GeoJSON FeatureCollection string
-# , using compact separators to minimize the resulting string length for API usage
+## Serialize a geometry object into a GeoJSON FeatureCollection string
 def serialize_geojson_feature_collection(geometry):
     return json.dumps(geometry_to_feature_collection(geometry), separators=(',', ':'))
 
 
-## Function to build a WorldPop statistics API URL with the appropriate query parameters, including 
-# dataset, year, GeoJSON payload, API key, and asynchronous execution flag
+## Build a WorldPop statistics API URL with the appropriate query parameters
 def build_worldpop_stats_url(api_url, dataset, year, geojson_payload, api_key=None, run_async=False):
     params = {
         'dataset': dataset,
@@ -320,9 +316,7 @@ def build_worldpop_stats_url(api_url, dataset, year, geojson_payload, api_key=No
     return f"{(api_url or DEFAULT_WORLDPOP_STATS_URL).rstrip('?')}?{urlencode(params)}"
 
 
-## Main function to prepare a geometry for a WorldPop API request, attempting various 
-# simplification tolerances to reduce the GeoJSON payload size while ensuring it remains valid for the API,
-#  and falling back to the geometry's envelope if necessary
+## Function to prepare a geometry for a WorldPop API request
 def prepare_worldpop_request_geometry(
     geometry,
     api_url,
@@ -380,7 +374,6 @@ Function to request WorldPop statistics for a given geometry, dataset, and year,
 the API request, handling asynchronous execution if needed, and returning the 
 resulting statistics payload with metadata about the request
 '''
-## 
 def request_worldpop_stats(
     geometry,
     dataset=DEFAULT_WORLDPOP_DATASET,
@@ -443,8 +436,7 @@ def request_worldpop_stats(
             original_error=exc,
         ) from exc
 
-## Helper function to extract the total population value from a WorldPop statistics response payload, 
-# handling different possible structures of the input data
+## Helper function to extract the total population value from a WorldPop statistics response payload
 def extract_total_population(stats_data):
     payload = stats_data.get('data') if isinstance(stats_data, dict) and 'data' in stats_data else stats_data
     return float((payload or {}).get('total_population') or 0.0)
@@ -525,8 +517,7 @@ def aggregate_child_population_from_classes(agesex_pyramid, max_class=DEFAULT_CH
         'child_population_female': female_total,
     }
 
-## Helper function to build a standardized indicator record from a WorldPop statistics response, 
-# including dataset type, indicator name, geographic information, indicator value, source filename, and optional metadata
+## Helper function to build a standardized indicator record from a WorldPop statistics response
 def build_indicator_record(row, indicator_name, indicator_value, source_filename, metadata=None):
     return {
         'dataset_type': 'worldpop',
@@ -540,8 +531,7 @@ def build_indicator_record(row, indicator_name, indicator_value, source_filename
     }
 
 
-## Helper function to build a standardized age and sex disaggregated record from a WorldPop 
-# statistics response, including geographic information, age and
+## Helper function to build a standardized age and sex disaggregated record from a WorldPop
 def build_age_sex_record(row, year, bucket, response_payload):
     task_id = response_payload.get('taskid')
     start_time = response_payload.get('startTime')
@@ -619,10 +609,7 @@ def process_population_stats(
             original_error=exc,
         ) from exc
 
-# Function to build age andd sex disaggregated outputs from a GeoDataFrame of administrative units, r
-# equesting WorldPop age and sex pyramid statistics for each unit, and constructing standardized records for both 
-# theage and sex disaggregated data and the aggregated indicators for school-age and child populations, including metadata about the 
-# WorldPop dataset and request parameters used for each record
+# Function to build age andd sex disaggregated outputs from a GeoDataFrame of administrative units
 def build_age_sex_outputs(
     admin_units_gdf,
     year=DEFAULT_WORLDPOP_YEAR,
@@ -779,8 +766,7 @@ def get_zonal_stats(raster_path, polygons_gdf, stat='sum'):
         ) from exc
 
 
-## Function to fetch administrative units from a database session, optionally filtering by district name, 
-## and returning the results as a GeoDataFrame with geometry column named 'geom'
+## Function to fetch administrative units from a database session,
 def fetch_admin_units(session, district_name=None, district_names=None):
     query = """
         SELECT
@@ -844,7 +830,6 @@ def fetch_admin_units(session, district_name=None, district_names=None):
 
 
 ##function to process population data for a GeoDataFrame of administrative units, calculating total population and population density for each unit
-#based on zonal statistics from a WorldPop raster file, and returning an updated GeoDataFrame with the new population metrics
 def process_population_data(raster_path, admin_units_gdf):
     pop_sums = get_zonal_stats(raster_path, admin_units_gdf, stat='sum')
     working = admin_units_gdf.copy()
@@ -859,8 +844,7 @@ def process_population_data(raster_path, admin_units_gdf):
     return working
 
 
-## Function to update population metrics in the database for a GeoDataFrame of administrative units, executing an UPDATE statement for each 
-## unit to set the population_total and population_density fields based on the calculated values
+## Function to update population metrics in the database for a GeoDataFrame of administrative units
 def update_population_metrics(session, population_gdf):
     updated = 0
     for _, row in population_gdf.iterrows():
@@ -906,7 +890,6 @@ def update_population_metrics(session, population_gdf):
 
 
 ## Function to build standardized population indicator records from a GeoDataFrame of administrative units with population metrics,
-## including dataset type, indicator name, geographic information, indicator value, source filename, and optional metadata
 def build_population_indicators(population_gdf, source_filename=None):
     indicators = []
     for _, row in population_gdf.iterrows():
