@@ -1740,19 +1740,23 @@ router.post("/run-task", auth, async (req, res) => {
     });
   }
 
+  const authUser = getAuthUser(req);
   const department = TASK_DEPARTMENT_MAP[task];
-  if (department) {
-    const allowed = await requireDepartmentCapability(
-      req,
-      res,
-      department,
-      "recompute",
-    );
-    if (!allowed) {
+
+  if (!isGlobalAccessRole(authUser.role)) {
+    if (department) {
+      const allowed = await requireDepartmentCapability(
+        req,
+        res,
+        department,
+        "recompute",
+      );
+      if (!allowed) {
+        return;
+      }
+    } else if (!requireGlobalAccess(req, res)) {
       return;
     }
-  } else if (!requireGlobalAccess(req, res)) {
-    return;
   }
 
   const stages = definition.stages({

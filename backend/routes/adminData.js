@@ -119,9 +119,12 @@ const EDUCATION_LIST_SORT_COLUMNS = {
 
 const HEALTH_SORT_COLUMNS = {
   name: "hf.name",
+  code: "hf.code",
   type: "hf.type",
-  healthcare: "COALESCE(to_jsonb(hf)->>'healthcare', hf.type)",
+  status: "hf.status",
+  ownership: "hf.ownership",
   beds_count: "hf.beds_count",
+  bed_capacity: "hf.bed_capacity",
   patient_visits_total: "hf.patient_visits_total",
   created_at: "hf.created_at",
   updated_at: "hf.updated_at",
@@ -186,11 +189,54 @@ const EDUCATION_SELECT_FIELDS = `
   ST_X(ef.geom) AS longitude
 `;
 
+const HEALTH_FACILITY_LATERAL_JOIN = `
+  LEFT JOIN LATERAL (
+    SELECT h.*
+    FROM health_facilities h
+    WHERE LOWER(TRIM(ffe.facility_type)) = 'health'
+      AND (
+        h.id = ffe.facility_id
+        OR (
+          LOWER(TRIM(COALESCE(h.name, ''))) = LOWER(TRIM(COALESCE(ffe.facility_name, '')))
+          AND NULLIF(TRIM(COALESCE(ffe.facility_name, '')), '') IS NOT NULL
+        )
+      )
+    ORDER BY CASE WHEN h.id = ffe.facility_id THEN 0 ELSE 1 END, h.id ASC
+    LIMIT 1
+  ) hf ON TRUE
+`;
+
+const EDUCATION_FACILITY_LATERAL_JOIN = `
+  LEFT JOIN LATERAL (
+    SELECT e.*
+    FROM education_facilities e
+    WHERE LOWER(TRIM(ffe.facility_type)) = 'education'
+      AND (
+        e.school_id = ffe.facility_id
+        OR (
+          LOWER(TRIM(COALESCE(e.school_name, ''))) = LOWER(TRIM(COALESCE(ffe.facility_name, '')))
+          AND NULLIF(TRIM(COALESCE(ffe.facility_name, '')), '') IS NOT NULL
+        )
+      )
+    ORDER BY CASE WHEN e.school_id = ffe.facility_id THEN 0 ELSE 1 END, e.school_id ASC
+    LIMIT 1
+  ) ef ON TRUE
+`;
+
 const HEALTH_SELECT_FIELDS = `
   hf.id,
+  hf.code,
   hf.name,
+  hf.common_name,
   hf.type,
-  COALESCE(to_jsonb(hf)->>'healthcare', hf.type) AS healthcare,
+  hf.ownership,
+  hf."capacity:persons" AS capacity_persons,
+  hf.zone,
+  hf.district AS district_label,
+  hf.status,
+  hf.doctor_count,
+  hf.nurse_midwife_count,
+  hf.bed_capacity,
   hf.beds_count,
   hf.patient_visits_total,
   hf.services_offered,
@@ -201,8 +247,8 @@ const HEALTH_SELECT_FIELDS = `
   hf.is_active,
   hf.created_at,
   hf.updated_at,
-  ST_Y(hf.geom) AS latitude,
-  ST_X(hf.geom) AS longitude
+  COALESCE(ST_Y(hf.geom), hf.latitude) AS latitude,
+  COALESCE(ST_X(hf.geom), hf.longitude) AS longitude
 `;
 
 function normalizeWelfareWardColumn(columnName) {
@@ -567,24 +613,116 @@ function buildHealthListFilters(query) {
     conditions.push(`hf.ta_id = $${params.length}`);
   }
 
-  if (query.filter === "flood_exposed") {
-    conditions.push(`
-      EXISTS (
-        SELECT 1
-        FROM flood_facility_exposure ffe
-        WHERE ffe.facility_type = 'health'
-          AND ffe.is_exposed = TRUE
-          AND ffe.facility_id = hf.id
-      )
-    `);
-  }
-
   return {
     whereClause: conditions.length ? `WHERE ${conditions.join(" AND ")}` : "",
     params,
     districtId,
     wardId,
     isActive,
+  };
+}
+
+function mapHealthFacilityAccessRow(row) {
+  return {
+    facility_id: Number(row.facility_id),
+    coverage_distance_km:
+      row.coverage_distance_km != null
+        ? Number(row.coverage_distance_km)
+        : null,
+    worldpop_population_within_buffer:
+      row.worldpop_population_within_buffer != null
+        ? Math.round(Number(row.worldpop_population_within_buffer))
+        : null,
+    welfare_beneficiaries_within_buffer:
+      row.welfare_beneficiaries_within_buffer != null
+        ? Number(row.welfare_beneficiaries_within_buffer)
+        : null,
+    welfare_beneficiaries_served_by_8km_network:
+      row.welfare_beneficiaries_served_by_8km_network != null
+        ? Number(row.welfare_beneficiaries_served_by_8km_network)
+        : null,
+    avg_network_distance_km:
+      row.avg_network_distance_km != null
+        ? Number(Number(row.avg_network_distance_km).toFixed(2))
+        : null,
+    avg_travel_time_min:
+      row.avg_travel_time_min != null
+        ? Number(Number(row.avg_travel_time_min).toFixed(1))
+        : null,
+    metadata: row.metadata || null,
+    calculated_at: row.calculated_at || null,
+    health_facility_id: row.health_facility_id != null ? Number(row.health_facility_id) : null,
+    code: row.code || null,
+    name: row.name || row.facility_name || null,
+    common_name: row.common_name || null,
+    type: row.health_facility_type || row.type || null,
+    ownership: row.ownership || null,
+    status: row.status || null,
+    zone: row.zone || null,
+    district_label: row.district_label || null,
+    district_name: row.district_name || null,
+    ward_name: row.ward_name || null,
+    doctor_count: row.doctor_count != null ? Number(row.doctor_count) : null,
+    nurse_midwife_count:
+      row.nurse_midwife_count != null ? Number(row.nurse_midwife_count) : null,
+    bed_capacity: row.bed_capacity != null ? Number(row.bed_capacity) : null,
+    beds_count: row.beds_count != null ? Number(row.beds_count) : null,
+    capacity_persons:
+      row.capacity_persons != null ? Number(row.capacity_persons) : null,
+    patient_visits_total:
+      row.patient_visits_total != null ? Number(row.patient_visits_total) : null,
+    services_offered: row.services_offered || null,
+    latitude: row.latitude != null ? Number(row.latitude) : null,
+    longitude: row.longitude != null ? Number(row.longitude) : null,
+    is_active: row.is_active != null ? Boolean(row.is_active) : null,
+  };
+}
+
+function mapHealthFloodExposedRow(row) {
+  return {
+    id: Number(row.id),
+    analysis_date: row.analysis_date || null,
+    facility_id: Number(row.facility_id),
+    facility_name: row.facility_name || row.name || null,
+    district_id: row.district_id != null ? Number(row.district_id) : null,
+    district_name: row.district_name || null,
+    ta_id: row.ta_id != null ? Number(row.ta_id) : null,
+    ta_name: row.ta_name || null,
+    facility_type: row.facility_type || null,
+    flood_value:
+      row.flood_value != null
+        ? Number(Number(row.flood_value).toFixed(4))
+        : null,
+    risk_class: row.risk_class || null,
+    is_exposed: Boolean(row.is_exposed),
+    exposure_created_at: row.exposure_created_at || null,
+    exposure_updated_at: row.exposure_updated_at || null,
+    health_facility_id:
+      row.health_facility_id != null ? Number(row.health_facility_id) : null,
+    code: row.code || null,
+    name: row.name || row.facility_name || null,
+    common_name: row.common_name || null,
+    type: row.health_facility_type || row.type || null,
+    ownership: row.ownership || null,
+    status: row.status || null,
+    zone: row.zone || null,
+    district_label: row.district_label || null,
+    ward_name: row.ward_name || null,
+    doctor_count: row.doctor_count != null ? Number(row.doctor_count) : null,
+    nurse_midwife_count:
+      row.nurse_midwife_count != null ? Number(row.nurse_midwife_count) : null,
+    bed_capacity: row.bed_capacity != null ? Number(row.bed_capacity) : null,
+    beds_count: row.beds_count != null ? Number(row.beds_count) : null,
+    capacity_persons:
+      row.capacity_persons != null ? Number(row.capacity_persons) : null,
+    patient_visits_total:
+      row.patient_visits_total != null ? Number(row.patient_visits_total) : null,
+    services_offered: row.services_offered || null,
+    latitude: row.latitude != null ? Number(row.latitude) : null,
+    longitude: row.longitude != null ? Number(row.longitude) : null,
+    is_active: row.is_active != null ? Boolean(row.is_active) : null,
+    facility_created_at: row.facility_created_at || null,
+    facility_updated_at: row.facility_updated_at || null,
   };
 }
 
@@ -692,11 +830,43 @@ function mapEducationPayloadToColumns(payload) {
     }));
 }
 
+function quoteSqlIdentifier(columnName) {
+  if (/^[a-z_][a-z0-9_]*$/i.test(columnName)) {
+    return columnName;
+  }
+
+  return `"${String(columnName).replace(/"/g, '""')}"`;
+}
+
+function normalizeHealthServicesOffered(value) {
+  if (value === null || value === undefined || value === "") {
+    return null;
+  }
+
+  if (Array.isArray(value)) {
+    return value.map((entry) => String(entry).trim()).filter(Boolean);
+  }
+
+  return String(value)
+    .split(",")
+    .map((entry) => entry.trim())
+    .filter(Boolean);
+}
+
 function mapHealthPayloadToColumns(payload) {
   const columnMap = [
+    ["code", "code"],
     ["name", "name"],
+    ["commonName", "common_name"],
     ["type", "type"],
-    ["healthcare", "healthcare"],
+    ["ownership", "ownership"],
+    ["capacityPersons", "capacity:persons"],
+    ["zone", "zone"],
+    ["districtLabel", "district"],
+    ["status", "status"],
+    ["doctorCount", "doctor_count"],
+    ["nurseMidwifeCount", "nurse_midwife_count"],
+    ["bedCapacity", "bed_capacity"],
     ["bedsCount", "beds_count"],
     ["patientVisitsTotal", "patient_visits_total"],
     ["servicesOffered", "services_offered"],
@@ -711,7 +881,10 @@ function mapHealthPayloadToColumns(payload) {
     )
     .map(([inputKey, columnName]) => ({
       columnName,
-      value: payload[inputKey],
+      value:
+        inputKey === "servicesOffered"
+          ? normalizeHealthServicesOffered(payload[inputKey])
+          : payload[inputKey],
     }));
 }
 
@@ -1180,7 +1353,12 @@ router.get("/education/flood_exposed", async (req, res) => {
     const whereClause = `WHERE ${conditions.join(" AND ")}`;
 
     const countResult = await db.query(
-      `SELECT COUNT(*)::int AS total FROM flood_facility_exposure ffe ${whereClause}`,
+      `
+        SELECT COUNT(*)::int AS total
+        FROM flood_facility_exposure ffe
+        ${EDUCATION_FACILITY_LATERAL_JOIN}
+        ${whereClause}
+      `,
       params
     );
 
@@ -1199,15 +1377,19 @@ router.get("/education/flood_exposed", async (req, res) => {
           ffe.risk_class,
           ffe.is_exposed,
           ffe.analysis_date,
-          ef.school_name                              AS school_name,
+          COALESCE(
+            ef.school_name,
+            to_jsonb(ef)->>'name',
+            to_jsonb(ef)->>'school_name',
+            ffe.facility_name
+          ) AS school_name,
           ef.student_enrollment_total,
           ef.teacher_count,
-          ef.status                                   AS school_status,
-          ST_Y(ef.geom)                               AS latitude,
-          ST_X(ef.geom)                               AS longitude
+          ef.status AS school_status,
+          COALESCE(ST_Y(ef.geom), ef.y_coordinate) AS latitude,
+          COALESCE(ST_X(ef.geom), ef.x_coordinate) AS longitude
         FROM flood_facility_exposure ffe
-        LEFT JOIN education_facilities ef
-          ON ef.school_id = ffe.facility_id
+        ${EDUCATION_FACILITY_LATERAL_JOIN}
         ${whereClause}
         ORDER BY ffe.is_exposed DESC, ffe.risk_class DESC, ffe.district_name ASC, ffe.ta_name ASC, ffe.facility_name ASC
         LIMIT $${dataParams.length - 1}
@@ -1225,7 +1407,7 @@ router.get("/education/flood_exposed", async (req, res) => {
           id: Number(row.id),
           facility_id: Number(row.facility_id),
           facility_name: row.facility_name || row.school_name || null,
-          school_name: row.school_name || null,
+          school_name: row.school_name || row.facility_name || null,
           district_id: Number(row.district_id),
           district_name: row.district_name || null,
           ta_id: Number(row.ta_id),
@@ -1259,6 +1441,291 @@ router.get("/education/flood_exposed", async (req, res) => {
     return res.status(500).json({
       status: "error",
       message: "Unable to load flood-exposed education facilities",
+    });
+  }
+});
+
+/**
+ * @openapi
+ * /api/v1/admin-data/health/facility_access:
+ *   get:
+ *     summary: List health facility access metrics
+ *     tags:
+ *       - Admin Data
+ *     security:
+ *       - BearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Health facility access metrics
+ */
+router.get("/health/facility_access", async (req, res) => {
+  try {
+    const page = parsePositiveInteger(req.query.page, 1);
+    const pageSize = Math.min(parsePositiveInteger(req.query.page_size, 25), 100);
+    const offset = (page - 1) * pageSize;
+
+    const conditions = [];
+    const params = [];
+
+    const districtId = parsePositiveInteger(req.query.district_id, null);
+    if (districtId) {
+      params.push(districtId);
+      conditions.push(`hf.district_id = $${params.length}`);
+    }
+
+    const wardId = parsePositiveInteger(req.query.ward_id, null);
+    if (wardId) {
+      params.push(wardId);
+      conditions.push(`hf.ta_id = $${params.length}`);
+    }
+
+    if (req.query.search && String(req.query.search).trim()) {
+      params.push(`%${String(req.query.search).trim()}%`);
+      conditions.push(`
+        (
+          COALESCE(hf.name, '') ILIKE $${params.length}
+          OR COALESCE(hf.code, '') ILIKE $${params.length}
+          OR COALESCE(hf.common_name, '') ILIKE $${params.length}
+          OR COALESCE(hf.type, '') ILIKE $${params.length}
+        )
+      `);
+    }
+
+    const whereClause = conditions.length ? `WHERE ${conditions.join(" AND ")}` : "";
+
+    const countResult = await db.query(
+      `
+        SELECT COUNT(*)::int AS total
+        FROM health_facility_access_metrics ham
+        JOIN health_facilities hf ON hf.id = ham.facility_id
+        ${whereClause}
+      `,
+      params,
+    );
+
+    const dataParams = [...params, pageSize, offset];
+    const rowsResult = await db.query(
+      `
+        SELECT
+          ham.facility_id,
+          ham.coverage_distance_km,
+          ham.worldpop_population_within_buffer,
+          ham.welfare_beneficiaries_within_buffer,
+          ham.welfare_beneficiaries_served_by_8km_network,
+          ham.avg_network_distance_km,
+          ham.avg_travel_time_min,
+          ham.metadata,
+          ham.calculated_at,
+          hf.id AS health_facility_id,
+          hf.code,
+          hf.name,
+          hf.common_name,
+          hf.type,
+          hf.ownership,
+          hf."capacity:persons" AS capacity_persons,
+          hf.zone,
+          hf.district AS district_label,
+          hf.status,
+          hf.doctor_count,
+          hf.nurse_midwife_count,
+          hf.bed_capacity,
+          hf.beds_count,
+          hf.patient_visits_total,
+          hf.services_offered,
+          ward.name AS ward_name,
+          hf.district_id,
+          district.name AS district_name,
+          hf.is_active,
+          COALESCE(ST_Y(hf.geom), hf.latitude) AS latitude,
+          COALESCE(ST_X(hf.geom), hf.longitude) AS longitude
+        FROM health_facility_access_metrics ham
+        JOIN health_facilities hf ON hf.id = ham.facility_id
+        LEFT JOIN admin3_units ward ON ward.id = hf.ta_id
+        LEFT JOIN districts district ON district.id = COALESCE(hf.district_id, ward.district_id)
+        ${whereClause}
+        ORDER BY ham.calculated_at DESC NULLS LAST, district.name ASC NULLS LAST, hf.name ASC NULLS LAST
+        LIMIT $${dataParams.length - 1}
+        OFFSET $${dataParams.length}
+      `,
+      dataParams,
+    );
+
+    const total = countResult.rows[0]?.total || 0;
+
+    return res.json({
+      status: "success",
+      data: {
+        items: rowsResult.rows.map(mapHealthFacilityAccessRow),
+        page,
+        page_size: pageSize,
+        total,
+        total_pages: total ? Math.ceil(total / pageSize) : 0,
+        filters: {
+          search: req.query.search || "",
+          district_id: districtId,
+          ward_id: wardId,
+        },
+      },
+    });
+  } catch (error) {
+    console.error("Admin health facility access error:", error.message);
+    return res.status(500).json({
+      status: "error",
+      message: "Unable to load health facility access metrics",
+    });
+  }
+});
+
+/**
+ * @openapi
+ * /api/v1/admin-data/health/flood_exposed:
+ *   get:
+ *     summary: List flood-exposed health facilities from flood_facility_exposure
+ *     tags:
+ *       - Admin Data
+ *     security:
+ *       - BearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Flood-exposed health facilities
+ */
+router.get("/health/flood_exposed", async (req, res) => {
+  try {
+    const page = parsePositiveInteger(req.query.page, 1);
+    const pageSize = Math.min(parsePositiveInteger(req.query.page_size, 25), 100);
+    const offset = (page - 1) * pageSize;
+
+    const conditions = ["LOWER(ffe.facility_type) = 'health'"];
+    const params = [];
+
+    conditions.push(
+      `ffe.analysis_date = (SELECT MAX(analysis_date) FROM flood_facility_exposure WHERE LOWER(facility_type) = 'health')`,
+    );
+
+    const districtId = parsePositiveInteger(req.query.district_id, null);
+    if (districtId) {
+      params.push(districtId);
+      conditions.push(`ffe.district_id = $${params.length}`);
+    }
+
+    const taId = parsePositiveInteger(req.query.ta_id, null);
+    if (taId) {
+      params.push(taId);
+      conditions.push(`ffe.ta_id = $${params.length}`);
+    }
+
+    const riskClass = req.query.risk_class
+      ? String(req.query.risk_class).trim().toLowerCase()
+      : null;
+    if (riskClass && ["low", "medium", "high"].includes(riskClass)) {
+      params.push(riskClass);
+      conditions.push(`LOWER(ffe.risk_class) = $${params.length}`);
+    }
+
+    const exposedOnly = parseBooleanFilter(req.query.exposed_only);
+    if (exposedOnly === true) {
+      conditions.push("ffe.is_exposed = TRUE");
+    }
+
+    if (req.query.search && String(req.query.search).trim()) {
+      params.push(`%${String(req.query.search).trim()}%`);
+      conditions.push(`
+        (
+          COALESCE(ffe.facility_name, '') ILIKE $${params.length}
+          OR COALESCE(hf.name, '') ILIKE $${params.length}
+          OR COALESCE(hf.code, '') ILIKE $${params.length}
+          OR COALESCE(hf.common_name, '') ILIKE $${params.length}
+        )
+      `);
+    }
+
+    const whereClause = `WHERE ${conditions.join(" AND ")}`;
+
+    const countResult = await db.query(
+      `
+        SELECT COUNT(*)::int AS total
+        FROM flood_facility_exposure ffe
+        ${HEALTH_FACILITY_LATERAL_JOIN}
+        ${whereClause}
+      `,
+      params,
+    );
+
+    const dataParams = [...params, pageSize, offset];
+    const rowsResult = await db.query(
+      `
+        SELECT
+          ffe.id,
+          ffe.analysis_date,
+          ffe.facility_id,
+          ffe.facility_name,
+          ffe.district_id,
+          ffe.district_name,
+          ffe.ta_id,
+          ffe.ta_name,
+          ffe.facility_type,
+          ffe.flood_value,
+          ffe.risk_class,
+          ffe.is_exposed,
+          ffe.created_at AS exposure_created_at,
+          ffe.updated_at AS exposure_updated_at,
+          hf.id AS health_facility_id,
+          hf.code,
+          COALESCE(hf.name, hf.common_name, ffe.facility_name) AS name,
+          hf.common_name,
+          hf.type AS health_facility_type,
+          hf.ownership,
+          hf."capacity:persons" AS capacity_persons,
+          hf.zone,
+          hf.district AS district_label,
+          hf.status,
+          hf.doctor_count,
+          hf.nurse_midwife_count,
+          hf.bed_capacity,
+          hf.beds_count,
+          hf.patient_visits_total,
+          hf.services_offered,
+          ward.name AS ward_name,
+          COALESCE(ST_Y(hf.geom), hf.latitude) AS latitude,
+          COALESCE(ST_X(hf.geom), hf.longitude) AS longitude,
+          hf.is_active,
+          hf.created_at AS facility_created_at,
+          hf.updated_at AS facility_updated_at
+        FROM flood_facility_exposure ffe
+        ${HEALTH_FACILITY_LATERAL_JOIN}
+        LEFT JOIN admin3_units ward ON ward.id = hf.ta_id
+        ${whereClause}
+        ORDER BY ffe.is_exposed DESC, ffe.risk_class DESC, ffe.district_name ASC, ffe.ta_name ASC, ffe.facility_name ASC
+        LIMIT $${dataParams.length - 1}
+        OFFSET $${dataParams.length}
+      `,
+      dataParams,
+    );
+
+    const total = countResult.rows[0]?.total || 0;
+
+    return res.json({
+      status: "success",
+      data: {
+        items: rowsResult.rows.map(mapHealthFloodExposedRow),
+        page,
+        page_size: pageSize,
+        total,
+        total_pages: total ? Math.ceil(total / pageSize) : 0,
+        filters: {
+          search: req.query.search || "",
+          district_id: districtId,
+          ta_id: taId,
+          risk_class: riskClass,
+          exposed_only: exposedOnly,
+        },
+      },
+    });
+  } catch (error) {
+    console.error("Admin health flood exposed error:", error.message);
+    return res.status(500).json({
+      status: "error",
+      message: "Unable to load flood-exposed health facilities",
     });
   }
 });
@@ -1875,32 +2342,56 @@ router.get("/disaster/facility_exposure", async (req, res) => {
     const search = String(req.query.search || "").trim();
 
     const params = [];
-    let searchClause = "";
+    const conditions = ["ffe.is_exposed = TRUE"];
+
+    conditions.push(
+      `ffe.analysis_date = (SELECT MAX(analysis_date) FROM flood_facility_exposure)`,
+    );
+
+    const districtId = parsePositiveInteger(req.query.district_id, null);
+    if (districtId) {
+      params.push(districtId);
+      conditions.push(`ffe.district_id = $${params.length}`);
+    }
+
+    const taId = parsePositiveInteger(req.query.ta_id, null);
+    if (taId) {
+      params.push(taId);
+      conditions.push(`ffe.ta_id = $${params.length}`);
+    }
+
+    const facilityType = req.query.facility_type
+      ? String(req.query.facility_type).trim().toLowerCase()
+      : null;
+    if (facilityType) {
+      params.push(facilityType);
+      conditions.push(`LOWER(ffe.facility_type) = $${params.length}`);
+    }
+
     if (search) {
       params.push(`%${search}%`);
-      searchClause = `
-        AND (
+      conditions.push(`
+        (
           COALESCE(ffe.facility_name, '') ILIKE $${params.length}
           OR COALESCE(ffe.facility_type, '') ILIKE $${params.length}
           OR COALESCE(ffe.risk_class, '') ILIKE $${params.length}
           OR COALESCE(ffe.ta_name, '') ILIKE $${params.length}
           OR COALESCE(ffe.district_name, '') ILIKE $${params.length}
+          OR COALESCE(hf.name, '') ILIKE $${params.length}
+          OR COALESCE(ef.school_name, '') ILIKE $${params.length}
         )
-      `;
+      `);
     }
+
+    const whereClause = `WHERE ${conditions.join(" AND ")}`;
 
     const countResult = await db.query(
       `
-        WITH latest AS (
-          SELECT MAX(analysis_date) AS analysis_date
-          FROM flood_facility_exposure
-        )
         SELECT COUNT(*)::int AS total
         FROM flood_facility_exposure ffe
-        JOIN latest
-          ON ffe.analysis_date = latest.analysis_date
-        WHERE TRUE
-        ${searchClause}
+        ${HEALTH_FACILITY_LATERAL_JOIN}
+        ${EDUCATION_FACILITY_LATERAL_JOIN}
+        ${whereClause}
       `,
       params,
     );
@@ -1908,28 +2399,51 @@ router.get("/disaster/facility_exposure", async (req, res) => {
     const dataParams = [...params, pageSize, offset];
     const rowsResult = await db.query(
       `
-        WITH latest AS (
-          SELECT MAX(analysis_date) AS analysis_date
-          FROM flood_facility_exposure
-        )
         SELECT
           ffe.id,
-          ffe.facility_name AS name,
-          ffe.facility_type AS type,
-          ffe.risk_class AS risk_level,
-          ROUND(COALESCE(ffe.flood_value, 0)::numeric, 3) AS flood_depth,
-          ffe.district_name,
-          ffe.ta_name AS ward_name,
-          ffe.is_exposed,
-          ffe.facility_id,
           ffe.analysis_date,
-          ffe.updated_at
+          ffe.district_id,
+          ffe.district_name,
+          ffe.ta_id,
+          ffe.ta_name,
+          ffe.facility_type,
+          ffe.facility_id,
+          ffe.facility_name,
+          ffe.flood_value,
+          ffe.risk_class,
+          ffe.is_exposed,
+          ffe.created_at,
+          ffe.updated_at,
+          hf.code AS health_code,
+          COALESCE(hf.name, hf.common_name, ffe.facility_name) AS health_name,
+          hf.type AS health_type,
+          hf.status AS health_status,
+          COALESCE(
+            ef.school_name,
+            to_jsonb(ef)->>'name',
+            to_jsonb(ef)->>'school_name',
+            CASE WHEN LOWER(TRIM(ffe.facility_type)) = 'education' THEN ffe.facility_name END
+          ) AS school_name,
+          ef.status AS school_status,
+          ef.student_enrollment_total,
+          ef.teacher_count,
+          COALESCE(
+            ST_Y(hf.geom),
+            hf.latitude,
+            ST_Y(ef.geom),
+            ef.y_coordinate
+          ) AS latitude,
+          COALESCE(
+            ST_X(hf.geom),
+            hf.longitude,
+            ST_X(ef.geom),
+            ef.x_coordinate
+          ) AS longitude
         FROM flood_facility_exposure ffe
-        JOIN latest
-          ON ffe.analysis_date = latest.analysis_date
-        WHERE TRUE
-        ${searchClause}
-        ORDER BY ffe.updated_at DESC, ffe.id DESC
+        ${HEALTH_FACILITY_LATERAL_JOIN}
+        ${EDUCATION_FACILITY_LATERAL_JOIN}
+        ${whereClause}
+        ORDER BY ffe.facility_type ASC, ffe.district_name ASC, ffe.ta_name ASC, ffe.facility_name ASC
         LIMIT $${dataParams.length - 1}
         OFFSET $${dataParams.length}
       `,
@@ -1940,11 +2454,49 @@ router.get("/disaster/facility_exposure", async (req, res) => {
     return res.json({
       status: "success",
       data: {
-        items: rowsResult.rows,
+        items: rowsResult.rows.map((row) => ({
+          id: Number(row.id),
+          analysis_date: row.analysis_date || null,
+          district_id: row.district_id != null ? Number(row.district_id) : null,
+          district_name: row.district_name || null,
+          ta_id: row.ta_id != null ? Number(row.ta_id) : null,
+          ta_name: row.ta_name || null,
+          facility_type: row.facility_type || null,
+          facility_id: row.facility_id != null ? Number(row.facility_id) : null,
+          facility_name: row.facility_name || null,
+          flood_value:
+            row.flood_value != null
+              ? Number(Number(row.flood_value).toFixed(4))
+              : null,
+          risk_class: row.risk_class || null,
+          is_exposed: Boolean(row.is_exposed),
+          created_at: row.created_at || null,
+          updated_at: row.updated_at || null,
+          health_code: row.health_code || null,
+          health_name: row.health_name || row.facility_name || null,
+          health_type: row.health_type || null,
+          health_status: row.health_status || null,
+          school_name: row.school_name || null,
+          school_status: row.school_status || null,
+          student_enrollment_total:
+            row.student_enrollment_total != null
+              ? Number(row.student_enrollment_total)
+              : null,
+          teacher_count:
+            row.teacher_count != null ? Number(row.teacher_count) : null,
+          latitude: row.latitude != null ? Number(row.latitude) : null,
+          longitude: row.longitude != null ? Number(row.longitude) : null,
+        })),
         page,
         page_size: pageSize,
         total,
         total_pages: total ? Math.ceil(total / pageSize) : 0,
+        filters: {
+          search,
+          district_id: districtId,
+          ta_id: taId,
+          facility_type: facilityType,
+        },
       },
     });
   } catch (error) {
@@ -1977,30 +2529,40 @@ router.get("/disaster/exposure_summary", async (req, res) => {
     const search = String(req.query.search || "").trim();
 
     const params = [];
-    let searchClause = "";
+    const conditions = [
+      `ffes.analysis_date = (SELECT MAX(analysis_date) FROM flood_facility_exposure_summary)`,
+    ];
+
+    const districtId = parsePositiveInteger(req.query.district_id, null);
+    if (districtId) {
+      params.push(districtId);
+      conditions.push(`ffes.district_id = $${params.length}`);
+    }
+
+    const taId = parsePositiveInteger(req.query.ta_id, null);
+    if (taId) {
+      params.push(taId);
+      conditions.push(`ffes.ta_id = $${params.length}`);
+    }
+
     if (search) {
       params.push(`%${search}%`);
-      searchClause = `
-        AND (
+      conditions.push(`
+        (
           COALESCE(ffes.district_name, '') ILIKE $${params.length}
           OR COALESCE(ffes.ta_name, '') ILIKE $${params.length}
           OR COALESCE(ffes.facility_type, '') ILIKE $${params.length}
         )
-      `;
+      `);
     }
+
+    const whereClause = `WHERE ${conditions.join(" AND ")}`;
 
     const countResult = await db.query(
       `
-        WITH latest AS (
-          SELECT MAX(analysis_date) AS analysis_date
-          FROM flood_facility_exposure_summary
-        )
         SELECT COUNT(*)::int AS total
         FROM flood_facility_exposure_summary ffes
-        JOIN latest
-          ON ffes.analysis_date = latest.analysis_date
-        WHERE TRUE
-        ${searchClause}
+        ${whereClause}
       `,
       params,
     );
@@ -2008,19 +2570,19 @@ router.get("/disaster/exposure_summary", async (req, res) => {
     const dataParams = [...params, pageSize, offset];
     const rowsResult = await db.query(
       `
-        WITH latest AS (
-          SELECT MAX(analysis_date) AS analysis_date
-          FROM flood_facility_exposure_summary
-        )
         SELECT
           ffes.id,
-          CASE
-            WHEN COALESCE(ffes.ta_id, 0) <> 0 THEN ffes.ta_name
-            ELSE ffes.district_name
-          END AS admin_unit_name,
+          ffes.analysis_date,
+          ffes.district_id,
+          ffes.district_name,
+          ffes.ta_id,
+          ffes.ta_name,
           ffes.facility_type,
           ffes.total_facilities,
-          ffes.exposed_facilities AS at_risk_count,
+          ffes.exposed_facilities,
+          ffes.low_risk_count,
+          ffes.medium_risk_count,
+          ffes.high_risk_count,
           ROUND(
             CASE
               WHEN ffes.total_facilities > 0 THEN
@@ -2028,15 +2590,12 @@ router.get("/disaster/exposure_summary", async (req, res) => {
               ELSE 0
             END,
             2
-          ) AS risk_percentage,
-          ffes.analysis_date,
+          ) AS exposed_percentage,
+          ffes.created_at,
           ffes.updated_at
         FROM flood_facility_exposure_summary ffes
-        JOIN latest
-          ON ffes.analysis_date = latest.analysis_date
-        WHERE TRUE
-        ${searchClause}
-        ORDER BY ffes.updated_at DESC, ffes.id DESC
+        ${whereClause}
+        ORDER BY ffes.facility_type ASC, ffes.district_name ASC, ffes.ta_name ASC
         LIMIT $${dataParams.length - 1}
         OFFSET $${dataParams.length}
       `,
@@ -2047,11 +2606,40 @@ router.get("/disaster/exposure_summary", async (req, res) => {
     return res.json({
       status: "success",
       data: {
-        items: rowsResult.rows,
+        items: rowsResult.rows.map((row) => ({
+          id: Number(row.id),
+          analysis_date: row.analysis_date || null,
+          district_id: row.district_id != null ? Number(row.district_id) : null,
+          district_name: row.district_name || null,
+          ta_id: row.ta_id != null ? Number(row.ta_id) : null,
+          ta_name: row.ta_name || null,
+          facility_type: row.facility_type || null,
+          total_facilities:
+            row.total_facilities != null ? Number(row.total_facilities) : null,
+          exposed_facilities:
+            row.exposed_facilities != null ? Number(row.exposed_facilities) : null,
+          low_risk_count:
+            row.low_risk_count != null ? Number(row.low_risk_count) : null,
+          medium_risk_count:
+            row.medium_risk_count != null ? Number(row.medium_risk_count) : null,
+          high_risk_count:
+            row.high_risk_count != null ? Number(row.high_risk_count) : null,
+          exposed_percentage:
+            row.exposed_percentage != null
+              ? Number(row.exposed_percentage)
+              : null,
+          created_at: row.created_at || null,
+          updated_at: row.updated_at || null,
+        })),
         page,
         page_size: pageSize,
         total,
         total_pages: total ? Math.ceil(total / pageSize) : 0,
+        filters: {
+          search,
+          district_id: districtId,
+          ta_id: taId,
+        },
       },
     });
   } catch (error) {
@@ -2059,6 +2647,250 @@ router.get("/disaster/exposure_summary", async (req, res) => {
     return res.status(500).json({
       status: "error",
       message: "Unable to load disaster exposure summary records",
+    });
+  }
+});
+
+/**
+ * @openapi
+ * /api/v1/admin-data/disaster/flood_zones:
+ *   get:
+ *     summary: List flood zone population exposure records
+ *     tags:
+ *       - Admin Data
+ *     security:
+ *       - BearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Flood zone records
+ */
+router.get("/disaster/flood_zones", async (req, res) => {
+  try {
+    const page = parsePositiveInteger(req.query.page, 1);
+    const pageSize = Math.min(parsePositiveInteger(req.query.page_size, 25), 100);
+    const offset = (page - 1) * pageSize;
+    const search = String(req.query.search || "").trim();
+
+    const params = [];
+    const conditions = [
+      `fz.analysis_date = (SELECT MAX(analysis_date) FROM flood_zones)`,
+    ];
+
+    const districtId = parsePositiveInteger(req.query.district_id, null);
+    if (districtId) {
+      params.push(districtId);
+      conditions.push(`fz.district_id = $${params.length}`);
+    }
+
+    const taId = parsePositiveInteger(req.query.ta_id, null);
+    if (taId) {
+      params.push(taId);
+      conditions.push(`fz.ta_id = $${params.length}`);
+    }
+
+    if (search) {
+      params.push(`%${search}%`);
+      conditions.push(`
+        (
+          COALESCE(fz.district_name, '') ILIKE $${params.length}
+          OR COALESCE(fz.ta_name, '') ILIKE $${params.length}
+        )
+      `);
+    }
+
+    const whereClause = `WHERE ${conditions.join(" AND ")}`;
+
+    const countResult = await db.query(
+      `
+        SELECT COUNT(*)::int AS total
+        FROM flood_zones fz
+        ${whereClause}
+      `,
+      params,
+    );
+
+    const dataParams = [...params, pageSize, offset];
+    const rowsResult = await db.query(
+      `
+        SELECT
+          fz.id,
+          fz.district_id,
+          fz.district_name,
+          fz.ta_id,
+          fz.ta_name,
+          fz.total_population,
+          fz.exposed_population,
+          fz.low_risk_population,
+          fz.medium_risk_population,
+          fz.high_risk_population,
+          fz.exposed_area_sq_km,
+          fz.analysis_date,
+          fz.created_at,
+          fz.updated_at
+        FROM flood_zones fz
+        ${whereClause}
+        ORDER BY fz.district_name ASC, fz.ta_name ASC
+        LIMIT $${dataParams.length - 1}
+        OFFSET $${dataParams.length}
+      `,
+      dataParams,
+    );
+
+    const total = countResult.rows[0]?.total || 0;
+    return res.json({
+      status: "success",
+      data: {
+        items: rowsResult.rows.map((row) => ({
+          id: Number(row.id),
+          district_id: row.district_id != null ? Number(row.district_id) : null,
+          district_name: row.district_name || null,
+          ta_id: row.ta_id != null ? Number(row.ta_id) : null,
+          ta_name: row.ta_name || null,
+          total_population:
+            row.total_population != null ? Number(row.total_population) : null,
+          exposed_population:
+            row.exposed_population != null ? Number(row.exposed_population) : null,
+          low_risk_population:
+            row.low_risk_population != null ? Number(row.low_risk_population) : null,
+          medium_risk_population:
+            row.medium_risk_population != null
+              ? Number(row.medium_risk_population)
+              : null,
+          high_risk_population:
+            row.high_risk_population != null ? Number(row.high_risk_population) : null,
+          exposed_area_sq_km:
+            row.exposed_area_sq_km != null
+              ? Number(Number(row.exposed_area_sq_km).toFixed(4))
+              : null,
+          analysis_date: row.analysis_date || null,
+          created_at: row.created_at || null,
+          updated_at: row.updated_at || null,
+        })),
+        page,
+        page_size: pageSize,
+        total,
+        total_pages: total ? Math.ceil(total / pageSize) : 0,
+        filters: {
+          search,
+          district_id: districtId,
+          ta_id: taId,
+        },
+      },
+    });
+  } catch (error) {
+    console.error("Admin disaster flood zones list error:", error.message);
+    return res.status(500).json({
+      status: "error",
+      message: "Unable to load flood zone records",
+    });
+  }
+});
+
+/**
+ * @openapi
+ * /api/v1/admin-data/disaster/flood_risk_polygons:
+ *   get:
+ *     summary: List flood risk polygon records
+ *     tags:
+ *       - Admin Data
+ *     security:
+ *       - BearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Flood risk polygon records
+ */
+router.get("/disaster/flood_risk_polygons", async (req, res) => {
+  try {
+    const page = parsePositiveInteger(req.query.page, 1);
+    const pageSize = Math.min(parsePositiveInteger(req.query.page_size, 25), 100);
+    const offset = (page - 1) * pageSize;
+    const search = String(req.query.search || "").trim();
+
+    const params = [];
+    const conditions = [
+      `frp.analysis_date = (SELECT MAX(analysis_date) FROM flood_risk_polygons)`,
+    ];
+
+    const riskLevel = req.query.risk_level
+      ? String(req.query.risk_level).trim().toLowerCase()
+      : null;
+    if (riskLevel) {
+      params.push(riskLevel);
+      conditions.push(`LOWER(frp.risk_level) = $${params.length}`);
+    }
+
+    if (search) {
+      params.push(`%${search}%`);
+      conditions.push(`
+        (
+          COALESCE(frp.risk_level, '') ILIKE $${params.length}
+          OR COALESCE(frp.source_raster, '') ILIKE $${params.length}
+        )
+      `);
+    }
+
+    const whereClause = `WHERE ${conditions.join(" AND ")}`;
+
+    const countResult = await db.query(
+      `
+        SELECT COUNT(*)::int AS total
+        FROM flood_risk_polygons frp
+        ${whereClause}
+      `,
+      params,
+    );
+
+    const dataParams = [...params, pageSize, offset];
+    const rowsResult = await db.query(
+      `
+        SELECT
+          frp.id,
+          frp.analysis_date,
+          frp.risk_level,
+          frp.source_raster,
+          frp.created_at,
+          ROUND((ST_Area(frp.geom::geography) / 1000000)::numeric, 4) AS area_sq_km,
+          ST_Y(ST_Centroid(frp.geom)) AS latitude,
+          ST_X(ST_Centroid(frp.geom)) AS longitude
+        FROM flood_risk_polygons frp
+        ${whereClause}
+        ORDER BY frp.risk_level ASC, frp.id ASC
+        LIMIT $${dataParams.length - 1}
+        OFFSET $${dataParams.length}
+      `,
+      dataParams,
+    );
+
+    const total = countResult.rows[0]?.total || 0;
+    return res.json({
+      status: "success",
+      data: {
+        items: rowsResult.rows.map((row) => ({
+          id: Number(row.id),
+          analysis_date: row.analysis_date || null,
+          risk_level: row.risk_level || null,
+          source_raster: row.source_raster || null,
+          area_sq_km:
+            row.area_sq_km != null ? Number(row.area_sq_km) : null,
+          latitude: row.latitude != null ? Number(row.latitude) : null,
+          longitude: row.longitude != null ? Number(row.longitude) : null,
+          created_at: row.created_at || null,
+        })),
+        page,
+        page_size: pageSize,
+        total,
+        total_pages: total ? Math.ceil(total / pageSize) : 0,
+        filters: {
+          search,
+          risk_level: riskLevel,
+        },
+      },
+    });
+  } catch (error) {
+    console.error("Admin disaster flood risk polygons list error:", error.message);
+    return res.status(500).json({
+      status: "error",
+      message: "Unable to load flood risk polygon records",
     });
   }
 });
@@ -2581,38 +3413,58 @@ router.post("/health", async (req, res) => {
         const insertedResult = await client.query(
           `
             INSERT INTO health_facilities (
+              code,
               name,
+              common_name,
               type,
-              healthcare,
+              ownership,
+              "capacity:persons",
+              zone,
+              district,
+              status,
+              doctor_count,
+              nurse_midwife_count,
+              bed_capacity,
               beds_count,
               patient_visits_total,
               services_offered,
               district_id,
-              ward_id,
+              ta_id,
+              latitude,
+              longitude,
               geom,
               is_active,
               updated_at
             )
             VALUES (
-              $1, $2, $3, $4, $5, $6,
-              $7, $8,
-              ST_SetSRID(ST_MakePoint($9, $10), 4326),
-              COALESCE($11, TRUE),
+              $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15,
+              $16, $17, $18, $19,
+              ST_SetSRID(ST_MakePoint($19, $18), 4326),
+              COALESCE($20, TRUE),
               CURRENT_TIMESTAMP
             )
             RETURNING id
           `,
           [
+            value.code ?? null,
             value.name,
+            value.commonName ?? null,
             value.type ?? null,
-            value.healthcare ?? null,
+            value.ownership ?? null,
+            value.capacityPersons ?? null,
+            value.zone ?? null,
+            value.districtLabel ?? null,
+            value.status ?? null,
+            value.doctorCount ?? null,
+            value.nurseMidwifeCount ?? null,
+            value.bedCapacity ?? null,
             value.bedsCount ?? null,
             value.patientVisitsTotal ?? null,
-            value.servicesOffered ?? [],
+            normalizeHealthServicesOffered(value.servicesOffered) ?? [],
             value.districtId ?? null,
             value.wardId ?? null,
-            value.longitude,
             value.latitude,
+            value.longitude,
             value.isActive,
           ],
         );
@@ -3633,13 +4485,17 @@ router.patch("/health/:id", async (req, res) => {
 
         pendingUpdates.forEach(({ columnName, value: columnValue }) => {
           params.push(columnValue ?? null);
-          setClauses.push(`${columnName} = $${params.length}`);
+          setClauses.push(
+            `${quoteSqlIdentifier(columnName)} = $${params.length}`,
+          );
         });
 
         if (includesGeometryUpdate) {
           params.push(value.longitude, value.latitude);
           setClauses.push(
             `geom = ST_SetSRID(ST_MakePoint($${params.length - 1}, $${params.length}), 4326)`,
+            `longitude = $${params.length - 1}`,
+            `latitude = $${params.length}`,
           );
         }
 

@@ -39,9 +39,18 @@ const educationBaseSchema = {
 };
 
 const healthBaseSchema = {
+  code: Joi.string().trim().max(100).allow("", null),
   name: Joi.string().trim().max(255),
+  commonName: Joi.string().trim().max(255).allow("", null),
   type: Joi.string().trim().max(50).allow("", null),
-  healthcare: Joi.string().trim().max(100).allow("", null),
+  ownership: Joi.string().trim().max(100).allow("", null),
+  capacityPersons: Joi.number().integer().min(0).allow(null),
+  zone: Joi.string().trim().max(100).allow("", null),
+  districtLabel: Joi.string().trim().max(255).allow("", null),
+  status: Joi.string().trim().max(100).allow("", null),
+  doctorCount: Joi.number().integer().min(0).allow(null),
+  nurseMidwifeCount: Joi.number().integer().min(0).allow(null),
+  bedCapacity: Joi.number().integer().min(0).allow(null),
   bedsCount: Joi.number().integer().min(0).allow(null),
   patientVisitsTotal: Joi.number().integer().min(0).allow(null),
   servicesOffered: Joi.alternatives()
