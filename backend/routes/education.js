@@ -1,19 +1,12 @@
 const express = require("express");
 const router = express.Router();
 const db = require("../db");
-const auth = require("../middleware/auth");
-const requireDepartmentAccess = require("../middleware/requireDepartmentAccess");
 const {
   appendDistrictGeometryCondition,
   appendDistrictNameCondition,
   resolveDistrictFilterValues,
   buildCanonicalDistrictExpression,
 } = require("./queryFilters");
-
-// All education routes require authentication and education department read access.
-// education_admin role is automatically granted access by the RBAC service.
-router.use(auth);
-router.use(requireDepartmentAccess("education", "read"));
 
 function parseNumericValue(value) {
   if (value === null || value === undefined) {
