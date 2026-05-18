@@ -1,6 +1,7 @@
 # importing libraries
 import json
 import logging
+import time
 
 import pandas as pd
 import numpy as np
@@ -411,6 +412,123 @@ def _coerce_array(value):
         return value
     return [item.strip() for item in str(value).split(',') if item.strip()]
 
+
+def _load_health_facilities_with_upsert(session, load_df):
+    table_name = DATASET_CONFIG['health']['table_name']
+    engine = session.bind
+    working = load_df.copy()
+    working['code'] = working['code'].apply(
+        lambda value: str(value).strip().upper() if pd.notna(value) and str(value).strip() else pd.NA
+    )
+
+    with_code = working[working['code'].notna()].copy()
+    without_code = working[working['code'].isna()].copy()
+
+    if not with_code.empty:
+        before_dedup = len(with_code)
+        with_code = with_code.drop_duplicates(subset=['code'], keep='last').copy()
+        collapsed = before_dedup - len(with_code)
+        if collapsed > 0:
+            log_step(
+                '_load_health_facilities_with_upsert',
+                f'collapsed {collapsed} duplicate upload rows by health facility code before upsert',
+            )
+
+        staging_table = f'health_facilities_upload_{int(time.time() * 1000)}'
+        with_code.to_sql(
+            staging_table,
+            engine,
+            if_exists='fail',
+            index=False,
+            dtype={'geom': Geometry('POINT', srid=4326)},
+        )
+        try:
+            session.execute(
+                text(
+                    f"""
+                    INSERT INTO {table_name} (
+                        code,
+                        name,
+                        common_name,
+                        type,
+                        ownership,
+                        "capacity:persons",
+                        zone,
+                        district,
+                        status,
+                        doctor_count,
+                        nurse_midwife_count,
+                        bed_capacity,
+                        beds_count,
+                        latitude,
+                        longitude,
+                        patient_visits_total,
+                        services_offered,
+                        ta_id,
+                        district_id,
+                        geom
+                    )
+                    SELECT
+                        code,
+                        name,
+                        common_name,
+                        type,
+                        ownership,
+                        "capacity:persons",
+                        zone,
+                        district,
+                        status,
+                        doctor_count,
+                        nurse_midwife_count,
+                        bed_capacity,
+                        beds_count,
+                        latitude,
+                        longitude,
+                        patient_visits_total,
+                        services_offered,
+                        ta_id,
+                        district_id,
+                        geom
+                    FROM {staging_table}
+                    ON CONFLICT (code) WHERE code IS NOT NULL DO UPDATE
+                    SET
+                        name = EXCLUDED.name,
+                        common_name = EXCLUDED.common_name,
+                        type = EXCLUDED.type,
+                        ownership = EXCLUDED.ownership,
+                        "capacity:persons" = EXCLUDED."capacity:persons",
+                        zone = EXCLUDED.zone,
+                        district = EXCLUDED.district,
+                        status = EXCLUDED.status,
+                        doctor_count = EXCLUDED.doctor_count,
+                        nurse_midwife_count = EXCLUDED.nurse_midwife_count,
+                        bed_capacity = EXCLUDED.bed_capacity,
+                        beds_count = EXCLUDED.beds_count,
+                        latitude = EXCLUDED.latitude,
+                        longitude = EXCLUDED.longitude,
+                        patient_visits_total = EXCLUDED.patient_visits_total,
+                        services_offered = EXCLUDED.services_offered,
+                        ta_id = EXCLUDED.ta_id,
+                        district_id = EXCLUDED.district_id,
+                        geom = EXCLUDED.geom
+                    """
+                )
+            )
+        finally:
+            session.execute(text(f"DROP TABLE IF EXISTS {staging_table}"))
+
+    if not without_code.empty:
+        without_code.to_sql(
+            table_name,
+            engine,
+            if_exists='append',
+            index=False,
+            dtype={'geom': Geometry('POINT', srid=4326)},
+        )
+
+    session.commit()
+    return len(working), table_name
+
 # Loading a GeoDataFrame into PostGIS, with special handling for boundary datasets
 def load_to_postgis(session, gdf, dataset_type, if_exists='append'):
     try:
@@ -445,6 +563,9 @@ def load_to_postgis(session, gdf, dataset_type, if_exists='append'):
             load_df = load_df.loc[valid_geom_mask].copy()
             if load_df.empty:
                 return 0, table_name
+
+        if dataset_type == 'health':
+            return _load_health_facilities_with_upsert(session, load_df)
 
         load_df.to_sql(
             table_name,

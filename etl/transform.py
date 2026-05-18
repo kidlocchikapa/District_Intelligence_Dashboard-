@@ -738,10 +738,27 @@ def normalize_health_dataset(df):
     working['zone'] = working['zone'].fillna(working.get('addr:city'))
     working['district'] = working['district'].fillna(working.get('district_name'))
     working['code'] = working['code'].fillna(working.get('osm_id'))
+    working['code'] = working['code'].apply(_normalize_health_code)
 
     working['services_offered'] = working['services_offered'].fillna(working.get('healthcare'))
     working['services_offered'] = working['services_offered'].fillna(working.get('healthcare:speciality'))
     return working
+
+
+def _normalize_health_code(value):
+    if value is None or value is pd.NA:
+        return pd.NA
+
+    try:
+        if pd.isna(value):
+            return pd.NA
+    except TypeError:
+        pass
+
+    normalized = str(value).strip().upper()
+    if not normalized or normalized in {'NAN', '<NA>', 'NONE', 'NULL'}:
+        return pd.NA
+    return normalized
 
 # Convert a DataFrame with longitude and latitude columns into a GeoDataFrame with Point geometries
 def to_gdf(df, lon_col='longitude', lat_col='latitude', crs='EPSG:4326'):
