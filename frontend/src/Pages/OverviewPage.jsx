@@ -18,6 +18,7 @@ import { usePdfExport } from "../hooks/usePdfExport";
 import { useImageDownload } from "../hooks/useImageDownload";
 import SharedDistrictSelector from "../components/SharedDistrictSelector";
 import PopulationRasterPanel from "../components/PopulationRasterPanel";
+import PlanningPriorityPanel from "../components/PlanningPriorityPanel";
 import {
   BarChart,
   Bar,
@@ -140,6 +141,15 @@ function OverviewPage() {
       ta: selectedTa,
       admin_type: selectedTa ? "TA" : "District",
       preview_limit: 0,
+    }),
+  );
+  const planningPriorities = useDashboardData(
+    buildDashboardPath("/dashboard/planning-priorities", {
+      district: districtScope,
+      ta: selectedTa,
+      admin_type: "TA",
+      department: "overview",
+      limit: 5,
     }),
   );
 
@@ -291,6 +301,12 @@ function OverviewPage() {
       { metric: "Flood Exposed Population", value: formatStat(exposedPopulation) },
       { metric: "Not Exposed Population", value: formatStat(notExposedPopulation) },
     ];
+    const planningRows = (planningPriorities.data?.priorities || []).map((row) => ({
+      area: row.admin_unit_name,
+      band: row.priority_band,
+      score: formatStat(row.planning_priority_score),
+      action: row.recommended_actions?.[0] || "Monitor and compare with adjacent areas",
+    }));
 
     const sections = [
       {
@@ -359,6 +375,23 @@ function OverviewPage() {
           { key: "value", label: "Value", width: 180 },
         ],
         rows: disasterRows,
+      },
+      {
+        title: "Planning Priorities",
+        columns: [
+          { key: "area", label: "Area", width: 140 },
+          { key: "band", label: "Priority", width: 80 },
+          { key: "score", label: "Score", width: 70 },
+          { key: "action", label: "Recommended Action", width: 290 },
+        ],
+        rows: planningRows.length > 0 ? planningRows : [
+          {
+            area: scopeLabel,
+            band: "N/A",
+            score: "0",
+            action: "No ranked planning priorities are available for this scope yet.",
+          },
+        ],
       },
     ];
 
@@ -485,6 +518,11 @@ function OverviewPage() {
                 </div>
               ))}
         </div>
+
+        <PlanningPriorityPanel
+          planningPriorities={planningPriorities}
+          scopeLabel={scopeLabel}
+        />
 
         {/* Middle Row (Map + Bar Chart) */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-10">

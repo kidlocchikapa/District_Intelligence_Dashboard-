@@ -31,6 +31,7 @@ import { usePdfExport } from "../hooks/usePdfExport";
 import { formatNumber } from "../lib/format";
 import IntegrationSummaryPanel from "../components/IntegrationSummaryPanel";
 import SharedDistrictSelector from "../components/SharedDistrictSelector";
+import PlanningPriorityPanel from "../components/PlanningPriorityPanel";
 import { buildDashboardPath } from "../lib/query";
 import PopulationRasterPanel from "../components/PopulationRasterPanel";
 
@@ -151,6 +152,15 @@ function DisasterPage() {
       district: selectedDistrict,
       ta: selectedTa,
       admin_type: "District",
+    }),
+  );
+  const planningPriorities = useDashboardData(
+    buildDashboardPath("/dashboard/planning-priorities", {
+      district: disasterDistrictFilter || selectedDistrict,
+      ta: selectedTa,
+      admin_type: "TA",
+      department: "disaster",
+      limit: selectedTa ? 1 : 5,
     }),
   );
 
@@ -287,6 +297,12 @@ function DisasterPage() {
         value: formatStat(healthFacilitiesExposed),
       },
     ];
+    const planningRows = (planningPriorities.data?.priorities || []).map((row) => ({
+      area: row.admin_unit_name,
+      priority: row.priority_band,
+      score: formatStat(row.planning_priority_score),
+      action: row.recommended_actions?.[0] || "Prioritize flood resilience and service continuity",
+    }));
 
     await exportDataPdf({
       title: "Disaster Risk Area Analysis",
@@ -307,6 +323,23 @@ function DisasterPage() {
             { key: "value", label: "Value", width: 180 },
           ],
           rows: facilitiesRows,
+        },
+        {
+          title: "Planning Priorities",
+          columns: [
+            { key: "area", label: "Area", width: 140 },
+            { key: "priority", label: "Priority", width: 90 },
+            { key: "score", label: "Score", width: 70 },
+            { key: "action", label: "Recommended Action", width: 280 },
+          ],
+          rows: planningRows.length ? planningRows : [
+            {
+              area: scopeLabel,
+              priority: "N/A",
+              score: "0",
+              action: "No ranked disaster planning priorities are available for this scope yet.",
+            },
+          ],
         },
       ],
     });
@@ -441,6 +474,12 @@ function DisasterPage() {
                 </div>
               ))}
         </div>
+
+        <PlanningPriorityPanel
+          planningPriorities={planningPriorities}
+          scopeLabel={selectedTa || scopeLabel}
+          compact
+        />
 
         <div className="mb-10">
           <IntegrationSummaryPanel
@@ -828,6 +867,7 @@ function DisasterPage() {
           healthFacilitiesExposed={healthFacilitiesExposed}
           healthFacilitiesTotal={healthFacilitiesTotal}
           scopeLabel={scopeLabel}
+          planningPriorities={planningPriorities}
         />
 
       </div>
@@ -839,10 +879,11 @@ function DisasterPage() {
 function DisasterRecommendations({
   disasterSummary, educationFacilityExposureSummary, healthFacilityExposureSummary,
   educationFloodImpact, schoolsExposed, schoolsTotal, healthFacilitiesExposed,
-  healthFacilitiesTotal, scopeLabel,
+  healthFacilitiesTotal, scopeLabel, planningPriorities,
 }) {
   const loading = disasterSummary.loading || educationFacilityExposureSummary.loading ||
-    healthFacilityExposureSummary.loading || educationFloodImpact.loading;
+    healthFacilityExposureSummary.loading || educationFloodImpact.loading || planningPriorities.loading;
+  const rankedPriorities = planningPriorities?.data?.priorities || [];
 
   const summary      = disasterSummary.data || {};
   const eduImpact    = educationFloodImpact.data?.summary || {};
@@ -858,7 +899,16 @@ function DisasterRecommendations({
     low:    { label: "Planning Note",     classes: "bg-blue-50 border-blue-200 text-blue-700",  dot: "bg-blue-500"   },
   };
 
+  const priorityLedRecommendations = rankedPriorities.slice(0, 2).map((row, index) => ({
+    priority: index === 0 ? "high" : row.priority_band === "Critical" || row.priority_band === "High" ? "high" : "medium",
+    icon: ShieldAlert,
+    title: `${row.admin_unit_name} should anchor the next flood-readiness package`,
+    body: `${row.narrative} Flood exposure is estimated at ${formatNumber(row.flood_exposed_population_pct, 1)}% of the local population, with both service vulnerability and beneficiary concentration reinforcing the need for coordinated preparedness.`,
+    action: row.recommended_actions?.find((action) => /flood|roads|facilities|prepared/i.test(action)) || row.recommended_actions?.[0] || "Use the top-ranked TA as the first flood-readiness intervention zone",
+  }));
+
   const recommendations = [
+    ...priorityLedRecommendations,
     schoolsExposed > 0 && {
       priority: "high",
       icon: School,
@@ -908,7 +958,7 @@ function DisasterRecommendations({
       body: `Flood risk patterns shift with climate variability. The current analysis is based on the latest available flood raster. Annual re-runs of the flood exposure pipeline after each rainy season will ensure the dashboard reflects current risk and that planning decisions are based on up-to-date data.`,
       action: "Schedule annual flood raster updates and re-run the exposure analysis pipeline each May",
     },
-  ].filter(Boolean);
+  ].filter(Boolean).slice(0, 7);
 
   if (loading) {
     return (

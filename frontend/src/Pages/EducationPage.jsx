@@ -26,6 +26,7 @@ import MapPanel from "../components/MapPanel";
 import IntegrationSummaryPanel from "../components/IntegrationSummaryPanel";
 import SharedDistrictSelector from "../components/SharedDistrictSelector";
 import PopulationRasterPanel from "../components/PopulationRasterPanel";
+import PlanningPriorityPanel from "../components/PlanningPriorityPanel";
 import {
   Bar,
   BarChart,
@@ -288,6 +289,15 @@ function EducationPage() {
       district: coverageFocusDistrict,
     }),
   );
+  const planningPriorities = useDashboardData(
+    buildDashboardPath("/dashboard/planning-priorities", {
+      district: selectedDistrict,
+      ta: selectedTa,
+      admin_type: "TA",
+      department: "education",
+      limit: selectedTa ? 1 : 5,
+    }),
+  );
 
   const formatStat = (value, digits = 0) => formatNumber(value, digits);
   const selectedAreaName = selectedTa
@@ -330,6 +340,12 @@ function EducationPage() {
         ),
       },
     ];
+    const planningRows = (planningPriorities.data?.priorities || []).map((row) => ({
+      area: row.admin_unit_name,
+      priority: row.priority_band,
+      score: formatStat(row.planning_priority_score, 1),
+      action: row.recommended_actions?.[0] || "Review service gaps and target investment",
+    }));
 
     await exportDataPdf({
       title: "Education Area Analysis",
@@ -342,6 +358,23 @@ function EducationPage() {
             { key: "value", label: "Value", width: 180 },
           ],
           rows,
+        },
+        {
+          title: "Planning Priorities",
+          columns: [
+            { key: "area", label: "Area", width: 140 },
+            { key: "priority", label: "Priority", width: 90 },
+            { key: "score", label: "Score", width: 70 },
+            { key: "action", label: "Recommended Action", width: 280 },
+          ],
+          rows: planningRows.length > 0 ? planningRows : [
+            {
+              area: selectedDistrict || "Education overview",
+              priority: "N/A",
+              score: "0.0",
+              action: "No ranked education planning priorities are available for this scope yet.",
+            },
+          ],
         },
       ],
     });
@@ -710,6 +743,12 @@ function EducationPage() {
                 </div>
               ))}
         </div>
+
+        <PlanningPriorityPanel
+          planningPriorities={planningPriorities}
+          scopeLabel={selectedTa || selectedDistrict || "Education overview"}
+          compact
+        />
 
         <div className="mb-10">
           <IntegrationSummaryPanel
@@ -1331,6 +1370,7 @@ function EducationPage() {
           floodImpact={floodImpact}
           educationSummary={educationSummary}
           selectedDistrict={selectedDistrict}
+          planningPriorities={planningPriorities}
         />
 
         {/* ── Flood Impact on Schools ─────────────────────────────────── */}
@@ -1345,14 +1385,15 @@ function EducationPage() {
 }
 
 /* ─── Planning Recommendations ────────────────────────────────────────── */
-function PlanningRecommendations({ districtInsights, floodImpact, educationSummary, selectedDistrict }) {
+function PlanningRecommendations({ districtInsights, floodImpact, educationSummary, selectedDistrict, planningPriorities }) {
   const summary      = districtInsights.data?.summary || {};
   const thresholds   = districtInsights.data?.thresholds || {};
   const allRows      = districtInsights.data?.all_districts || districtInsights.data?.districts || [];
   const floodSummary = floodImpact.data?.summary || {};
   const eduSummary   = educationSummary.data || {};
+  const rankedPriorities = planningPriorities?.data?.priorities || [];
 
-  const loading = districtInsights.loading || floodImpact.loading || educationSummary.loading;
+  const loading = districtInsights.loading || floodImpact.loading || educationSummary.loading || planningPriorities.loading;
 
   // Derive key numbers
   const infraGapTAs      = allRows.filter(r => r.insight === "infrastructure gap");
@@ -1365,7 +1406,16 @@ function PlanningRecommendations({ districtInsights, floodImpact, educationSumma
     : null;
   const classroomRatio   = null; // not in summary endpoint, derived from school-level
 
+  const priorityLedRecommendations = rankedPriorities.slice(0, 2).map((row, index) => ({
+    priority: index === 0 ? "high" : row.priority_band === "Critical" || row.priority_band === "High" ? "high" : "medium",
+    icon: row.education_vulnerability_score >= row.health_vulnerability_score ? School : ShieldAlert,
+    title: `${row.admin_unit_name} should anchor the next education intervention package`,
+    body: `${row.narrative} Education-specific pressure is scored at ${formatNumber(row.education_vulnerability_score, 1)}, with flood isolation at ${formatNumber(row.education_flood_isolation_score, 1)}. This indicates that school access planning in ${row.admin_unit_name} should be coordinated with wider district vulnerability reduction.`,
+    action: row.recommended_actions?.[0] || "Prioritise the top-ranked TA in the next education planning cycle",
+  }));
+
   const recommendations = [
+    ...priorityLedRecommendations,
     // 1 — Infrastructure gaps
     infraGapTAs.length > 0 && {
       priority: "high",
@@ -1422,7 +1472,7 @@ function PlanningRecommendations({ districtInsights, floodImpact, educationSumma
       body: `The integrated welfare context shows flood-affected beneficiaries and school-age unenrolled populations overlap significantly. Social cash transfer programmes should include school attendance conditionality to improve enrolment in high-poverty, low-access TAs.`,
       action: "Introduce school attendance conditionality in social protection programmes for targeted TAs",
     },
-  ].filter(Boolean);
+  ].filter(Boolean).slice(0, 7);
 
   const priorityConfig = {
     high:   { label: "High Priority",   classes: "bg-red-50 border-red-200 text-red-700",    dot: "bg-red-500"    },

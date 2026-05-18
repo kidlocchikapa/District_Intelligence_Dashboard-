@@ -10,6 +10,7 @@ import PopulationRasterPanel from "../components/PopulationRasterPanel";
 import GlobalHospitalRegistry from "../components/GlobalHospitalRegistry";
 import IntegrationSummaryPanel from "../components/IntegrationSummaryPanel";
 import SharedDistrictSelector from "../components/SharedDistrictSelector";
+import PlanningPriorityPanel from "../components/PlanningPriorityPanel";
 import FacilityBurdenScatter from "../components/Charts/FacilityBurdenScatter.jsx";
 import TAAnalyticsTable from "../components/Tables/TAAnalyticsTable.jsx";
 import {
@@ -145,6 +146,15 @@ function HealthPage() {
       admin_type: "District",
     }),
   );
+  const planningPriorities = useDashboardData(
+    buildDashboardPath("/dashboard/planning-priorities", {
+      district: districtScope,
+      ta: selectedTa,
+      admin_type: "TA",
+      department: "health",
+      limit: selectedTa ? 1 : 5,
+    }),
+  );
 
   const augmentedGeojson = useMemo(() => {
     if (!healthCoverageTaGeojson.data || !taAnalytics.data) {
@@ -231,6 +241,12 @@ function HealthPage() {
         value: formatStat(value),
       }),
     );
+    const planningRows = (planningPriorities.data?.priorities || []).map((row) => ({
+      area: row.admin_unit_name,
+      priority: row.priority_band,
+      score: formatStat(row.planning_priority_score),
+      action: row.recommended_actions?.[0] || "Review facility coverage and outreach",
+    }));
 
     await exportDataPdf({
       title: "Health Area Analysis",
@@ -264,6 +280,23 @@ function HealthPage() {
           ],
           rows: welfareRows.length ? welfareRows : [
             { metric: "Integration summary", value: "No data available" },
+          ],
+        },
+        {
+          title: "Planning Priorities",
+          columns: [
+            { key: "area", label: "Area", width: 140 },
+            { key: "priority", label: "Priority", width: 90 },
+            { key: "score", label: "Score", width: 70 },
+            { key: "action", label: "Recommended Action", width: 280 },
+          ],
+          rows: planningRows.length ? planningRows : [
+            {
+              area: districtScope,
+              priority: "N/A",
+              score: "0",
+              action: "No ranked health planning priorities are available for this scope yet.",
+            },
           ],
         },
       ],
@@ -526,6 +559,12 @@ function HealthPage() {
                 </div>
               ))}
         </div>
+
+        <PlanningPriorityPanel
+          planningPriorities={planningPriorities}
+          scopeLabel={selectedTa || districtScope}
+          compact
+        />
 
         <div className="mb-10">
           <IntegrationSummaryPanel
@@ -1264,6 +1303,7 @@ function HealthPage() {
           nonFunctionalFacilities={nonFunctionalFacilities}
           govFacilities={govFacilities}
           privateFacilities={privateFacilities}
+          planningPriorities={planningPriorities}
         />
       </div>
     </div>
@@ -1276,8 +1316,10 @@ function HealthRecommendations({
   healthIntegration, districtScope, accessTotal, noAccessTotal, accessShare,
   totalFacilities, functionalFacilities, nonFunctionalFacilities,
   govFacilities, privateFacilities,
+  planningPriorities,
 }) {
-  const loading = healthSummary.loading || servedPopulationSummary.loading || healthDrilldown.loading;
+  const loading = healthSummary.loading || servedPopulationSummary.loading || healthDrilldown.loading || planningPriorities.loading;
+  const rankedPriorities = planningPriorities?.data?.priorities || [];
 
   const drillSummary  = healthDrilldown.data?.summary || {};
   const taBreakdown   = healthDrilldown.data?.ta_breakdown || [];
@@ -1322,7 +1364,16 @@ function HealthRecommendations({
     low:    { label: "Planning Note",     classes: "bg-blue-50 border-blue-200 text-blue-700",     dot: "bg-blue-500"   },
   };
 
+  const priorityLedRecommendations = rankedPriorities.slice(0, 2).map((row, index) => ({
+    priority: index === 0 ? "high" : row.priority_band === "Critical" || row.priority_band === "High" ? "high" : "medium",
+    icon: row.health_vulnerability_score >= row.education_vulnerability_score ? HeartPulse : AlertTriangle,
+    title: `${row.admin_unit_name} should anchor the next health access response`,
+    body: `${row.narrative} Health vulnerability is scored at ${formatNumber(row.health_vulnerability_score, 1)} and flood isolation at ${formatNumber(row.health_flood_isolation_score, 1)}, which signals a need for targeted facility access and continuity planning.`,
+    action: row.recommended_actions?.find((action) => /clinic|health|referral|outreach/i.test(action)) || row.recommended_actions?.[0] || "Use the top-ranked TA to guide the next health deployment cycle",
+  }));
+
   const recommendations = [
+    ...priorityLedRecommendations,
     // 1 — Access gap
     noAccessTotal > 0 && {
       priority: "high",
@@ -1395,7 +1446,7 @@ function HealthRecommendations({
       body: `The 8 km buffer coverage maps show geographic proximity to facilities, not actual utilisation. A facility within 8 km may still be inaccessible due to road conditions, cost, or cultural barriers. The road-distance and travel-time rasters provide a more accurate picture of real-world access than straight-line buffers alone.`,
       action: "Supplement coverage analysis with patient visit data and community health surveys to capture utilisation gaps",
     },
-  ].filter(Boolean);
+  ].filter(Boolean).slice(0, 9);
 
   if (loading) {
     return (
