@@ -423,6 +423,9 @@ router.get("/served-population/geojson", async (req, res) => {
                         'health_population_served_pct', ar.health_population_served_pct,
                         'health_population_unserved_total', ar.health_population_unserved_total,
                         'health_population_unserved_pct', ar.health_population_unserved_pct,
+                        'nearest_health_distance_km', nhd.nearest_health_distance_km,
+                        'health_2sfca_access_score', sfca.health_2sfca_access_score,
+                        'health_2sfca_catchment_minutes', sfca.catchment_minutes,
                         'coverage_distance_km', ar.coverage_distance_km,
                         'calculated_at', ar.calculated_at
                     )
@@ -443,6 +446,27 @@ router.get("/served-population/geojson", async (req, res) => {
                     GROUP BY admin_unit_id
                 ) ar
                   ON ar.admin_unit_id = au.id
+                LEFT JOIN (
+                    SELECT
+                        admin_unit_id,
+                        MAX(CASE WHEN metric_name = 'nearest_health_distance_km' THEN metric_value END) AS nearest_health_distance_km
+                    FROM analysis_results
+                    WHERE analysis_type = 'nearest_health_distance'
+                      AND LOWER(admin_unit_type) = LOWER($1)
+                    GROUP BY admin_unit_id
+                ) nhd
+                  ON nhd.admin_unit_id = au.id
+                LEFT JOIN (
+                    SELECT
+                        admin_unit_id,
+                        MAX(CASE WHEN metric_name = 'health_2sfca_access_score' THEN metric_value END) AS health_2sfca_access_score,
+                        MAX((metadata->>'catchment_minutes')::numeric) AS catchment_minutes
+                    FROM analysis_results
+                    WHERE analysis_type = 'health_2sfca_access'
+                      AND LOWER(admin_unit_type) = LOWER($1)
+                    GROUP BY admin_unit_id
+                ) sfca
+                  ON sfca.admin_unit_id = au.id
                 WHERE ${conditions.join(" AND ")}
                 ORDER BY au.name
             ) rowconf;

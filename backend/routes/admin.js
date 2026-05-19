@@ -48,6 +48,9 @@ const DEFAULT_OVERPASS_URL =
 const DEFAULT_OVERPASS_TIMEOUT = Number(process.env.OVERPASS_TIMEOUT || 180);
 const DEFAULT_OVERPASS_DISTRICTS =
   process.env.OVERPASS_ROADS_DISTRICTS || "Zomba,Zomba City";
+const DEFAULT_FLOOD_RASTER_PATH =
+  process.env.FLOOD_RASTER_PATH ||
+  path.resolve(__dirname, "../../sample_data/flood_impact_zomba.tif");
 const DEFAULT_OVERPASS_QUERY =
   process.env.OVERPASS_ROADS_QUERY ||
   [
@@ -70,6 +73,7 @@ const presetTaskDefinitions = {
           type: "worldpop",
           sourceType: "worldpop",
           apiUrl,
+          districtGroup: "zomba_all",
           worldpopYear,
           worldpopDataset: "wpgppop",
           worldpopApiKey,
@@ -95,6 +99,7 @@ const presetTaskDefinitions = {
           type: "worldpop",
           sourceType: "worldpop",
           apiUrl,
+          districtGroup: "zomba_all",
           worldpopYear,
           worldpopDataset: "wpgpas",
           worldpopApiKey,
@@ -200,14 +205,18 @@ const presetTaskDefinitions = {
   },
   disaster_insights: {
     label: "Recalculate disaster insights",
-    description: "Runs district disaster vulnerability analysis.",
-    stages: ({ adminLevel }) => [
+    description:
+      "Runs the flood exposure pipeline to refresh flood zones, risk polygons, and facility exposure outputs.",
+    stages: ({ floodRasterPath, worldpopYear, analysisDate }) => [
       {
-        label: "Disaster analysis",
+        label: "Flood exposure analysis",
         args: buildEtlArgs({
-          type: "analysis",
-          analysisTypes: ["disaster_vulnerability"],
-          adminLevel,
+          type: "flood",
+          sourceType: "file",
+          filePath: floodRasterPath,
+          districtGroup: "zomba_all",
+          worldpopYear,
+          analysisDate,
         }),
       },
     ],
@@ -281,11 +290,14 @@ const presetTaskDefinitions = {
         }),
       },
       {
-        label: "Disaster analysis",
+        label: "Flood exposure analysis",
         args: buildEtlArgs({
-          type: "analysis",
-          analysisTypes: ["disaster_vulnerability"],
-          adminLevel,
+          type: "flood",
+          sourceType: "file",
+          filePath: floodRasterPath,
+          districtGroup: "zomba_all",
+          worldpopYear,
+          analysisDate,
         }),
       },
     ],
@@ -1106,6 +1118,10 @@ function createJob({ label, kind, meta = {} }) {
     createdAt: new Date().toISOString(),
     startedAt: null,
     finishedAt: null,
+    currentStage: null,
+    process: null,
+    terminateRequested: false,
+    terminatedAt: null,
     logs: [],
   };
 
@@ -1146,16 +1162,99 @@ function serializeJob(job) {
     createdAt: job.createdAt,
     startedAt: job.startedAt,
     finishedAt: job.finishedAt,
+    currentStage: job.currentStage,
+    terminatedAt: job.terminatedAt,
+    canTerminate:
+      job.status === "queued" ||
+      job.status === "running" ||
+      job.status === "terminating",
     logCount: job.logs.length,
     logs: job.logs,
+  };
+}
+
+function clearJobLogs(job) {
+  if (!job) {
+    return;
+  }
+
+  job.logs = [];
+}
+
+function markJobTerminated(job, message) {
+  job.status = "terminated";
+  job.finishedAt = new Date().toISOString();
+  job.terminatedAt = job.finishedAt;
+  job.currentStage = null;
+  job.process = null;
+  appendJobLog(job, message || "Job terminated.", "error");
+}
+
+function terminateJob(job) {
+  if (!job) {
+    return {
+      ok: false,
+      message: "Job not found",
+    };
+  }
+
+  if (["completed", "failed", "terminated"].includes(job.status)) {
+    return {
+      ok: false,
+      message: "This job has already finished",
+    };
+  }
+
+  if (job.status === "queued" && !job.process) {
+    job.terminateRequested = true;
+    markJobTerminated(job, "Job terminated before execution started.");
+    return {
+      ok: true,
+      message: "Queued job terminated successfully.",
+    };
+  }
+
+  if (!job.process) {
+    job.terminateRequested = true;
+    job.status = "terminating";
+    appendJobLog(job, "Termination requested. Waiting for the active process handle.", "error");
+    return {
+      ok: true,
+      message: "Termination requested for the active job.",
+    };
+  }
+
+  if (job.status !== "terminating") {
+    job.status = "terminating";
+    job.terminateRequested = true;
+    appendJobLog(job, "Termination requested. Sending SIGTERM to the ETL process.", "error");
+    job.process.kill("SIGTERM");
+    setTimeout(() => {
+      if (job.process && !job.process.killed) {
+        appendJobLog(job, "Process did not exit after SIGTERM. Sending SIGKILL.", "error");
+        job.process.kill("SIGKILL");
+      }
+    }, 5000);
+  }
+
+  return {
+    ok: true,
+    message: "Termination requested for the active job.",
   };
 }
 
 // Runs a single stage of the workflow by spawning the ETL process and handling its output and completion
 function runProcessForJob(job, args, stageLabel) {
   return new Promise((resolve, reject) => {
+    if (job.terminateRequested) {
+      reject(new Error("Job termination requested before stage start."));
+      return;
+    }
+
+    job.currentStage = stageLabel;
     appendJobLog(job, `Starting ${stageLabel}...`);
     const pythonProcess = spawnEtlProcess(args);
+    job.process = pythonProcess;
 
     pythonProcess.stdout.on("data", (data) => {
       const message = data.toString();
@@ -1184,14 +1283,27 @@ function runProcessForJob(job, args, stageLabel) {
       reject(error);
     });
 
-    pythonProcess.on("close", (code) => {
+    pythonProcess.on("close", (code, signal) => {
+      job.process = null;
+      job.currentStage = null;
+
+      if (job.terminateRequested) {
+        appendJobLog(
+          job,
+          `${stageLabel} terminated${signal ? ` by ${signal}` : ""}.`,
+          "error",
+        );
+        reject(new Error(`${stageLabel} terminated`));
+        return;
+      }
+
       appendJobLog(
         job,
-        `${stageLabel} finished with exit code ${code}.`,
+        `${stageLabel} finished with exit code ${code}${signal ? ` (${signal})` : ""}.`,
         code === 0 ? "info" : "error",
       );
       console.log(
-        `ETL process [${job.id}/${stageLabel}] exited with code ${code}`,
+        `ETL process [${job.id}/${stageLabel}] exited with code ${code} and signal ${signal}`,
       );
 
       if (code === 0) {
@@ -1206,34 +1318,56 @@ function runProcessForJob(job, args, stageLabel) {
 
 // Runs the entire workflow for a job, executing each stage sequentially and updating job status accordingly
 async function runWorkflow(job, stages) {
+  if (job.terminateRequested) {
+    markJobTerminated(job, "Job terminated before workflow start.");
+    return;
+  }
+
   job.status = "running";
   job.startedAt = new Date().toISOString();
 
   try {
     for (const stage of stages) {
+      if (job.terminateRequested) {
+        throw new Error("Job termination requested.");
+      }
       await runProcessForJob(job, stage.args, stage.label);
     }
     job.status = "completed";
     appendJobLog(job, "Job completed successfully.");
   } catch (error) {
-    job.status = "failed";
-    appendJobLog(job, error.message || "Job failed.", "error");
+    if (job.terminateRequested) {
+      markJobTerminated(job, error.message || "Job terminated.");
+    } else {
+      job.status = "failed";
+      appendJobLog(job, error.message || "Job failed.", "error");
+    }
   } finally {
-    job.finishedAt = new Date().toISOString();
+    if (!job.finishedAt) {
+      job.finishedAt = new Date().toISOString();
+    }
   }
 }
 
 // Queues the workflow to run asynchronously, allowing the API to respond immediately while the job executes in the background
 function queueWorkflow(job, stages) {
   setImmediate(() => {
+    if (job.terminateRequested || job.status === "terminated") {
+      if (!job.finishedAt) {
+        markJobTerminated(job, "Job terminated before workflow execution.");
+      }
+      return;
+    }
+
     runWorkflow(job, stages).catch((error) => {
+      if (job.terminateRequested) {
+        markJobTerminated(job, error.message || "Job terminated.");
+        return;
+      }
+
       job.status = "failed";
       job.finishedAt = new Date().toISOString();
-      appendJobLog(
-        job,
-        error.message || "Unexpected workflow failure.",
-        "error",
-      );
+      appendJobLog(job, error.message || "Unexpected workflow failure.", "error");
     });
   });
 }
@@ -1461,6 +1595,106 @@ router.get("/jobs", auth, async (req, res) => {
     return res.status(500).json({
       status: "error",
       message: "Unable to load jobs",
+    });
+  }
+});
+
+router.delete("/jobs/:id/logs", auth, async (req, res) => {
+  try {
+    const authUser = getAuthUser(req);
+    const job = jobs.get(req.params.id);
+
+    if (!job) {
+      return res.status(404).json({
+        status: "error",
+        message: "Job not found",
+      });
+    }
+
+    const department = resolveJobDepartment(job);
+    if (
+      !isGlobalAccessRole(authUser.role) &&
+      (!department ||
+        !(await userHasDepartmentAccess(
+          authUser.id,
+          authUser.role,
+          department,
+          "read",
+        )))
+    ) {
+      return res.status(403).json({
+        status: "error",
+        message: "You do not have access to this job",
+      });
+    }
+
+    clearJobLogs(job);
+
+    return res.json({
+      status: "success",
+      message: "Job console cleared successfully.",
+      data: {
+        job: serializeJob(job),
+      },
+    });
+  } catch (error) {
+    console.error("Clear job logs error:", error.message);
+    return res.status(500).json({
+      status: "error",
+      message: "Unable to clear job console",
+    });
+  }
+});
+
+router.post("/jobs/:id/terminate", auth, async (req, res) => {
+  try {
+    const authUser = getAuthUser(req);
+    const job = jobs.get(req.params.id);
+
+    if (!job) {
+      return res.status(404).json({
+        status: "error",
+        message: "Job not found",
+      });
+    }
+
+    const department = resolveJobDepartment(job);
+    if (
+      !isGlobalAccessRole(authUser.role) &&
+      (!department ||
+        !(await userHasDepartmentAccess(
+          authUser.id,
+          authUser.role,
+          department,
+          "recompute",
+        )))
+    ) {
+      return res.status(403).json({
+        status: "error",
+        message: "You do not have permission to terminate this job",
+      });
+    }
+
+    const result = terminateJob(job);
+    if (!result.ok) {
+      return res.status(409).json({
+        status: "error",
+        message: result.message,
+      });
+    }
+
+    return res.json({
+      status: "success",
+      message: result.message,
+      data: {
+        job: serializeJob(job),
+      },
+    });
+  } catch (error) {
+    console.error("Terminate job error:", error.message);
+    return res.status(500).json({
+      status: "error",
+      message: "Unable to terminate job",
     });
   }
 });
@@ -1730,6 +1964,8 @@ router.post("/run-task", auth, async (req, res) => {
     overpassQuery = DEFAULT_OVERPASS_QUERY,
     overpassTimeout = DEFAULT_OVERPASS_TIMEOUT,
     roadClipDistricts = DEFAULT_OVERPASS_DISTRICTS,
+    floodRasterPath = DEFAULT_FLOOD_RASTER_PATH,
+    analysisDate,
   } = req.body;
 
   const definition = presetTaskDefinitions[task];
@@ -1772,7 +2008,20 @@ router.post("/run-task", auth, async (req, res) => {
     overpassQuery,
     overpassTimeout,
     roadClipDistricts,
+    floodRasterPath,
+    analysisDate,
   });
+
+  const includesFloodStage = stages.some(
+    (stage) => Array.isArray(stage.args) && stage.args.includes("--type") && stage.args.includes("flood"),
+  );
+
+  if (includesFloodStage && !fs.existsSync(path.resolve(floodRasterPath))) {
+    return res.status(400).json({
+      status: "error",
+      message: `Flood raster file not found: ${path.resolve(floodRasterPath)}`,
+    });
+  }
 
   const job = createJob({
     label: definition.label,
