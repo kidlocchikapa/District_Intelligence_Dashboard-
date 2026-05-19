@@ -5,7 +5,10 @@ import os
 import shutil
 import tempfile
 import zipfile
+import gzip
+import zlib
 from urllib.parse import urlencode
+from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 
 import geopandas as gpd
@@ -25,7 +28,11 @@ SUPPORTED_FILE_EXTENSIONS = GEOSPATIAL_FILE_EXTENSIONS + TABULAR_FILE_EXTENSIONS
 LOGGER = logging.getLogger('etl.ingest')
 DEFAULT_OVERPASS_USER_AGENT = os.getenv(
     'OVERPASS_USER_AGENT',
-    'DistrictIntelligence/1.0 (+https://example.org)'
+    'DistrictIntelligence/1.0 (admin-dashboard; contact: admin@localhost)'
+)
+DEFAULT_OVERPASS_REFERER = os.getenv(
+    'OVERPASS_REFERER',
+    'http://localhost/'
 )
 
 # Error handler
@@ -249,6 +256,58 @@ def normalize_overpass_query(query):
         normalized = f"{normalized}\nout geom;"
     return normalized
 
+def _decode_http_error_body(error):
+    try:
+        body = error.read()
+    except Exception:
+        return ""
+
+    if not body:
+        return ""
+
+    try:
+        return body.decode("utf-8", errors="replace").strip()
+    except Exception:
+        return ""
+
+def _read_response_text(response):
+    raw_body = response.read()
+    content_encoding = str(response.headers.get('Content-Encoding', '')).lower()
+
+    if 'gzip' in content_encoding:
+        raw_body = gzip.decompress(raw_body)
+    elif 'deflate' in content_encoding:
+        raw_body = zlib.decompress(raw_body)
+    elif len(raw_body) >= 2 and raw_body[:2] == b'\x1f\x8b':
+        raw_body = gzip.decompress(raw_body)
+
+    return raw_body.decode('utf-8')
+
+def _build_overpass_endpoint_candidates(api_url):
+    normalized = str(api_url or '').strip()
+    if not normalized:
+        return []
+
+    candidates = [normalized]
+    primary_hosts = (
+        'https://overpass-api.de/api/interpreter',
+        'http://overpass-api.de/api/interpreter',
+        'https://overpass-api.de/api/',
+        'http://overpass-api.de/api/',
+    )
+
+    if normalized in primary_hosts or 'overpass-api.de/api/interpreter' in normalized:
+        mirror_candidates = [
+            'https://overpass.kumi.systems/api/interpreter',
+            'https://z.overpass-api.de/api/interpreter',
+            'https://lz4.overpass-api.de/api/interpreter',
+        ]
+        for mirror in mirror_candidates:
+            if mirror not in candidates:
+                candidates.append(mirror)
+
+    return candidates
+
 # Extract road data from the Overpass API based on a provided query
 def extract_from_overpass(api_url, query, timeout=60, user_agent=None):
     if not api_url:
@@ -257,19 +316,75 @@ def extract_from_overpass(api_url, query, timeout=60, user_agent=None):
         raise ValueError('overpass_query is required for Overpass extraction')
 
     normalized_query = normalize_overpass_query(query)
-    payload = urlencode({'data': normalized_query}).encode('utf-8')
-    request = Request(
-        api_url,
-        data=payload,
-        headers={
-            'Content-Type': 'application/x-www-form-urlencoded',
-            'Accept': 'application/json',
-            'User-Agent': user_agent or DEFAULT_OVERPASS_USER_AGENT,
-        },
-    )
+    endpoint_candidates = _build_overpass_endpoint_candidates(api_url)
+    base_headers = {
+        'User-Agent': user_agent or DEFAULT_OVERPASS_USER_AGENT,
+        'Referer': DEFAULT_OVERPASS_REFERER,
+        'Accept': 'application/json, */*;q=0.8',
+        'Accept-Language': 'en-US,en;q=0.9',
+        'Accept-Encoding': 'gzip, deflate',
+    }
 
-    with urlopen(request, timeout=timeout) as response:
-        payload = json.loads(response.read().decode('utf-8'))
+    request_attempts = []
+    for endpoint in endpoint_candidates:
+        request_attempts.extend([
+            {
+                'label': f'form_post::{endpoint}',
+                'url': endpoint,
+                'data': urlencode({'data': normalized_query}).encode('utf-8'),
+                'headers': {
+                    **base_headers,
+                    'Content-Type': 'application/x-www-form-urlencoded; charset=utf-8',
+                },
+            },
+            {
+                'label': f'raw_post::{endpoint}',
+                'url': endpoint,
+                'data': normalized_query.encode('utf-8'),
+                'headers': {
+                    **base_headers,
+                    'Content-Type': 'text/plain; charset=utf-8',
+                },
+            },
+            {
+                'label': f'get_query::{endpoint}',
+                'url': f"{endpoint}?{urlencode({'data': normalized_query})}",
+                'data': None,
+                'headers': base_headers,
+            },
+        ])
+
+    payload = None
+    last_error = None
+    for attempt in request_attempts:
+        try:
+            request = Request(
+                attempt['url'],
+                data=attempt['data'],
+                headers=attempt['headers'],
+            )
+            with urlopen(request, timeout=timeout) as response:
+                payload = json.loads(_read_response_text(response))
+                break
+        except HTTPError as exc:
+            details = _decode_http_error_body(exc)
+            log_step(
+                'extract_from_overpass',
+                (
+                    f"Overpass request '{attempt['label']}' failed with HTTP {exc.code}"
+                    + (f": {details[:500]}" if details else '')
+                ),
+                level='warning',
+            )
+            last_error = exc
+            continue
+
+    if payload is None:
+        if last_error is not None:
+            raise ValueError(
+                f"Overpass API rejected the request after trying multiple formats: {last_error}"
+            ) from last_error
+        raise ValueError('Overpass API request failed before any response was received.')
 
     elements = payload.get('elements', []) if isinstance(payload, dict) else []
     rows = []

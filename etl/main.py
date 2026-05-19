@@ -122,6 +122,7 @@ def parse_csv_list(value):
 DISTRICT_GROUPS = {
     'zomba_all': ['Zomba', 'Zomba City'],
 }
+DEFAULT_WORLDPOP_DISTRICT_GROUP = 'zomba_all'
 
 # main ETL processing functions
 def process_tabular_dataset(
@@ -497,6 +498,8 @@ def process_worldpop_dataset(
         selected_districts.append(district_name)
     if district_names:
         selected_districts.extend(district_names)
+    if not selected_districts:
+        selected_districts.extend(DISTRICT_GROUPS.get(DEFAULT_WORLDPOP_DISTRICT_GROUP, []))
     selected_districts = sorted({name for name in selected_districts if name})
 
 # For raster-based WorldPop processing, fetch admin units, process the raster, and derive indicators
@@ -958,6 +961,11 @@ def main():
     clip_districts = parse_csv_list(args.road_clip_districts)
     try:
         if args.type == 'worldpop':
+            if not args.district and not selected_group_districts:
+                selected_group_districts = DISTRICT_GROUPS.get(
+                    DEFAULT_WORLDPOP_DISTRICT_GROUP,
+                    [],
+                )
             result = run_step(
                 step_name='dispatch_worldpop_pipeline',
                 user_message_on_error='WorldPop pipeline failed. Verify the district filters, year, and source settings.',

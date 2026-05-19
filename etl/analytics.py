@@ -1,10 +1,11 @@
-#import necessary libraries for geospatial analysis and database interaction
 import logging
+import time
 
 import geopandas as gpd
 import pandas as pd
 from shapely.ops import unary_union
 from sqlalchemy import text
+from sqlalchemy.exc import OperationalError
 
 from worldpop import get_zonal_stats
 
@@ -59,6 +60,30 @@ ANALYSIS_TYPES = {
 }
 
 DEFAULT_HEALTH_2SFCA_CATCHMENT_MIN = 60.0
+BOUNDARY_FETCH_MAX_RETRIES = 3
+BOUNDARY_FETCH_RETRY_DELAY_SECONDS = 2
+
+
+def _read_postgis_with_retry(session, query, params=None, geom_col='geom'):
+    params = params or {}
+
+    for attempt in range(1, BOUNDARY_FETCH_MAX_RETRIES + 1):
+        try:
+            return gpd.read_postgis(text(query), session.bind, geom_col=geom_col, params=params)
+        except OperationalError as exc:
+            session.rollback()
+            if attempt == BOUNDARY_FETCH_MAX_RETRIES:
+                raise
+
+            log_step(
+                'read_postgis_with_retry',
+                (
+                    f'database connection dropped during boundary fetch; '
+                    f'retrying ({attempt}/{BOUNDARY_FETCH_MAX_RETRIES})'
+                ),
+                level='warning',
+            )
+            time.sleep(BOUNDARY_FETCH_RETRY_DELAY_SECONDS * attempt)
 
 # Fetch administrative units with optional filtering by admin level (e.g., 'ward', 'district')
 def fetch_admin_units_for_analysis(session, admin_level=None):
@@ -95,7 +120,7 @@ def fetch_admin_units_for_analysis(session, admin_level=None):
         query += " AND LOWER(type) = LOWER(:admin_level)"
         params['admin_level'] = admin_level
 
-    return gpd.read_postgis(text(query), session.bind, geom_col='geom', params=params)
+    return _read_postgis_with_retry(session, query, params=params, geom_col='geom')
 
 # Fetch facilities (education or health) with relevant attributes for analysis
 def fetch_facilities(session, table_name):
