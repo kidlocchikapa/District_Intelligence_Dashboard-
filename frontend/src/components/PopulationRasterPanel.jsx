@@ -151,7 +151,7 @@ function PopulationRasterPanel({
           </div>
         ) : null}
         <div
-          className={`relative ${heightClass} min-h-0 overflow-hidden rounded-[1.5rem] border border-fog bg-[#f8f8f3]`}
+          className={`relative isolate ${heightClass} min-h-0 overflow-hidden rounded-[1.5rem] border border-fog bg-[#f8f8f3]`}
         >
           <div className="absolute inset-0 animate-pulse bg-gradient-to-br from-[#f7f7ef] via-white to-[#f0f8e9]" />
         </div>
@@ -159,9 +159,33 @@ function PopulationRasterPanel({
     );
   }
 
-  const imageUrl = metadata.image.startsWith("/")
-    ? metadata.image
-    : `${metadataUrl.slice(0, metadataUrl.lastIndexOf("/") + 1)}${metadata.image}`;
+  const hasValidBounds =
+    Array.isArray(defaultBounds) &&
+    defaultBounds.length === 2 &&
+    Array.isArray(defaultBounds[0]) &&
+    Array.isArray(defaultBounds[1]) &&
+    defaultBounds[0].length === 2 &&
+    defaultBounds[1].length === 2;
+
+  const metadataImage =
+    typeof metadata?.image === "string" && metadata.image.length
+      ? metadata.image
+      : null;
+
+  const imageUrl = metadataImage
+    ? metadataImage.startsWith("/")
+      ? metadataImage
+      : `${metadataUrl.slice(0, metadataUrl.lastIndexOf("/") + 1)}${metadataImage}`
+    : null;
+
+  if (!hasValidBounds) {
+    return (
+      <EmptyState
+        title={title}
+        description="Raster preview metadata is missing map bounds."
+      />
+    );
+  }
 
   function getFeatureName(feature) {
     if (typeof featureNameResolver === "function") {
@@ -235,7 +259,7 @@ function PopulationRasterPanel({
         </div>
       ) : null}
       <div
-        className={`relative ${heightClass} min-h-0 overflow-hidden rounded-[1.5rem] border border-fog bg-[#f8f8f3] group`}
+        className={`relative isolate ${heightClass} min-h-0 overflow-hidden rounded-[1.5rem] border border-fog bg-[#f8f8f3] group`}
       >
         <MapContainer
           bounds={defaultBounds}
@@ -247,7 +271,9 @@ function PopulationRasterPanel({
         >
           <MapFitter bounds={activeBounds || defaultBounds} />
           <ZoomControl position="topright" />
-          <ImageOverlay bounds={defaultBounds} url={imageUrl} opacity={0.94} />
+          {imageUrl ? (
+            <ImageOverlay bounds={defaultBounds} url={imageUrl} opacity={0.94} />
+          ) : null}
           {features.length ? (
             <GeoJSON
               key={`pop-raster-geojson-${features.map((feature) => feature.id || getFeatureName(feature)).join("|")}-${selectedDistrict}-${selectedFeatureName || "all"}-${hoveredFeatureName || "none"}`}

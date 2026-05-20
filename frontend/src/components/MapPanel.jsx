@@ -280,7 +280,7 @@ function MapPanel({
       )}
 
       <div
-        className={`relative ${(title || subtitle) ? `flex-1 ${heightClass}` : heightClass} w-full overflow-hidden rounded-[1.5rem] border border-fog`}
+        className={`relative isolate ${(title || subtitle) ? `flex-1 ${heightClass}` : heightClass} w-full overflow-hidden rounded-[1.5rem] border border-fog`}
       >
         <MapContainer
           center={firstCenter}

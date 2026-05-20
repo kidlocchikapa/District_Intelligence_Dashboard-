@@ -1444,7 +1444,7 @@ function PlanningRecommendations({ districtInsights, floodImpact, educationSumma
   }
 
   return (
-    <div className="mt-10">
+    <div className="mt-10 relative z-10">
       <div className="flex items-center gap-3 mb-2">
         <Lightbulb className="h-5 w-5 text-amber-500" />
         <h3 className="text-[16px] font-extrabold">Planning Recommendations</h3>
@@ -1589,8 +1589,29 @@ function FloodImpactSection({ floodImpact, floodImpactGeojson, coverageFocusDist
     { label: "Total Students Impacted", value: formatNumber(summary.students_at_risk || 0, 0), color: "text-blue-600" },
   ];
 
+  const hasFloodData =
+    Number(summary.exposed_schools || 0) > 0 ||
+    Number(summary.students_at_risk || 0) > 0 ||
+    taRows.length > 0 ||
+    (Array.isArray(floodImpactGeojson.data?.features) &&
+      floodImpactGeojson.data.features.length > 0);
+
+  if (!floodImpact.loading && !floodImpactGeojson.loading && !hasFloodData) {
+    return (
+      <div className="mt-10 relative z-0 rounded border border-gray-100 bg-white p-6 shadow-sm">
+        <div className="flex items-center gap-3">
+          <Flame className="h-5 w-5 text-red-500" />
+          <h3 className="text-[16px] font-extrabold">Flood Impact on Schools</h3>
+        </div>
+        <p className="mt-3 text-sm font-semibold text-gray-500">
+          No flood-impact records are available for the current district filter.
+        </p>
+      </div>
+    );
+  }
+
   return (
-    <div className="mt-10">
+    <div className="mt-10 relative z-0">
       {/* Header */}
       <div className="flex items-center gap-3 mb-2">
         <Flame className="h-5 w-5 text-red-500" />
@@ -1624,7 +1645,7 @@ function FloodImpactSection({ floodImpact, floodImpactGeojson, coverageFocusDist
       {/* Map + chart split */}
       <div className="grid grid-cols-1 xl:grid-cols-[1.2fr_0.8fr] gap-6">
         {/* Map */}
-        <div className="border border-gray-100 rounded p-4 shadow-sm bg-white">
+        <div className="relative isolate border border-gray-100 rounded p-4 shadow-sm bg-white">
           <p className="text-[13px] font-extrabold mb-3">Flood Exposure Map</p>
           <div className="flex gap-4 mb-3 flex-wrap">
             {[["high","High Risk","#dc2626"],["medium","Medium Risk","#f59e0b"],["low","Low Risk","#3b82f6"]].map(([,label,color]) => (
@@ -1646,7 +1667,7 @@ function FloodImpactSection({ floodImpact, floodImpactGeojson, coverageFocusDist
         </div>
 
         {/* Stacked bar chart */}
-        <div className="border border-gray-100 rounded p-4 shadow-sm bg-white">
+        <div className="relative isolate border border-gray-100 rounded p-4 shadow-sm bg-white">
           <p className="text-[13px] font-extrabold mb-1">Top TAs by Students at Risk</p>
           <p className="text-[11px] text-gray-400 font-semibold mb-4">Stacked by flood risk class</p>
           {floodImpact.loading ? (
@@ -1677,7 +1698,10 @@ function FloodImpactSection({ floodImpact, floodImpactGeojson, coverageFocusDist
                   axisLine={false}
                   tickLine={false}
                   tick={{ fill: "#374151", fontSize: 10, fontWeight: 700 }}
-                  tickFormatter={v => v.length > 12 ? `${v.slice(0, 12)}…` : v}
+                  tickFormatter={(value) => {
+                    const label = String(value || "");
+                    return label.length > 12 ? `${label.slice(0, 12)}...` : label;
+                  }}
                 />
                 <Tooltip content={<FloodBarTooltip />} cursor={{ fill: "#f9fafb" }} />
                 <Bar dataKey="high_risk_students"   stackId="a" fill="#dc2626" name="High"   radius={[0,0,0,0]} />
