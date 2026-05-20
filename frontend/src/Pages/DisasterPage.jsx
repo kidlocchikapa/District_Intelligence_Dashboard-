@@ -116,6 +116,22 @@ function DisasterPage() {
       facility_type: "health",
     }),
   );
+  const educationFacilityExposureDetails = useDashboardData(
+    buildDashboardPath("/dashboard/disaster/flood/facilities", {
+      district: disasterDistrictFilter,
+      ta: selectedTa,
+      facility_type: "education",
+      exposed_only: "true",
+    }),
+  );
+  const healthFacilityExposureDetails = useDashboardData(
+    buildDashboardPath("/dashboard/disaster/flood/facilities", {
+      district: disasterDistrictFilter,
+      ta: selectedTa,
+      facility_type: "health",
+      exposed_only: "true",
+    }),
+  );
 
   // Flood risk GeoJSON source from database
   const floodRiskZones = useDashboardData(
@@ -823,6 +839,8 @@ function DisasterPage() {
           disasterSummary={disasterSummary}
           educationFacilityExposureSummary={educationFacilityExposureSummary}
           healthFacilityExposureSummary={healthFacilityExposureSummary}
+          educationFacilityExposureDetails={educationFacilityExposureDetails}
+          healthFacilityExposureDetails={healthFacilityExposureDetails}
           taFloodExposure={taFloodExposure}
           educationFloodImpact={educationFloodImpact}
           schoolsExposed={schoolsExposed}
@@ -842,6 +860,8 @@ function DisasterRecommendations({
   disasterSummary,
   educationFacilityExposureSummary,
   healthFacilityExposureSummary,
+  educationFacilityExposureDetails,
+  healthFacilityExposureDetails,
   taFloodExposure,
   educationFloodImpact,
   schoolsExposed,
@@ -855,6 +875,8 @@ function DisasterRecommendations({
     disasterSummary.loading ||
     educationFacilityExposureSummary.loading ||
     healthFacilityExposureSummary.loading ||
+    educationFacilityExposureDetails.loading ||
+    healthFacilityExposureDetails.loading ||
     taFloodExposure.loading ||
     educationFloodImpact.loading;
 
@@ -867,37 +889,55 @@ function DisasterRecommendations({
   const studentsAtRisk = Number(eduImpact.students_at_risk || 0);
   const highRiskPop = Number(summary.high_risk_population || 0);
 
+  const riskRank = { high: 3, medium: 2, low: 1 };
+
   const educationFacilityRows = useMemo(() => {
-    return (educationFacilityExposureSummary.data || [])
-      .map((row, index) => ({
-        id: `edu-facility-${row.admin_unit_id || row.admin_unit_name || index}`,
-        adminUnit: row.admin_unit_name || "Unknown Area",
-        district: row.district_name || row.district || "Unknown District",
-        exposedFacilities: Number(row.exposed_facilities || 0),
-        totalFacilities: Number(row.total_facilities || 0),
-        exposedPercent:
-          Number(row.total_facilities || 0) > 0
-            ? (Number(row.exposed_facilities || 0) / Number(row.total_facilities || 0)) * 100
-            : 0,
-      }))
-      .sort((left, right) => right.exposedFacilities - left.exposedFacilities);
-  }, [educationFacilityExposureSummary.data]);
+    return (educationFacilityExposureDetails.data || [])
+      .map((row, index) => {
+        const riskClass = String(row.risk_class || "unknown").toLowerCase();
+        return {
+          id: `edu-facility-${row.facility_id || index}`,
+          facilityName: row.facility_name || "Unnamed School",
+          ta: row.ta_name || "Unknown TA",
+          district: row.district_name || "Unknown District",
+          riskClass,
+          floodDepth: Number(row.flood_value || 0),
+          exposed: row.is_exposed ? "Yes" : "No",
+        };
+      })
+      .sort((left, right) => {
+        const riskDelta =
+          (riskRank[right.riskClass] || 0) - (riskRank[left.riskClass] || 0);
+        if (riskDelta !== 0) return riskDelta;
+        return right.floodDepth - left.floodDepth;
+      });
+  }, [educationFacilityExposureDetails.data]);
+
+  const highRiskEducationFacilityRows = useMemo(() => {
+    return educationFacilityRows.filter((row) => row.riskClass === "high");
+  }, [educationFacilityRows]);
 
   const healthFacilityRows = useMemo(() => {
-    return (healthFacilityExposureSummary.data || [])
-      .map((row, index) => ({
-        id: `health-facility-${row.admin_unit_id || row.admin_unit_name || index}`,
-        adminUnit: row.admin_unit_name || "Unknown Area",
-        district: row.district_name || row.district || "Unknown District",
-        exposedFacilities: Number(row.exposed_facilities || 0),
-        totalFacilities: Number(row.total_facilities || 0),
-        exposedPercent:
-          Number(row.total_facilities || 0) > 0
-            ? (Number(row.exposed_facilities || 0) / Number(row.total_facilities || 0)) * 100
-            : 0,
-      }))
-      .sort((left, right) => right.exposedFacilities - left.exposedFacilities);
-  }, [healthFacilityExposureSummary.data]);
+    return (healthFacilityExposureDetails.data || [])
+      .map((row, index) => {
+        const riskClass = String(row.risk_class || "unknown").toLowerCase();
+        return {
+          id: `health-facility-${row.facility_id || index}`,
+          facilityName: row.facility_name || "Unnamed Facility",
+          ta: row.ta_name || "Unknown TA",
+          district: row.district_name || "Unknown District",
+          riskClass,
+          floodDepth: Number(row.flood_value || 0),
+          exposed: row.is_exposed ? "Yes" : "No",
+        };
+      })
+      .sort((left, right) => {
+        const riskDelta =
+          (riskRank[right.riskClass] || 0) - (riskRank[left.riskClass] || 0);
+        if (riskDelta !== 0) return riskDelta;
+        return right.floodDepth - left.floodDepth;
+      });
+  }, [healthFacilityExposureDetails.data]);
 
   const taExposureRows = useMemo(() => {
     return (taFloodExposure.data || [])
@@ -938,7 +978,12 @@ function DisasterRecommendations({
         ...row,
         sector: "Health",
       })),
-    ].sort((left, right) => right.exposedFacilities - left.exposedFacilities);
+    ].sort((left, right) => {
+      const riskDelta =
+        (riskRank[right.riskClass] || 0) - (riskRank[left.riskClass] || 0);
+      if (riskDelta !== 0) return riskDelta;
+      return right.floodDepth - left.floodDepth;
+    });
   }, [educationFacilityRows, healthFacilityRows]);
 
   const summaryRows = [
@@ -956,11 +1001,12 @@ function DisasterRecommendations({
   ];
 
   const facilityColumns = [
-    { key: "adminUnit", label: "Area" },
+    { key: "facilityName", label: "Facility" },
+    { key: "ta", label: "TA" },
     { key: "district", label: "District" },
-    { key: "exposedFacilities", label: "Exposed" },
-    { key: "totalFacilities", label: "Total" },
-    { key: "exposedPercent", label: "Exposed %" },
+    { key: "riskClass", label: "Risk" },
+    { key: "floodDepth", label: "Flood Value" },
+    { key: "exposed", label: "Exposed" },
   ];
   const combinedFacilityColumns = [
     { key: "sector", label: "Sector" },
@@ -1016,7 +1062,7 @@ function DisasterRecommendations({
           value: formatNumber(schoolsExposed, 0),
           onClick: () =>
             openMetricPreview({
-              title: "Exposed Education Facilities by Area",
+              title: "Exposed Schools (Facility List)",
               rows: educationFacilityRows,
               columns: facilityColumns,
             }),
@@ -1055,12 +1101,12 @@ function DisasterRecommendations({
         {
           id: "high-risk-schools",
           label: "High Risk Schools",
-          value: formatNumber(eduImpact.high_risk_schools || 0, 0),
+          value: formatNumber(highRiskEducationFacilityRows.length, 0),
           onClick: () =>
             openMetricPreview({
-              title: "Flood Education Impact by TA",
-              rows: educationImpactTaRows,
-              columns: educationImpactColumns,
+              title: "High-Risk Schools (Facility List)",
+              rows: highRiskEducationFacilityRows,
+              columns: facilityColumns,
             }),
         },
       ],
@@ -1078,7 +1124,7 @@ function DisasterRecommendations({
           value: formatNumber(healthFacilitiesExposed, 0),
           onClick: () =>
             openMetricPreview({
-              title: "Exposed Health Facilities by Area",
+              title: "Exposed Health Facilities (Facility List)",
               rows: healthFacilityRows,
               columns: facilityColumns,
             }),
@@ -1278,6 +1324,7 @@ function DisasterRecommendations({
                       <td
                         key={`${row.id || rowIndex}-${column.key}`}
                         className={`px-3 py-2 ${
+                          column.key === "facilityName" ||
                           column.key === "adminUnit" ||
                           column.key === "ta" ||
                           column.key === "metric"
