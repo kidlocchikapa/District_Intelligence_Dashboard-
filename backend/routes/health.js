@@ -117,7 +117,7 @@ function normalizePreviewAssetPath(filePath, publicDirName) {
 
 async function fetchLatestPreviewAssets(datasetType, districtValues) {
   const baseQuery = `
-    SELECT run_metadata
+    SELECT run_metadata, completed_at
     FROM data_load_log
     WHERE dataset_type = $1
       AND status = 'Success'
@@ -136,9 +136,13 @@ async function fetchLatestPreviewAssets(datasetType, districtValues) {
     result = await db.query(`${baseQuery}${orderClause}`, [datasetType]);
   }
 
-  const metadata = parseRunMetadata(result.rows[0]?.run_metadata);
+  const row = result.rows[0] || {};
+  const metadata = parseRunMetadata(row.run_metadata);
   const previewAssets = metadata?.preview_assets;
-  return Array.isArray(previewAssets) ? previewAssets : [];
+  return {
+    previewAssets: Array.isArray(previewAssets) ? previewAssets : [],
+    completedAt: row.completed_at || null,
+  };
 }
 
 function findPreviewPath(previewPaths, suffix) {
@@ -738,7 +742,7 @@ router.get("/raster-metadata", async (req, res) => {
 
   try {
     const districtValues = resolveDistrictFilterValues(district);
-    const previewAssets = await fetchLatestPreviewAssets(
+    const { previewAssets, completedAt } = await fetchLatestPreviewAssets(
       "health_access",
       districtValues,
     );
@@ -792,6 +796,7 @@ router.get("/raster-metadata", async (req, res) => {
       data: {
         district: district || null,
         assets,
+        completed_at: completedAt,
       },
     });
   } catch (error) {
@@ -801,6 +806,7 @@ router.get("/raster-metadata", async (req, res) => {
       data: {
         district: district || null,
         assets: buildHealthRasterAssets(slug),
+        completed_at: null,
       },
     });
   }
