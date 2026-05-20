@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { Activity, HeartPulse, Bed, Users, Download, Building2, CheckCircle2, AlertCircle, Building, Lightbulb, ArrowRight, AlertTriangle, TrendingUp } from "lucide-react";
+import { Activity, HeartPulse, Bed, Users, Download, Building2, CheckCircle2, AlertCircle, Building, Lightbulb, AlertTriangle, TrendingUp } from "lucide-react";
 import { useDashboardData } from "../hooks/useDashboardData";
 import { useDistrict } from "../context/DistrictContext";
 import { buildDashboardPath } from "../lib/query";
@@ -12,6 +12,7 @@ import IntegrationSummaryPanel from "../components/IntegrationSummaryPanel";
 import SharedDistrictSelector from "../components/SharedDistrictSelector";
 import FacilityBurdenScatter from "../components/Charts/FacilityBurdenScatter.jsx";
 import TAAnalyticsTable from "../components/Tables/TAAnalyticsTable.jsx";
+import InteractiveRecommendations from "../components/InteractiveRecommendations";
 import {
   Bar,
   BarChart,
@@ -1417,33 +1418,11 @@ function HealthRecommendations({
       <p className="text-sm text-gray-500 font-semibold mb-6">
         Data-driven planning actions derived from facility coverage maps, access analysis, workforce data, and flood exposure for {districtScope}.
       </p>
-      <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
-        {recommendations.map((rec, i) => {
-          const cfg = priorityConfig[rec.priority];
-          const Icon = rec.icon;
-          return (
-            <div key={i} className="rounded border border-gray-100 bg-white p-5 shadow-sm flex flex-col gap-3">
-              <div className="flex items-start justify-between gap-3">
-                <div className="flex items-center gap-2.5">
-                  <div className="flex-shrink-0 rounded-lg bg-gray-50 p-2">
-                    <Icon className="h-4 w-4 text-gray-600" />
-                  </div>
-                  <p className="text-[14px] font-extrabold text-black leading-tight">{rec.title}</p>
-                </div>
-                <span className={`flex-shrink-0 inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[10px] font-bold ${cfg.classes}`}>
-                  <span className={`h-1.5 w-1.5 rounded-full ${cfg.dot}`} />
-                  {cfg.label}
-                </span>
-              </div>
-              <p className="text-[13px] text-gray-600 leading-6">{rec.body}</p>
-              <div className="flex items-start gap-2 rounded bg-gray-50 px-3 py-2 mt-auto">
-                <ArrowRight className="h-3.5 w-3.5 text-gray-400 flex-shrink-0 mt-0.5" />
-                <p className="text-[11px] font-bold text-gray-500 uppercase tracking-wide leading-5">{rec.action}</p>
-              </div>
-            </div>
-          );
-        })}
-      </div>
+      <InteractiveRecommendations
+        recommendations={recommendations}
+        priorityConfig={priorityConfig}
+        sectionKey={`health:${districtScope}`}
+      />
     </div>
   );
 }
