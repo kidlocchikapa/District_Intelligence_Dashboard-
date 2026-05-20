@@ -10,6 +10,7 @@ import PopulationRasterPanel from "../components/PopulationRasterPanel";
 import GlobalHospitalRegistry from "../components/GlobalHospitalRegistry";
 import IntegrationSummaryPanel from "../components/IntegrationSummaryPanel";
 import SharedDistrictSelector from "../components/SharedDistrictSelector";
+import Modal from "../components/Modal";
 import FacilityBurdenScatter from "../components/Charts/FacilityBurdenScatter.jsx";
 import TAAnalyticsTable from "../components/Tables/TAAnalyticsTable.jsx";
 import InteractiveRecommendations from "../components/InteractiveRecommendations";
@@ -1278,11 +1279,63 @@ function HealthRecommendations({
   totalFacilities, functionalFacilities, nonFunctionalFacilities,
   govFacilities, privateFacilities,
 }) {
+  const [facilityPreview, setFacilityPreview] = useState(null);
   const loading = healthSummary.loading || servedPopulationSummary.loading || healthDrilldown.loading;
 
   const drillSummary  = healthDrilldown.data?.summary || {};
   const taBreakdown   = healthDrilldown.data?.ta_breakdown || [];
   const facilities    = healthLocations.data?.features || [];
+
+  const facilityPreviewRows = useMemo(() => {
+    return facilities.map((feature, index) => {
+      const properties = feature?.properties || {};
+      return {
+        id:
+          feature?.id ||
+          properties?.facility_id ||
+          properties?.id ||
+          `facility-${index}`,
+        name:
+          properties?.name ||
+          properties?.name_en ||
+          properties?.facility_name ||
+          "Unnamed Facility",
+        ownership: properties?.ownership || "Unknown",
+        district:
+          properties?.district_name ||
+          properties?.district ||
+          "Unknown District",
+        ta:
+          properties?.admin_unit_name ||
+          properties?.ta_name ||
+          properties?.ta ||
+          "Unknown TA",
+        type: properties?.type || "Facility",
+        status: properties?.status || "Unknown",
+      };
+    });
+  }, [facilities]);
+
+  const privateFacilityPreviewRows = useMemo(() => {
+    return facilityPreviewRows.filter(
+      (row) => String(row.ownership).toLowerCase() !== "government",
+    );
+  }, [facilityPreviewRows]);
+
+  function openFacilityPreview(kind) {
+    if (kind === "private") {
+      setFacilityPreview({
+        title: `Private Facilities (${formatNumber(privateFacilityPreviewRows.length, 0)})`,
+        rows: privateFacilityPreviewRows,
+      });
+      return;
+    }
+
+    setFacilityPreview({
+      title: `All Facilities (${formatNumber(facilityPreviewRows.length, 0)})`,
+      rows: facilityPreviewRows,
+    });
+  }
 
   // Derive key metrics
   const popPerFacility   = Number(drillSummary.population_per_facility || 0);
@@ -1361,7 +1414,30 @@ function HealthRecommendations({
       priority: "medium",
       icon: Building2,
       title: "Private Sector Dominance — Equity Risk",
-      body: `${formatNumber(privateFacilities)} of ${formatNumber(totalFacilities)} facilities are privately operated, outnumbering government facilities. While private facilities expand coverage, they concentrate in urban and peri-urban areas, leaving rural populations dependent on fewer government facilities. Public-private partnership agreements should include rural service obligations.`,
+      body: (
+        <>
+          <button
+            type="button"
+            onClick={() => openFacilityPreview("private")}
+            className="font-bold text-blue-700 underline decoration-dotted underline-offset-2 hover:text-blue-900"
+          >
+            {formatNumber(privateFacilities)}
+          </button>{" "}
+          of{" "}
+          <button
+            type="button"
+            onClick={() => openFacilityPreview("all")}
+            className="font-bold text-blue-700 underline decoration-dotted underline-offset-2 hover:text-blue-900"
+          >
+            {formatNumber(totalFacilities)}
+          </button>{" "}
+          facilities are privately operated, outnumbering government facilities.
+          While private facilities expand coverage, they concentrate in urban and
+          peri-urban areas, leaving rural populations dependent on fewer
+          government facilities. Public-private partnership agreements should
+          include rural service obligations.
+        </>
+      ),
       action: "Negotiate PPP agreements requiring private facilities to serve a defined rural catchment population",
     },
     // 6 — Flood risk
@@ -1423,6 +1499,52 @@ function HealthRecommendations({
         priorityConfig={priorityConfig}
         sectionKey={`health:${districtScope}`}
       />
+
+      <Modal
+        isOpen={Boolean(facilityPreview)}
+        onClose={() => setFacilityPreview(null)}
+        title={facilityPreview?.title || "Facility Preview"}
+      >
+        <p className="mb-4 text-sm font-semibold text-slate-600">
+          Previewing facilities referenced by this recommendation.
+        </p>
+        <div className="max-h-[55vh] overflow-auto rounded-lg border border-slate-200">
+          <table className="min-w-full divide-y divide-slate-200 text-sm">
+            <thead className="sticky top-0 bg-slate-50">
+              <tr>
+                <th className="px-3 py-2 text-left text-[11px] font-bold uppercase tracking-wide text-slate-500">
+                  Facility
+                </th>
+                <th className="px-3 py-2 text-left text-[11px] font-bold uppercase tracking-wide text-slate-500">
+                  Ownership
+                </th>
+                <th className="px-3 py-2 text-left text-[11px] font-bold uppercase tracking-wide text-slate-500">
+                  District
+                </th>
+                <th className="px-3 py-2 text-left text-[11px] font-bold uppercase tracking-wide text-slate-500">
+                  TA
+                </th>
+                <th className="px-3 py-2 text-left text-[11px] font-bold uppercase tracking-wide text-slate-500">
+                  Status
+                </th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100 bg-white">
+              {(facilityPreview?.rows || []).map((row) => (
+                <tr key={row.id}>
+                  <td className="px-3 py-2 font-semibold text-slate-900">
+                    {row.name}
+                  </td>
+                  <td className="px-3 py-2 text-slate-700">{row.ownership}</td>
+                  <td className="px-3 py-2 text-slate-700">{row.district}</td>
+                  <td className="px-3 py-2 text-slate-700">{row.ta}</td>
+                  <td className="px-3 py-2 text-slate-700">{row.status}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </Modal>
     </div>
   );
 }
