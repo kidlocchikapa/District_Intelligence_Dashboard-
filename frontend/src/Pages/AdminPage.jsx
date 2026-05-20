@@ -1,16 +1,15 @@
 import { useEffect, useMemo, useState } from "react";
 import EmptyState from "../components/EmptyState";
-import PageHeader from "../components/PageHeader";
 import Panel from "../components/Panel";
 import AdminDataStewardship from "../components/AdminDataStewardship";
 import GlobalAdminStewardship from "../components/GlobalAdminStewardship";
 import GlobalAdminOperations from "../components/GlobalAdminOperations";
 import {
   AUTH_EVENT_NAME,
+  deleteJson,
   fetchJson,
   hydrateAuthToken,
   setAuthToken,
-  patchJson,
   postJson,
   uploadForm,
 } from "../lib/api";
@@ -19,12 +18,12 @@ import {
   UploadCloud,
   Activity,
   Terminal,
-  CheckCircle2,
   AlertCircle,
   LayoutDashboard,
   ChevronRight,
-  ChevronLeft,
   RefreshCw,
+  Square,
+  Trash2,
 } from "lucide-react";
 
 const datasetTypes = [
@@ -133,6 +132,19 @@ const departmentConfig = {
   },
 };
 
+function isErrorLogEntry(log) {
+  if (!log) {
+    return false;
+  }
+
+  if (log.level === "error" || log.level === "stderr") {
+    return true;
+  }
+
+  const message = String(log.message || "").toLowerCase();
+  return /\b(error|failed|failure|exception|traceback|fatal)\b/.test(message);
+}
+
 function AdminPage() {
   const [token, setTokenState] = useState(() => hydrateAuthToken());
   const [activeTab, setActiveTab] = useState("stewardship");
@@ -144,7 +156,6 @@ function AdminPage() {
     analysisDate: new Date().toISOString().split("T")[0],
     file: null,
   });
-  const [welfarePrograms, setWelfarePrograms] = useState([]);
   const [status, setStatus] = useState("");
   const [jobs, setJobs] = useState([]);
   const [selectedJobId, setSelectedJobId] = useState("");
@@ -221,7 +232,9 @@ function AdminPage() {
       const response = await fetchJson("/admin/jobs");
       const nextJobs = response.jobs || [];
       setJobs(nextJobs);
-      setSelectedJobId((current) => current || nextJobs[0]?.id || "");
+      setSelectedJobId((current) =>
+        nextJobs.some((job) => job.id === current) ? current : nextJobs[0]?.id || "",
+      );
     } catch (error) {
       console.error("Load jobs error", error);
     } finally {
@@ -308,7 +321,10 @@ function AdminPage() {
       setStatus(`Starting ${uploadFormState.type} upload...`);
       const response = await uploadForm("/admin/upload", formData);
       setStatus(response.message || "Upload started.");
-      if (response.data?.job_id) setSelectedJobId(response.data.job_id);
+      if (response.data?.job_id) {
+        setSelectedJobId(response.data.job_id);
+        setActiveTab("logs");
+      }
       loadJobs();
     } catch (error) {
       setStatus(
@@ -327,11 +343,50 @@ function AdminPage() {
       setStatus(`Starting ${taskDescriptions[task]?.title || task}...`);
       const response = await postJson("/admin/run-task", { task });
       setStatus(response.message || "Task queued.");
-      if (response.data?.job_id) setSelectedJobId(response.data.job_id);
+      if (response.data?.job_id) {
+        setSelectedJobId(response.data.job_id);
+        setActiveTab("logs");
+      }
       loadJobs();
     } catch (error) {
       setStatus(
         "Task failed: " + (error.response?.data?.message || error.message),
+      );
+    }
+  }
+
+  async function handleClearConsole() {
+    if (!selectedJob?.id) {
+      setStatus("Select a job before clearing the console.");
+      return;
+    }
+
+    try {
+      const response = await deleteJson(`/admin/jobs/${selectedJob.id}/logs`);
+      setStatus(response.message || "Console cleared.");
+      await loadJobs();
+    } catch (error) {
+      setStatus(
+        "Unable to clear console: " +
+          (error.response?.data?.message || error.message),
+      );
+    }
+  }
+
+  async function handleTerminateJob() {
+    if (!selectedJob?.id) {
+      setStatus("Select a job before terminating it.");
+      return;
+    }
+
+    try {
+      const response = await postJson(`/admin/jobs/${selectedJob.id}/terminate`);
+      setStatus(response.message || "Termination requested.");
+      await loadJobs();
+    } catch (error) {
+      setStatus(
+        "Unable to terminate task: " +
+          (error.response?.data?.message || error.message),
       );
     }
   }
@@ -377,7 +432,10 @@ function AdminPage() {
         {isGlobalAdmin && activeTab === "operations" && (
           <>
             <GlobalAdminOperations
-              onJobQueued={(jobId) => setSelectedJobId(jobId)}
+              onJobQueued={(jobId) => {
+                setSelectedJobId(jobId);
+                setActiveTab("logs");
+              }}
               onStatus={setStatus}
             />
             {status && (
@@ -582,46 +640,111 @@ function AdminPage() {
                   LIVE
                 </span>
               </div>
-              <div className="flex items-center gap-4">
+              <div className="flex items-center gap-3">
+                <select
+                  value={selectedJobId}
+                  onChange={(event) => setSelectedJobId(event.target.value)}
+                  className="max-w-64 rounded-lg border border-white/10 bg-slate-950 px-3 py-2 text-xs font-semibold text-white outline-none"
+                >
+                  {jobs.length ? (
+                    jobs.map((job) => (
+                      <option key={job.id} value={job.id}>
+                        {job.label} [{job.status}]
+                      </option>
+                    ))
+                  ) : (
+                    <option value="">No jobs</option>
+                  )}
+                </select>
                 <span className="text-[10px] text-slate-400 font-bold uppercase tracking-widest">
-                  Active Job: {selectedJob?.label || "None"}
+                  Stage: {selectedJob?.currentStage || "Idle"}
                 </span>
+                <button
+                  onClick={handleClearConsole}
+                  disabled={!selectedJob?.id}
+                  className="inline-flex items-center gap-2 rounded-lg border border-white/10 px-3 py-2 text-xs font-bold text-white/80 transition-colors hover:bg-white/10 disabled:opacity-40"
+                >
+                  <Trash2 size={14} />
+                  Clear console
+                </button>
+                <button
+                  onClick={handleTerminateJob}
+                  disabled={!selectedJob?.canTerminate}
+                  className="inline-flex items-center gap-2 rounded-lg border border-rose-500/30 bg-rose-500/10 px-3 py-2 text-xs font-bold text-rose-300 transition-colors hover:bg-rose-500/20 disabled:opacity-40"
+                >
+                  <Square size={13} />
+                  Terminate task
+                </button>
                 <button
                   onClick={loadJobs}
                   className="p-2 text-white/40 hover:text-white transition-colors"
                 >
-                  <RefreshCw size={16} />
+                  <RefreshCw size={16} className={isRefreshingJobs ? "animate-spin" : ""} />
                 </button>
               </div>
             </div>
 
-            <div className="flex-1 overflow-auto p-6 font-mono text-xs leading-relaxed">
-              {selectedJob?.logs?.length ? (
-                selectedJob.logs.map((log, i) => (
-                  <div
-                    key={i}
-                    className="mb-1.5 flex gap-4 animate-in fade-in slide-in-from-left-2 duration-300"
-                  >
-                    <span className="text-slate-500 flex-shrink-0 w-20">
-                      [{new Date(log.at).toLocaleTimeString()}]
-                    </span>
-                    <span
-                      className={
-                        log.level === "error"
-                          ? "text-rose-400"
-                          : "text-emerald-400 opacity-90"
-                      }
-                    >
-                      {log.message}
-                    </span>
-                  </div>
-                ))
-              ) : (
-                <div className="h-full flex flex-col items-center justify-center text-slate-500 italic">
-                  <AlertCircle size={32} className="mb-4 opacity-20" />
-                  No logs available for the current session.
+            <div className="grid min-h-0 flex-1 lg:grid-cols-[320px_minmax(0,1fr)]">
+              <div className="border-b border-white/10 bg-black/20 lg:border-b-0 lg:border-r">
+                <div className="px-4 py-3 text-[10px] font-bold uppercase tracking-widest text-slate-500">
+                  Recent jobs
                 </div>
-              )}
+                <div className="max-h-full overflow-auto">
+                  {jobs.length ? (
+                    jobs.map((job) => {
+                      const isSelected = job.id === selectedJob?.id;
+                      return (
+                        <button
+                          key={job.id}
+                          type="button"
+                          onClick={() => setSelectedJobId(job.id)}
+                          className={`flex w-full flex-col gap-1 border-b border-white/5 px-4 py-3 text-left transition-colors ${
+                            isSelected ? "bg-white/10" : "hover:bg-white/5"
+                          }`}
+                        >
+                          <span className="text-xs font-bold text-white">{job.label}</span>
+                          <span className="text-[11px] text-slate-400">
+                            {job.status} • {new Date(job.createdAt).toLocaleString()}
+                          </span>
+                        </button>
+                      );
+                    })
+                  ) : (
+                    <div className="px-4 py-6 text-sm text-slate-500">No jobs available.</div>
+                  )}
+                </div>
+              </div>
+
+              <div className="flex-1 overflow-auto p-6 font-mono text-xs leading-relaxed">
+                {selectedJob?.logs?.length ? (
+                  selectedJob.logs.map((log, i) => (
+                    <div
+                      key={i}
+                      className="mb-1.5 flex gap-4 animate-in fade-in slide-in-from-left-2 duration-300"
+                    >
+                      <span className="text-slate-500 flex-shrink-0 w-20">
+                        [{new Date(log.at).toLocaleTimeString()}]
+                      </span>
+                      <span
+                        className={
+                          isErrorLogEntry(log)
+                            ? "text-rose-400"
+                            : "text-emerald-400"
+                        }
+                      >
+                        {log.message}
+                      </span>
+                    </div>
+                  ))
+                ) : (
+                  <div className="h-full flex flex-col items-center justify-center text-slate-500 italic">
+                    <AlertCircle size={32} className="mb-4 opacity-20" />
+                    {selectedJob
+                      ? "No logs available for the selected job."
+                      : "No logs available for the current session."}
+                  </div>
+                )}
+              </div>
             </div>
           </div>
         )}
