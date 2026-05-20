@@ -32,6 +32,7 @@ function PopulationRasterPanel({
   hoveredFeatureName,
   featureNameResolver,
   customTooltipMetrics,
+  onPanelLeave,
 }) {
   const { selectedDistrict, setSelectedDistrict } = useDistrict();
   const [metadata, setMetadata] = useState(null);
@@ -183,18 +184,6 @@ function PopulationRasterPanel({
     );
   }
 
-  function resolveLegendLabel(rawLabel) {
-    if (!rawLabel) {
-      return "Raster surface";
-    }
-
-    if (/estimated people per grid cell/i.test(rawLabel)) {
-      return "People per grid cell";
-    }
-
-    return String(rawLabel);
-  }
-
   const tooltipMetrics = customTooltipMetrics && customTooltipMetrics.length
     ? customTooltipMetrics
     : [
@@ -209,11 +198,14 @@ function PopulationRasterPanel({
         },
       ];
 
-  const focusProperties = hoveredFeature?.properties || {};
+  const activeFeature = hoveredFeature || selectedFeature || null;
+  const focusProperties = activeFeature?.properties || {};
   const focusName =
-    (hoveredFeature ? getFeatureName(hoveredFeature) : null) ||
+    (activeFeature ? getFeatureName(activeFeature) : null) ||
     hoveredFeatureName ||
+    selectedFeatureName ||
     null;
+  const focusLabel = hoveredFeature ? "Hovering Area" : "Selected Area";
 
   function legendBackground(colors = []) {
     if (!Array.isArray(colors) || !colors.length) {
@@ -236,6 +228,11 @@ function PopulationRasterPanel({
       ) : null}
       <div
         className={`relative ${heightClass} min-h-0 overflow-hidden rounded-[1.5rem] border border-fog bg-[#f8f8f3] group`}
+        onMouseLeave={() => {
+          setHoveredDistrict(null);
+          onFeatureHover?.(null);
+          onPanelLeave?.();
+        }}
       >
         <MapContainer
           bounds={defaultBounds}
@@ -408,12 +405,12 @@ function PopulationRasterPanel({
           </div>
         ) : null}
 
-        {hoveredFeature ? (
-          <div className="pointer-events-none absolute inset-x-4 bottom-4 flex items-end justify-start gap-4 z-[401]">
+        {activeFeature ? (
+          <div className="pointer-events-none absolute inset-x-4 bottom-4 flex items-end justify-start z-[401]">
             <div className="rounded-2xl border border-white/80 bg-white/92 px-5 py-4 shadow-md backdrop-blur-md min-w-[240px]">
             <div>
               <p className="text-[10px] font-bold uppercase tracking-[0.15em] text-slate/50 leading-none mb-2.5">
-                Hovering Area
+                {focusLabel}
               </p>
               {focusName ? (
                 <div className="space-y-3">
@@ -466,25 +463,6 @@ function PopulationRasterPanel({
                   )}
                 </div>
               </div>
-
-            {legend ? (
-              <div className="w-[148px] self-end rounded-xl border border-white/80 bg-white/92 px-3 py-2.5 shadow-md backdrop-blur-md sm:self-auto sm:shrink-0">
-                <p className="text-[9px] font-bold uppercase tracking-[0.14em] text-slate/50">
-                  Legend
-                </p>
-                <p className="mt-1 text-[11px] font-semibold leading-4 text-slate">
-                  {resolveLegendLabel(legend.label || title || "Raster surface")}
-                </p>
-                <div
-                  className="mt-2 h-2.5 w-full rounded-full border border-slate-200/80"
-                  style={{ background: legendBackground(legend.colors) }}
-                />
-                <div className="mt-1.5 flex items-center justify-between text-[9px] font-bold uppercase tracking-[0.12em] text-slate/55">
-                  <span>{legend.lowLabel || "Low"}</span>
-                  <span>{legend.highLabel || "High"}</span>
-                </div>
-              </div>
-            ) : null}
           </div>
         ) : null}
       </div>
@@ -493,4 +471,3 @@ function PopulationRasterPanel({
 }
 
 export default PopulationRasterPanel;
-
