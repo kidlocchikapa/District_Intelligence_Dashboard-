@@ -26,6 +26,7 @@ import IntegrationSummaryPanel from "../components/IntegrationSummaryPanel";
 import SharedDistrictSelector from "../components/SharedDistrictSelector";
 import PopulationRasterPanel from "../components/PopulationRasterPanel";
 import InteractiveRecommendations from "../components/InteractiveRecommendations";
+import Modal from "../components/Modal";
 import {
   Bar,
   BarChart,
@@ -1346,81 +1347,405 @@ function EducationPage() {
 
 /* ─── Planning Recommendations ────────────────────────────────────────── */
 function PlanningRecommendations({ districtInsights, floodImpact, educationSummary, selectedDistrict }) {
-  const summary      = districtInsights.data?.summary || {};
-  const thresholds   = districtInsights.data?.thresholds || {};
-  const allRows      = districtInsights.data?.all_districts || districtInsights.data?.districts || [];
+  const [metricPreview, setMetricPreview] = useState(null);
+  const summary = districtInsights.data?.summary || {};
+  const thresholds = districtInsights.data?.thresholds || {};
+  const allRows =
+    districtInsights.data?.all_districts || districtInsights.data?.districts || [];
   const floodSummary = floodImpact.data?.summary || {};
-  const eduSummary   = educationSummary.data || {};
+  const floodTaBreakdown = floodImpact.data?.ta_breakdown || [];
+  const eduSummary = educationSummary.data || {};
 
-  const loading = districtInsights.loading || floodImpact.loading || educationSummary.loading;
+  const loading =
+    districtInsights.loading || floodImpact.loading || educationSummary.loading;
+
+  const taPreviewRows = useMemo(() => {
+    return allRows.map((row, index) => ({
+      id: `ta-${row.admin_unit_id || row.admin_unit_name || index}`,
+      ta: row.admin_unit_name || "Unknown TA",
+      district: row.district || "Unknown District",
+      insight: row.insight_label || row.insight || "Balanced Capacity",
+      status: row.classification_label || "Balanced",
+      schoolCount: Number(row.school_count || 0),
+      schoolsPer10k: Number(row.schools_per_10k || 0),
+      studentsPerSchool: Number(row.students_per_school || 0),
+      outOfSchool: Number(row.not_in_school_total || 0),
+      schoolAgePopulation: Number(row.school_age_population_total || 0),
+    }));
+  }, [allRows]);
+
+  const taRowColumns = [
+    { key: "ta", label: "TA" },
+    { key: "district", label: "District" },
+    { key: "insight", label: "Insight" },
+    { key: "status", label: "Status" },
+    { key: "schoolCount", label: "Schools" },
+    { key: "schoolsPer10k", label: "Schools/10k" },
+    { key: "studentsPerSchool", label: "Students/School" },
+    { key: "outOfSchool", label: "Out-of-School" },
+  ];
+  const floodRowColumns = [
+    { key: "ta", label: "TA" },
+    { key: "district", label: "District" },
+    { key: "exposedSchools", label: "Exposed Schools" },
+    { key: "studentsAtRisk", label: "Students at Risk" },
+    { key: "highRiskSchools", label: "High Risk Schools" },
+    { key: "mediumRiskSchools", label: "Medium Risk Schools" },
+    { key: "lowRiskSchools", label: "Low Risk Schools" },
+  ];
+  const summaryColumns = [
+    { key: "metric", label: "Metric" },
+    { key: "value", label: "Value" },
+  ];
+
+  function selectTaRows(sourceRows) {
+    const sourceIds = new Set(
+      sourceRows
+        .map((row) => row.admin_unit_id)
+        .filter((value) => value !== null && value !== undefined)
+        .map((value) => String(value)),
+    );
+    const sourceNames = new Set(
+      sourceRows
+        .map((row) => String(row.admin_unit_name || "").trim().toLowerCase())
+        .filter(Boolean),
+    );
+
+    return taPreviewRows.filter((row) => {
+      const rowId = String(row.id || "").replace(/^ta-/, "");
+      const rowName = String(row.ta || "").trim().toLowerCase();
+      return sourceIds.has(rowId) || sourceNames.has(rowName);
+    });
+  }
+
+  function openMetricPreview({ title, rows, columns }) {
+    setMetricPreview({
+      title,
+      rows: rows || [],
+      columns: columns || summaryColumns,
+    });
+  }
 
   // Derive key numbers
-  const infraGapTAs      = allRows.filter(r => r.insight === "infrastructure gap");
-  const overcrowdingTAs  = allRows.filter(r => r.insight === "overcrowding risk");
-  const underutilizedTAs = allRows.filter(r => r.insight === "underutilized schools");
-  const worstInfra       = [...infraGapTAs].sort((a,b) => a.schools_per_10k - b.schools_per_10k)[0];
-  const worstCrowd       = [...overcrowdingTAs].sort((a,b) => b.students_per_school - a.students_per_school)[0];
-  const teacherRatio     = eduSummary.teacher_count_total > 0
-    ? Math.round(eduSummary.student_enrollment_total / eduSummary.teacher_count_total)
-    : null;
-  const classroomRatio   = null; // not in summary endpoint, derived from school-level
+  const infraGapTAs = allRows.filter((row) =>
+    String(row.insight || row.insight_label || "")
+      .toLowerCase()
+      .includes("infrastructure"),
+  );
+  const overcrowdingTAs = allRows.filter((row) =>
+    String(row.insight || row.insight_label || "")
+      .toLowerCase()
+      .includes("overcrowding"),
+  );
+  const underutilizedTAs = allRows.filter((row) =>
+    String(row.insight || row.insight_label || "")
+      .toLowerCase()
+      .includes("underutilized"),
+  );
+  const worstInfra = [...infraGapTAs].sort(
+    (left, right) =>
+      Number(left.schools_per_10k || 0) - Number(right.schools_per_10k || 0),
+  )[0];
+  const worstCrowd = [...overcrowdingTAs].sort(
+    (left, right) =>
+      Number(right.students_per_school || 0) -
+      Number(left.students_per_school || 0),
+  )[0];
+  const teacherTotal = Number(eduSummary.teacher_count_total || 0);
+  const studentTotal = Number(eduSummary.student_enrollment_total || 0);
+  const schoolAgeTotal = Number(eduSummary.school_age_population_total || 0);
+  const outOfSchoolTotal = Number(eduSummary.not_in_school_total || 0);
+  const teacherRatio =
+    teacherTotal > 0 ? Math.round(studentTotal / teacherTotal) : null;
+
+  const infraGapPreviewRows = useMemo(
+    () => selectTaRows(infraGapTAs),
+    [infraGapTAs, taPreviewRows],
+  );
+  const overcrowdingPreviewRows = useMemo(
+    () => selectTaRows(overcrowdingTAs),
+    [overcrowdingTAs, taPreviewRows],
+  );
+  const underutilizedPreviewRows = useMemo(
+    () => selectTaRows(underutilizedTAs),
+    [underutilizedTAs, taPreviewRows],
+  );
+  const outOfSchoolRows = useMemo(() => {
+    return taPreviewRows
+      .filter((row) => row.outOfSchool > 0)
+      .sort((left, right) => right.outOfSchool - left.outOfSchool);
+  }, [taPreviewRows]);
+  const floodTaRows = useMemo(() => {
+    return floodTaBreakdown
+      .map((row, index) => ({
+        id: `flood-ta-${row.ta_id || row.ta_name || index}`,
+        ta: row.ta_name || "Unknown TA",
+        district: row.district_name || "Unknown District",
+        exposedSchools: Number(row.exposed_schools || 0),
+        studentsAtRisk: Number(row.students_at_risk || 0),
+        highRiskSchools: Number(row.high_risk_schools || 0),
+        mediumRiskSchools: Number(row.medium_risk_schools || 0),
+        lowRiskSchools: Number(row.low_risk_schools || 0),
+      }))
+      .sort((left, right) => right.studentsAtRisk - left.studentsAtRisk);
+  }, [floodTaBreakdown]);
+  const underutilizedSchoolCount = underutilizedPreviewRows.reduce(
+    (sum, row) => sum + Number(row.schoolCount || 0),
+    0,
+  );
+  const summaryRows = [
+    { metric: "Total Schools", value: formatNumber(eduSummary.school_count || 0, 0) },
+    { metric: "Total Students", value: formatNumber(studentTotal, 0) },
+    { metric: "Total Teachers", value: formatNumber(teacherTotal, 0) },
+    {
+      metric: "Teacher Ratio",
+      value: teacherRatio !== null ? `1:${formatNumber(teacherRatio, 0)}` : "N/A",
+    },
+    { metric: "School-Age Population", value: formatNumber(schoolAgeTotal, 0) },
+    { metric: "Out-of-School Children", value: formatNumber(outOfSchoolTotal, 0) },
+    { metric: "Infrastructure-Gap TAs", value: formatNumber(infraGapTAs.length, 0) },
+    { metric: "Overcrowding TAs", value: formatNumber(overcrowdingTAs.length, 0) },
+    { metric: "Underutilized TAs", value: formatNumber(underutilizedTAs.length, 0) },
+    {
+      metric: "Schools/10k Threshold",
+      value: formatNumber(thresholds.schools_per_10k_low || 0, 1),
+    },
+    {
+      metric: "Students/School Threshold",
+      value: formatNumber(thresholds.students_per_school_high || 0, 0),
+    },
+    { metric: "Flood-Exposed Schools", value: formatNumber(floodSummary.exposed_schools || 0, 0) },
+    { metric: "Students at Flood Risk", value: formatNumber(floodSummary.students_at_risk || 0, 0) },
+    {
+      metric: "Benchmark Areas",
+      value: formatNumber(summary.total_districts || 0, 0),
+    },
+  ];
 
   const recommendations = [
-    // 1 — Infrastructure gaps
+    // 1 - Infrastructure gaps
     infraGapTAs.length > 0 && {
       priority: "high",
       icon: School,
       title: "New School Construction Needed",
       body: `${infraGapTAs.length} TA${infraGapTAs.length > 1 ? "s" : ""} fall below the minimum school density threshold of ${formatNumber(thresholds.schools_per_10k_low, 1)} schools per 10,000 residents.${worstInfra ? ` ${worstInfra.admin_unit_name} is the most underserved at ${formatNumber(worstInfra.schools_per_10k, 1)} schools/10k with a population of ${formatNumber(worstInfra.population_total, 0)}.` : ""} Prioritise capital investment in these areas.`,
       action: "Target capital budget for school construction in flagged TAs",
+      metricLinks: [
+        {
+          id: "infra-gap-ta-count",
+          label: "Infrastructure-Gap TAs",
+          value: formatNumber(infraGapTAs.length, 0),
+          onClick: () =>
+            openMetricPreview({
+              title: "Infrastructure-Gap TA List",
+              rows: infraGapPreviewRows,
+              columns: taRowColumns,
+            }),
+        },
+        {
+          id: "worst-schools-density",
+          label: "Lowest Schools/10k",
+          value: worstInfra ? formatNumber(worstInfra.schools_per_10k, 1) : "N/A",
+          onClick: () =>
+            openMetricPreview({
+              title: "Infrastructure-Gap TA List",
+              rows: infraGapPreviewRows,
+              columns: taRowColumns,
+            }),
+        },
+      ],
     },
-    // 2 — Overcrowding
+    // 2 - Overcrowding
     overcrowdingTAs.length > 0 && {
       priority: "high",
       icon: Users,
       title: "Classroom Expansion Required",
       body: `${overcrowdingTAs.length} TA${overcrowdingTAs.length > 1 ? "s" : ""} exceed the overcrowding threshold of ${formatNumber(thresholds.students_per_school_high, 0)} students per school.${worstCrowd ? ` ${worstCrowd.admin_unit_name} averages ${formatNumber(worstCrowd.students_per_school, 0)} students per school.` : ""} Additional classrooms or satellite schools are needed to reduce pressure.`,
       action: "Commission classroom block additions in overcrowded TAs",
+      metricLinks: [
+        {
+          id: "overcrowding-ta-count",
+          label: "Overcrowding TAs",
+          value: formatNumber(overcrowdingTAs.length, 0),
+          onClick: () =>
+            openMetricPreview({
+              title: "Overcrowding TA List",
+              rows: overcrowdingPreviewRows,
+              columns: taRowColumns,
+            }),
+        },
+        {
+          id: "worst-overcrowding-value",
+          label: "Worst Students/School",
+          value: worstCrowd ? formatNumber(worstCrowd.students_per_school, 0) : "N/A",
+          onClick: () =>
+            openMetricPreview({
+              title: "Overcrowding TA List",
+              rows: overcrowdingPreviewRows,
+              columns: taRowColumns,
+            }),
+        },
+      ],
     },
-    // 3 — Teacher ratio
+    // 3 - Teacher ratio
     teacherRatio !== null && teacherRatio > 60 && {
       priority: "high",
       icon: BookOpen,
       title: "Teacher Recruitment Urgently Needed",
       body: `The district-wide teacher-to-student ratio is 1:${teacherRatio}, exceeding the national standard of 1:60. This affects learning quality across all schools. Targeted recruitment and deployment to high-pressure TAs should be prioritised.`,
       action: "Increase teacher recruitment and redistribute existing staff to high-ratio schools",
+      metricLinks: [
+        {
+          id: "teacher-ratio",
+          label: "Teacher Ratio",
+          value: `1:${formatNumber(teacherRatio, 0)}`,
+          onClick: () =>
+            openMetricPreview({
+              title: "Education Workforce Summary",
+              rows: summaryRows,
+              columns: summaryColumns,
+            }),
+        },
+        {
+          id: "teacher-total",
+          label: "Total Teachers",
+          value: formatNumber(teacherTotal, 0),
+          onClick: () =>
+            openMetricPreview({
+              title: "Education Workforce Summary",
+              rows: summaryRows,
+              columns: summaryColumns,
+            }),
+        },
+      ],
     },
-    // 4 — Underutilised schools
+    // 4 - Underutilized schools
     underutilizedTAs.length > 0 && {
       priority: "medium",
       icon: TrendingUp,
       title: "Optimise Underutilised School Capacity",
       body: `${underutilizedTAs.length} TA${underutilizedTAs.length > 1 ? "s" : ""} have schools operating well below capacity. Before building new schools, consider redistribution of students from overcrowded neighbouring TAs or repurposing spare capacity for adult literacy or vocational programmes.`,
       action: "Map underutilised schools against overcrowded neighbours for redistribution planning",
+      metricLinks: [
+        {
+          id: "underutilized-ta-count",
+          label: "Underutilized TAs",
+          value: formatNumber(underutilizedTAs.length, 0),
+          onClick: () =>
+            openMetricPreview({
+              title: "Underutilized TA List",
+              rows: underutilizedPreviewRows,
+              columns: taRowColumns,
+            }),
+        },
+        {
+          id: "underutilized-school-count",
+          label: "Schools in These TAs",
+          value: formatNumber(underutilizedSchoolCount, 0),
+          onClick: () =>
+            openMetricPreview({
+              title: "Underutilized TA List",
+              rows: underutilizedPreviewRows,
+              columns: taRowColumns,
+            }),
+        },
+      ],
     },
-    // 5 — Flood risk
+    // 5 - Flood risk
     floodSummary.exposed_schools > 0 && {
       priority: "high",
       icon: ShieldAlert,
       title: "Flood-Resilient School Infrastructure",
       body: `${floodSummary.exposed_schools} schools with ${formatNumber(floodSummary.students_at_risk, 0)} enrolled students sit within flood-exposed zones. All are currently classified as low-risk, but infrastructure investment in these schools should include flood-resilient design standards and contingency relocation plans.`,
       action: "Integrate flood-resilient construction standards for all schools in Ta Mwambo and adjacent flood zones",
+      metricLinks: [
+        {
+          id: "exposed-schools",
+          label: "Exposed Schools",
+          value: formatNumber(floodSummary.exposed_schools || 0, 0),
+          onClick: () =>
+            openMetricPreview({
+              title: "Flood Exposure by TA",
+              rows: floodTaRows,
+              columns: floodRowColumns,
+            }),
+        },
+        {
+          id: "students-at-risk",
+          label: "Students at Risk",
+          value: formatNumber(floodSummary.students_at_risk || 0, 0),
+          onClick: () =>
+            openMetricPreview({
+              title: "Flood Exposure by TA",
+              rows: floodTaRows,
+              columns: floodRowColumns,
+            }),
+        },
+      ],
     },
-    // 6 — Out-of-school children
-    eduSummary.not_in_school_total > 0 && {
+    // 6 - Out-of-school children
+    outOfSchoolTotal > 0 && {
       priority: "medium",
       icon: UserRoundX,
       title: "Address Out-of-School Children",
-      body: `An estimated ${formatNumber(eduSummary.not_in_school_total, 0)} school-age children are not enrolled. This gap is largest in TAs with infrastructure deficits, suggesting access barriers rather than demand issues. Community outreach combined with school construction will be most effective.`,
+      body: `An estimated ${formatNumber(outOfSchoolTotal, 0)} school-age children are not enrolled. This gap is largest in TAs with infrastructure deficits, suggesting access barriers rather than demand issues. Community outreach combined with school construction will be most effective.`,
       action: "Combine school construction with targeted enrolment drives in underserved TAs",
+      metricLinks: [
+        {
+          id: "out-of-school-total",
+          label: "Out-of-School Children",
+          value: formatNumber(outOfSchoolTotal, 0),
+          onClick: () =>
+            openMetricPreview({
+              title: "Out-of-School by TA",
+              rows: outOfSchoolRows,
+              columns: taRowColumns,
+            }),
+        },
+        {
+          id: "school-age-population",
+          label: "School-Age Population",
+          value: formatNumber(schoolAgeTotal, 0),
+          onClick: () =>
+            openMetricPreview({
+              title: "Education Summary Metrics",
+              rows: summaryRows,
+              columns: summaryColumns,
+            }),
+        },
+      ],
     },
-    // 7 — Cross-sector welfare link
+    // 7 - Cross-sector welfare link
     {
       priority: "low",
       icon: Lightbulb,
       title: "Link Education Planning to Welfare Data",
       body: `The integrated welfare context shows flood-affected beneficiaries and school-age unenrolled populations overlap significantly. Social cash transfer programmes should include school attendance conditionality to improve enrolment in high-poverty, low-access TAs.`,
       action: "Introduce school attendance conditionality in social protection programmes for targeted TAs",
+      metricLinks: [
+        {
+          id: "welfare-link-out-of-school",
+          label: "Out-of-School Children",
+          value: formatNumber(outOfSchoolTotal, 0),
+          onClick: () =>
+            openMetricPreview({
+              title: "Out-of-School by TA",
+              rows: outOfSchoolRows,
+              columns: taRowColumns,
+            }),
+        },
+        {
+          id: "welfare-link-flood-exposed",
+          label: "Flood-Exposed Schools",
+          value: formatNumber(floodSummary.exposed_schools || 0, 0),
+          onClick: () =>
+            openMetricPreview({
+              title: "Flood Exposure by TA",
+              rows: floodTaRows,
+              columns: floodRowColumns,
+            }),
+        },
+      ],
     },
   ].filter(Boolean);
 
@@ -1459,10 +1784,64 @@ function PlanningRecommendations({ districtInsights, floodImpact, educationSumma
         priorityConfig={priorityConfig}
         sectionKey={`education:${selectedDistrict || "all"}`}
       />
+
+      <Modal
+        isOpen={Boolean(metricPreview)}
+        onClose={() => setMetricPreview(null)}
+        title={metricPreview?.title || "Metric Preview"}
+      >
+        <p className="mb-4 text-sm font-semibold text-slate-600">
+          Previewing records behind this recommendation metric.
+        </p>
+        <div className="max-h-[55vh] overflow-auto rounded-lg border border-slate-200">
+          <table className="min-w-full divide-y divide-slate-200 text-sm">
+            <thead className="sticky top-0 bg-slate-50">
+              <tr>
+                {(metricPreview?.columns || []).map((column) => (
+                  <th
+                    key={column.key}
+                    className="px-3 py-2 text-left text-[11px] font-bold uppercase tracking-wide text-slate-500"
+                  >
+                    {column.label || column.key}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100 bg-white">
+              {(metricPreview?.rows || []).length ? (
+                (metricPreview?.rows || []).map((row, rowIndex) => (
+                  <tr key={row.id || `row-${rowIndex}`}>
+                    {(metricPreview?.columns || []).map((column) => (
+                      <td
+                        key={`${row.id || rowIndex}-${column.key}`}
+                        className={`px-3 py-2 ${
+                          column.key === "ta" || column.key === "metric"
+                            ? "font-semibold text-slate-900"
+                            : "text-slate-700"
+                        }`}
+                      >
+                        {row[column.key] ?? "-"}
+                      </td>
+                    ))}
+                  </tr>
+                ))
+              ) : (
+                <tr>
+                  <td
+                    colSpan={Math.max((metricPreview?.columns || []).length, 1)}
+                    className="px-3 py-8 text-center text-sm font-semibold text-slate-400"
+                  >
+                    No preview records available for this metric.
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </Modal>
     </div>
   );
 }
-
 /* ─── Risk colour helpers ──────────────────────────────────────────────── */
 const RISK_COLORS = { high: "#dc2626", medium: "#f59e0b", low: "#3b82f6", none: "#94a3b8" };
 function riskColor(cls) { return RISK_COLORS[cls] || RISK_COLORS.none; }
