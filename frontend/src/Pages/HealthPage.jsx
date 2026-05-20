@@ -1279,7 +1279,7 @@ function HealthRecommendations({
   totalFacilities, functionalFacilities, nonFunctionalFacilities,
   govFacilities, privateFacilities,
 }) {
-  const [facilityPreview, setFacilityPreview] = useState(null);
+  const [metricPreview, setMetricPreview] = useState(null);
   const loading = healthSummary.loading || servedPopulationSummary.loading || healthDrilldown.loading;
 
   const drillSummary  = healthDrilldown.data?.summary || {};
@@ -1312,6 +1312,11 @@ function HealthRecommendations({
           "Unknown TA",
         type: properties?.type || "Facility",
         status: properties?.status || "Unknown",
+        doctorCount: Number(properties?.doctor_count || 0),
+        nurseCount: Number(properties?.nurse_midwife_count || 0),
+        enrollment: Number(properties?.student_enrollment_total || 0),
+        travelMinutes: Number(properties?.avg_travel_time_min || 0),
+        floodExposed: Boolean(properties?.flood_is_exposed),
       };
     });
   }, [facilities]);
@@ -1322,53 +1327,176 @@ function HealthRecommendations({
     );
   }, [facilityPreviewRows]);
 
-  function openFacilityPreview(kind) {
-    if (kind === "private") {
-      setFacilityPreview({
-        title: `Private Facilities (${formatNumber(privateFacilityPreviewRows.length, 0)})`,
-        rows: privateFacilityPreviewRows,
-      });
-      return;
-    }
+  const nonFunctionalFacilityRows = useMemo(() => {
+    return facilityPreviewRows.filter((row) =>
+      ["non-functional", "closed", "closed (temporary)"].includes(
+        String(row.status).toLowerCase(),
+      ),
+    );
+  }, [facilityPreviewRows]);
 
-    setFacilityPreview({
-      title: `All Facilities (${formatNumber(facilityPreviewRows.length, 0)})`,
-      rows: facilityPreviewRows,
-    });
-  }
+  const floodExposedFacilityRows = useMemo(() => {
+    return facilityPreviewRows.filter((row) => row.floodExposed);
+  }, [facilityPreviewRows]);
+
+  const highTravelFacilityRows = useMemo(() => {
+    return facilityPreviewRows
+      .filter((row) => Number.isFinite(row.travelMinutes) && row.travelMinutes > 30)
+      .sort((left, right) => right.travelMinutes - left.travelMinutes);
+  }, [facilityPreviewRows]);
+
+  const doctorStaffedFacilityRows = useMemo(() => {
+    return facilityPreviewRows
+      .filter((row) => row.doctorCount > 0)
+      .sort((left, right) => right.doctorCount - left.doctorCount);
+  }, [facilityPreviewRows]);
+
+  const taAccessPressureRows = useMemo(() => {
+    return taBreakdown
+      .map((row) => ({
+        id: `ta-${row.ta_id || row.ta_name}`,
+        ta: row.ta_name,
+        district: row.district_name,
+        coveragePct: Number(row.health_population_served_pct || 0),
+        populationPerFacility: Number(row.population_per_facility || 0),
+        facilityCount: Number(row.facility_count || 0),
+      }))
+      .sort((left, right) => left.coveragePct - right.coveragePct);
+  }, [taBreakdown]);
+
+  const underservedTaRows = useMemo(() => {
+    return taBreakdown
+      .filter((row) => Number(row.population_per_facility || 0) > 2000)
+      .sort(
+        (left, right) =>
+          Number(right.population_per_facility || 0) -
+          Number(left.population_per_facility || 0),
+      )
+      .slice(0, 10)
+      .map((row) => ({
+      id: `underserved-${row.ta_id || row.ta_name}`,
+      ta: row.ta_name,
+      district: row.district_name,
+      populationPerFacility: Number(row.population_per_facility || 0),
+      populationTotal: Number(row.population_total || 0),
+      facilityCount: Number(row.facility_count || 0),
+    }));
+  }, [taBreakdown]);
 
   // Derive key metrics
-  const popPerFacility   = Number(drillSummary.population_per_facility || 0);
-  const totalPop         = Number(drillSummary.population_total || 0);
-  const facilityCount    = Number(drillSummary.facility_count || 0);
+  const popPerFacility = Number(drillSummary.population_per_facility || 0);
+  const totalPop = Number(drillSummary.population_total || 0);
 
   // Underserved TAs: top 3 by population per facility
   const underservedTAs = [...taBreakdown]
-    .filter(r => Number(r.population_per_facility || 0) > 2000)
-    .sort((a, b) => Number(b.population_per_facility || 0) - Number(a.population_per_facility || 0))
+    .filter((row) => Number(row.population_per_facility || 0) > 2000)
+    .sort(
+      (left, right) =>
+        Number(right.population_per_facility || 0) -
+        Number(left.population_per_facility || 0),
+    )
     .slice(0, 3);
   const worstTA = underservedTAs[0];
 
   // Workforce
-  const doctors = facilities.reduce((s, f) => s + Number(f.properties?.doctor_count || 0), 0);
-  const nurses  = facilities.reduce((s, f) => s + Number(f.properties?.nurse_midwife_count || 0), 0);
-  const doctorRatio = totalPop > 0 && doctors > 0 ? Math.round(totalPop / doctors) : null;
-  const nurseRatio  = totalPop > 0 && nurses  > 0 ? Math.round(totalPop / nurses)  : null;
+  const doctors = facilities.reduce(
+    (sum, feature) => sum + Number(feature.properties?.doctor_count || 0),
+    0,
+  );
+  const nurses = facilities.reduce(
+    (sum, feature) => sum + Number(feature.properties?.nurse_midwife_count || 0),
+    0,
+  );
+  const doctorRatio =
+    totalPop > 0 && doctors > 0 ? Math.round(totalPop / doctors) : null;
+  const nurseRatio =
+    totalPop > 0 && nurses > 0 ? Math.round(totalPop / nurses) : null;
 
   // Flood-exposed facilities
-  const floodExposed = facilities.filter(f => f.properties?.flood_is_exposed).length;
+  const floodExposed = facilities.filter(
+    (feature) => feature.properties?.flood_is_exposed,
+  ).length;
 
   // Welfare beneficiaries with health access
-  const welfareWithAccess = Number(healthIntegration.data?.summary?.health_access_count || 0);
-  const welfareTotal      = Number(healthIntegration.data?.summary?.total_beneficiaries || 0);
+  const welfareWithAccess = Number(
+    healthIntegration.data?.summary?.health_access_count || 0,
+  );
 
   // Avg travel time
   const travelTimes = facilities
-    .map(f => Number(f.properties?.avg_travel_time_min || 0))
-    .filter(v => v > 0);
+    .map((feature) => Number(feature.properties?.avg_travel_time_min || 0))
+    .filter((value) => value > 0);
   const medianTravel = travelTimes.length
-    ? travelTimes.sort((a,b)=>a-b)[Math.floor(travelTimes.length/2)]
+    ? travelTimes.sort((left, right) => left - right)[
+        Math.floor(travelTimes.length / 2)
+      ]
     : null;
+
+  const summaryRows = useMemo(() => {
+    return [
+      { metric: "No access population", value: formatNumber(noAccessTotal, 0) },
+      { metric: "Access coverage", value: `${formatNumber(accessShare, 1)}%` },
+      { metric: "Facilities", value: formatNumber(totalFacilities, 0) },
+      { metric: "Population per facility", value: formatNumber(popPerFacility, 0) },
+      { metric: "Doctors", value: formatNumber(doctors, 0) },
+      { metric: "Doctor ratio", value: doctorRatio ? `1:${formatNumber(doctorRatio, 0)}` : "N/A" },
+      { metric: "Nurses", value: formatNumber(nurses, 0) },
+      { metric: "Nurse ratio", value: nurseRatio ? `1:${formatNumber(nurseRatio, 0)}` : "N/A" },
+      {
+        metric: "Median travel time",
+        value: medianTravel !== null ? `${formatNumber(medianTravel, 0)} min` : "N/A",
+      },
+      {
+        metric: "Welfare beneficiaries with health access",
+        value: formatNumber(welfareWithAccess, 0),
+      },
+    ];
+  }, [
+    accessShare,
+    doctorRatio,
+    doctors,
+    medianTravel,
+    noAccessTotal,
+    nurseRatio,
+    nurses,
+    popPerFacility,
+    totalFacilities,
+    welfareWithAccess,
+  ]);
+
+  const facilityColumns = [
+    { key: "name", label: "Facility" },
+    { key: "ownership", label: "Ownership" },
+    { key: "district", label: "District" },
+    { key: "ta", label: "TA" },
+    { key: "status", label: "Status" },
+  ];
+  const taColumns = [
+    { key: "ta", label: "TA" },
+    { key: "district", label: "District" },
+    { key: "populationPerFacility", label: "Pop/Facility" },
+    { key: "coveragePct", label: "Coverage %" },
+    { key: "facilityCount", label: "Facilities" },
+  ];
+  const underservedTaColumns = [
+    { key: "ta", label: "TA" },
+    { key: "district", label: "District" },
+    { key: "populationPerFacility", label: "Pop/Facility" },
+    { key: "populationTotal", label: "Population" },
+    { key: "facilityCount", label: "Facilities" },
+  ];
+  const summaryColumns = [
+    { key: "metric", label: "Metric" },
+    { key: "value", label: "Value" },
+  ];
+
+  function openMetricPreview({ title, rows, columns }) {
+    setMetricPreview({
+      title,
+      rows: rows || [],
+      columns: columns || summaryColumns,
+    });
+  }
 
   const priorityConfig = {
     high:   { label: "Immediate Action",  classes: "bg-red-50 border-red-200 text-red-700",       dot: "bg-red-500"    },
@@ -1384,6 +1512,30 @@ function HealthRecommendations({
       title: "Critical Health Access Gap",
       body: `${formatNumber(noAccessTotal, 0)} people in ${districtScope} lack access to a health facility within 8 km — ${formatNumber(100 - accessShare, 1)}% of the population. The access coverage map shows the largest unserved pockets in rural TAs. Expanding facility placement or mobile health outreach in these zones is the highest-priority intervention.`,
       action: "Identify top 3 unserved population clusters from the coverage map and plan satellite clinic placement",
+      metricLinks: [
+        {
+          id: "no-access-population",
+          label: "No Access Population",
+          value: formatNumber(noAccessTotal, 0),
+          onClick: () =>
+            openMetricPreview({
+              title: "Health Access Summary",
+              rows: summaryRows,
+              columns: summaryColumns,
+            }),
+        },
+        {
+          id: "lowest-coverage-tas",
+          label: "Lowest-Coverage TAs",
+          value: formatNumber(taAccessPressureRows.length, 0),
+          onClick: () =>
+            openMetricPreview({
+              title: "TA Coverage Pressure",
+              rows: taAccessPressureRows,
+              columns: taColumns,
+            }),
+        },
+      ],
     },
     // 2 — Underserved TAs
     underservedTAs.length > 0 && {
@@ -1392,6 +1544,32 @@ function HealthRecommendations({
       title: "Facility Shortage in High-Population TAs",
       body: `${underservedTAs.length} TA${underservedTAs.length > 1 ? "s" : ""} exceed 2,000 people per facility — well above the recommended threshold.${worstTA ? ` ${worstTA.ta_name} is the most underserved with ${formatNumber(worstTA.population_per_facility, 0)} people per facility serving a population of ${formatNumber(worstTA.population_total, 0)}.` : ""} New facility construction or upgrading existing health posts to full clinics is needed.`,
       action: `Prioritise new health facility construction in ${underservedTAs.map(t => t.ta_name).join(", ")}`,
+      metricLinks: [
+        {
+          id: "underserved-tas",
+          label: "Underserved TAs",
+          value: formatNumber(underservedTAs.length, 0),
+          onClick: () =>
+            openMetricPreview({
+              title: "Underserved TAs",
+              rows: underservedTaRows,
+              columns: underservedTaColumns,
+            }),
+        },
+        {
+          id: "worst-ta-ratio",
+          label: "Worst TA Ratio",
+          value: worstTA
+            ? formatNumber(worstTA.population_per_facility, 0)
+            : "N/A",
+          onClick: () =>
+            openMetricPreview({
+              title: "Underserved TAs",
+              rows: underservedTaRows,
+              columns: underservedTaColumns,
+            }),
+        },
+      ],
     },
     // 3 — Non-functional facilities
     nonFunctionalFacilities > 0 && {
@@ -1400,6 +1578,30 @@ function HealthRecommendations({
       title: "Non-Functional Facilities Reducing Effective Capacity",
       body: `${formatNumber(nonFunctionalFacilities)} of ${formatNumber(totalFacilities)} facilities are non-functional or closed. These represent lost capacity that could serve existing populations without new construction. Rehabilitation of closed facilities is faster and cheaper than building new ones.`,
       action: "Audit all non-functional facilities and prioritise rehabilitation of those in high-need TAs",
+      metricLinks: [
+        {
+          id: "non-functional-facilities",
+          label: "Non-Functional",
+          value: formatNumber(nonFunctionalFacilities, 0),
+          onClick: () =>
+            openMetricPreview({
+              title: "Non-Functional Facilities",
+              rows: nonFunctionalFacilityRows,
+              columns: facilityColumns,
+            }),
+        },
+        {
+          id: "all-facilities",
+          label: "All Facilities",
+          value: formatNumber(totalFacilities, 0),
+          onClick: () =>
+            openMetricPreview({
+              title: "All Health Facilities",
+              rows: facilityPreviewRows,
+              columns: facilityColumns,
+            }),
+        },
+      ],
     },
     // 4 — Workforce
     doctorRatio !== null && doctorRatio > 5000 && {
@@ -1408,37 +1610,62 @@ function HealthRecommendations({
       title: "Severe Doctor Shortage",
       body: `The doctor-to-population ratio is 1:${formatNumber(doctorRatio, 0)}, far exceeding the WHO recommended 1:1,000. With only ${formatNumber(doctors, 0)} doctors serving ${formatNumber(totalPop, 0)} people, clinical capacity is severely constrained. Nurse-led care models and community health worker deployment can bridge the gap in the short term.`,
       action: "Deploy community health workers to high-burden TAs and fast-track nurse practitioner training",
+      metricLinks: [
+        {
+          id: "doctor-ratio",
+          label: "Doctor Ratio",
+          value: `1:${formatNumber(doctorRatio, 0)}`,
+          onClick: () =>
+            openMetricPreview({
+              title: "Workforce Summary",
+              rows: summaryRows,
+              columns: summaryColumns,
+            }),
+        },
+        {
+          id: "doctor-staffed-facilities",
+          label: "Doctor-Staffed Facilities",
+          value: formatNumber(doctorStaffedFacilityRows.length, 0),
+          onClick: () =>
+            openMetricPreview({
+              title: "Facilities with Doctors",
+              rows: doctorStaffedFacilityRows,
+              columns: facilityColumns,
+            }),
+        },
+      ],
     },
     // 5 — Private sector balance
     privateFacilities > govFacilities && {
       priority: "medium",
       icon: Building2,
       title: "Private Sector Dominance — Equity Risk",
-      body: (
-        <>
-          <button
-            type="button"
-            onClick={() => openFacilityPreview("private")}
-            className="font-bold text-blue-700 underline decoration-dotted underline-offset-2 hover:text-blue-900"
-          >
-            {formatNumber(privateFacilities)}
-          </button>{" "}
-          of{" "}
-          <button
-            type="button"
-            onClick={() => openFacilityPreview("all")}
-            className="font-bold text-blue-700 underline decoration-dotted underline-offset-2 hover:text-blue-900"
-          >
-            {formatNumber(totalFacilities)}
-          </button>{" "}
-          facilities are privately operated, outnumbering government facilities.
-          While private facilities expand coverage, they concentrate in urban and
-          peri-urban areas, leaving rural populations dependent on fewer
-          government facilities. Public-private partnership agreements should
-          include rural service obligations.
-        </>
-      ),
+      body: `${formatNumber(privateFacilities)} of ${formatNumber(totalFacilities)} facilities are privately operated, outnumbering government facilities. While private facilities expand coverage, they concentrate in urban and peri-urban areas, leaving rural populations dependent on fewer government facilities. Public-private partnership agreements should include rural service obligations.`,
       action: "Negotiate PPP agreements requiring private facilities to serve a defined rural catchment population",
+      metricLinks: [
+        {
+          id: "private-facilities",
+          label: "Private Facilities",
+          value: formatNumber(privateFacilities, 0),
+          onClick: () =>
+            openMetricPreview({
+              title: `Private Facilities (${formatNumber(privateFacilityPreviewRows.length, 0)})`,
+              rows: privateFacilityPreviewRows,
+              columns: facilityColumns,
+            }),
+        },
+        {
+          id: "total-facilities",
+          label: "Total Facilities",
+          value: formatNumber(totalFacilities, 0),
+          onClick: () =>
+            openMetricPreview({
+              title: "All Health Facilities",
+              rows: facilityPreviewRows,
+              columns: facilityColumns,
+            }),
+        },
+      ],
     },
     // 6 — Flood risk
     floodExposed > 0 && {
@@ -1447,6 +1674,19 @@ function HealthRecommendations({
       title: "Flood-Exposed Health Facilities",
       body: `${formatNumber(floodExposed)} health facilities are in flood-exposed zones. During flood events these facilities may become inaccessible or damaged, cutting off health services precisely when demand spikes. Emergency referral pathways and pre-positioned medical supplies at unaffected facilities are essential.`,
       action: "Establish flood-season health service continuity plans and pre-position emergency medical supplies",
+      metricLinks: [
+        {
+          id: "flood-exposed-facilities",
+          label: "Exposed Facilities",
+          value: formatNumber(floodExposed, 0),
+          onClick: () =>
+            openMetricPreview({
+              title: "Flood-Exposed Health Facilities",
+              rows: floodExposedFacilityRows,
+              columns: facilityColumns,
+            }),
+        },
+      ],
     },
     // 7 — Travel time
     medianTravel !== null && medianTravel > 30 && {
@@ -1455,6 +1695,30 @@ function HealthRecommendations({
       title: "Long Travel Times to Facilities",
       body: `The median road travel time to the nearest health facility is ${medianTravel.toFixed(0)} minutes. For emergency obstetric care, stroke, and trauma, this delay is life-threatening. Ambulance pre-positioning and community first-responder training in high-travel-time areas can reduce preventable deaths.`,
       action: "Pre-position ambulances in TAs with median travel times above 30 minutes",
+      metricLinks: [
+        {
+          id: "median-travel-time",
+          label: "Median Travel Time",
+          value: `${formatNumber(medianTravel, 0)} min`,
+          onClick: () =>
+            openMetricPreview({
+              title: "Travel Time Summary",
+              rows: summaryRows,
+              columns: summaryColumns,
+            }),
+        },
+        {
+          id: "high-travel-facilities",
+          label: "Facilities >30 min",
+          value: formatNumber(highTravelFacilityRows.length, 0),
+          onClick: () =>
+            openMetricPreview({
+              title: "High Travel-Time Facilities",
+              rows: highTravelFacilityRows,
+              columns: facilityColumns,
+            }),
+        },
+      ],
     },
     // 8 — Welfare link
     welfareWithAccess > 0 && {
@@ -1463,6 +1727,19 @@ function HealthRecommendations({
       title: "Link Health Access to Social Protection",
       body: `${formatNumber(welfareWithAccess, 0)} welfare beneficiaries have a health facility within 8 km. Integrating health service utilisation data with welfare programme monitoring would allow identification of beneficiaries who are geographically close to facilities but not accessing care — enabling targeted outreach.`,
       action: "Cross-reference welfare beneficiary data with health facility utilisation records to identify non-users",
+      metricLinks: [
+        {
+          id: "welfare-with-access",
+          label: "Beneficiaries with Access",
+          value: formatNumber(welfareWithAccess, 0),
+          onClick: () =>
+            openMetricPreview({
+              title: "Welfare and Health Access Summary",
+              rows: summaryRows,
+              columns: summaryColumns,
+            }),
+        },
+      ],
     },
     // 9 — Interpretation note
     {
@@ -1471,6 +1748,19 @@ function HealthRecommendations({
       title: "Map Interpretation: Coverage vs Utilisation",
       body: `The 8 km buffer coverage maps show geographic proximity to facilities, not actual utilisation. A facility within 8 km may still be inaccessible due to road conditions, cost, or cultural barriers. The road-distance and travel-time rasters provide a more accurate picture of real-world access than straight-line buffers alone.`,
       action: "Supplement coverage analysis with patient visit data and community health surveys to capture utilisation gaps",
+      metricLinks: [
+        {
+          id: "coverage-summary",
+          label: "Coverage Summary",
+          value: `${formatNumber(accessShare, 1)}%`,
+          onClick: () =>
+            openMetricPreview({
+              title: "Coverage vs Utilisation Summary",
+              rows: summaryRows,
+              columns: summaryColumns,
+            }),
+        },
+      ],
     },
   ].filter(Boolean);
 
@@ -1501,46 +1791,55 @@ function HealthRecommendations({
       />
 
       <Modal
-        isOpen={Boolean(facilityPreview)}
-        onClose={() => setFacilityPreview(null)}
-        title={facilityPreview?.title || "Facility Preview"}
+        isOpen={Boolean(metricPreview)}
+        onClose={() => setMetricPreview(null)}
+        title={metricPreview?.title || "Metric Preview"}
       >
         <p className="mb-4 text-sm font-semibold text-slate-600">
-          Previewing facilities referenced by this recommendation.
+          Previewing records referenced by this recommendation.
         </p>
         <div className="max-h-[55vh] overflow-auto rounded-lg border border-slate-200">
           <table className="min-w-full divide-y divide-slate-200 text-sm">
             <thead className="sticky top-0 bg-slate-50">
               <tr>
-                <th className="px-3 py-2 text-left text-[11px] font-bold uppercase tracking-wide text-slate-500">
-                  Facility
-                </th>
-                <th className="px-3 py-2 text-left text-[11px] font-bold uppercase tracking-wide text-slate-500">
-                  Ownership
-                </th>
-                <th className="px-3 py-2 text-left text-[11px] font-bold uppercase tracking-wide text-slate-500">
-                  District
-                </th>
-                <th className="px-3 py-2 text-left text-[11px] font-bold uppercase tracking-wide text-slate-500">
-                  TA
-                </th>
-                <th className="px-3 py-2 text-left text-[11px] font-bold uppercase tracking-wide text-slate-500">
-                  Status
-                </th>
+                {(metricPreview?.columns || []).map((column) => (
+                  <th
+                    key={column.key}
+                    className="px-3 py-2 text-left text-[11px] font-bold uppercase tracking-wide text-slate-500"
+                  >
+                    {column.label || column.key}
+                  </th>
+                ))}
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 bg-white">
-              {(facilityPreview?.rows || []).map((row) => (
-                <tr key={row.id}>
-                  <td className="px-3 py-2 font-semibold text-slate-900">
-                    {row.name}
+              {(metricPreview?.rows || []).length ? (
+                (metricPreview?.rows || []).map((row, rowIndex) => (
+                  <tr key={row.id || `row-${rowIndex}`}>
+                    {(metricPreview?.columns || []).map((column) => (
+                      <td
+                        key={`${row.id || rowIndex}-${column.key}`}
+                        className={`px-3 py-2 ${
+                          column.key === "name" || column.key === "metric"
+                            ? "font-semibold text-slate-900"
+                            : "text-slate-700"
+                        }`}
+                      >
+                        {row[column.key] ?? "—"}
+                      </td>
+                    ))}
+                  </tr>
+                ))
+              ) : (
+                <tr>
+                  <td
+                    colSpan={Math.max((metricPreview?.columns || []).length, 1)}
+                    className="px-3 py-8 text-center text-sm font-semibold text-slate-400"
+                  >
+                    No preview records available for this metric.
                   </td>
-                  <td className="px-3 py-2 text-slate-700">{row.ownership}</td>
-                  <td className="px-3 py-2 text-slate-700">{row.district}</td>
-                  <td className="px-3 py-2 text-slate-700">{row.ta}</td>
-                  <td className="px-3 py-2 text-slate-700">{row.status}</td>
                 </tr>
-              ))}
+              )}
             </tbody>
           </table>
         </div>
