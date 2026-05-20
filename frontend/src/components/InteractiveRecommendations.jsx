@@ -219,7 +219,7 @@ function InteractiveRecommendations({
 
               {isExpanded ? (
                 <div className="border-t border-gray-100 px-5 py-4">
-                  <p className="text-[13px] leading-6 text-gray-600">{rec.body}</p>
+                  <div className="text-[13px] leading-6 text-gray-600">{rec.body}</div>
 
                   <div className="mt-3 flex items-start gap-2 rounded bg-gray-50 px-3 py-2">
                     <ArrowRight className="mt-0.5 h-3.5 w-3.5 flex-shrink-0 text-gray-400" />
@@ -227,6 +227,46 @@ function InteractiveRecommendations({
                       {rec.action}
                     </p>
                   </div>
+
+                  {Array.isArray(rec.metricLinks) && rec.metricLinks.length ? (
+                    <div className="mt-3">
+                      <p className="mb-2 text-[10px] font-bold uppercase tracking-[0.12em] text-gray-400">
+                        Metric Preview
+                      </p>
+                      <div className="flex flex-wrap gap-2">
+                        {rec.metricLinks.map((metric, index) => {
+                          const metricId = metric?.id || `${rec.id}-metric-${index}`;
+                          const disabled = !metric?.onClick;
+                          return (
+                            <button
+                              key={metricId}
+                              type="button"
+                              onClick={() => metric.onClick?.()}
+                              disabled={disabled}
+                              className={`inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-bold transition-all ${
+                                disabled
+                                  ? "cursor-not-allowed border-gray-200 bg-gray-100 text-gray-400"
+                                  : "border-blue-200 bg-blue-50 text-blue-700 hover:border-blue-300 hover:bg-blue-100"
+                              }`}
+                            >
+                              <span>{metric?.label || "Metric"}</span>
+                              {metric?.value !== undefined ? (
+                                <span
+                                  className={`rounded-full px-1.5 py-0.5 text-[10px] ${
+                                    disabled
+                                      ? "bg-gray-200 text-gray-500"
+                                      : "bg-white/80 text-blue-800"
+                                  }`}
+                                >
+                                  {metric.value}
+                                </span>
+                              ) : null}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  ) : null}
 
                   <div className="mt-3 flex items-center justify-end">
                     <button
