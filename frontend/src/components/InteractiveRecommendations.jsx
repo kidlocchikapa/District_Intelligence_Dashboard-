@@ -1,4 +1,4 @@
-import { ArrowRight, CheckCircle2, ChevronDown, ChevronUp, Circle } from "lucide-react";
+import { ArrowRight, ChevronDown, ChevronUp, Circle } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 
 const PRIORITY_ORDER = ["high", "medium", "low"];
@@ -25,13 +25,9 @@ function makeRecommendationId(item, index) {
 function InteractiveRecommendations({
   recommendations = [],
   priorityConfig = {},
-  sectionKey = "default",
 }) {
   const [activePriority, setActivePriority] = useState("all");
   const [expandedIds, setExpandedIds] = useState([]);
-  const [reviewedIds, setReviewedIds] = useState([]);
-
-  const storageKey = `recommendations-reviewed:${sectionKey}`;
 
   const normalizedRecommendations = useMemo(() => {
     return recommendations.map((item, index) => ({
@@ -66,30 +62,7 @@ function InteractiveRecommendations({
   }, [activePriority, normalizedRecommendations]);
 
   useEffect(() => {
-    try {
-      const raw = localStorage.getItem(storageKey);
-      const parsed = raw ? JSON.parse(raw) : [];
-      if (Array.isArray(parsed)) {
-        setReviewedIds(parsed.map(String));
-      } else {
-        setReviewedIds([]);
-      }
-    } catch {
-      setReviewedIds([]);
-    }
-  }, [storageKey]);
-
-  useEffect(() => {
-    try {
-      localStorage.setItem(storageKey, JSON.stringify(reviewedIds));
-    } catch {
-      // Ignore localStorage write failures.
-    }
-  }, [reviewedIds, storageKey]);
-
-  useEffect(() => {
     const validIds = new Set(normalizedRecommendations.map((item) => item.id));
-    setReviewedIds((current) => current.filter((id) => validIds.has(id)));
     setExpandedIds((current) => current.filter((id) => validIds.has(id)));
   }, [normalizedRecommendations]);
 
@@ -106,8 +79,6 @@ function InteractiveRecommendations({
       setExpandedIds([filteredRecommendations[0].id]);
     }
   }, [expandedIds, filteredRecommendations]);
-
-  const reviewedCount = reviewedIds.length;
 
   if (!normalizedRecommendations.length) {
     return (
@@ -149,10 +120,6 @@ function InteractiveRecommendations({
             </button>
           );
         })}
-        <span className="ml-auto inline-flex items-center gap-2 rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-[11px] font-bold text-emerald-700">
-          <CheckCircle2 className="h-3.5 w-3.5" />
-          Reviewed {reviewedCount}/{counts.all}
-        </span>
       </div>
 
       <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
@@ -160,14 +127,13 @@ function InteractiveRecommendations({
           const cfg = priorityConfig[rec.priority] || {};
           const Icon = rec.icon || Circle;
           const isExpanded = expandedIds.includes(rec.id);
-          const isReviewed = reviewedIds.includes(rec.id);
 
           return (
             <div
               key={rec.id}
               className={`rounded border bg-white shadow-sm transition-all ${
                 isExpanded ? "border-gray-300" : "border-gray-100"
-              } ${isReviewed ? "ring-1 ring-emerald-200" : ""}`}
+              }`}
             >
               <button
                 type="button"
@@ -199,12 +165,6 @@ function InteractiveRecommendations({
                         />
                         {cfg.label || defaultPriorityLabel(rec.priority)}
                       </span>
-                      {isReviewed ? (
-                        <span className="inline-flex items-center gap-1.5 rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-[10px] font-bold text-emerald-700">
-                          <CheckCircle2 className="h-3 w-3" />
-                          Reviewed
-                        </span>
-                      ) : null}
                     </div>
                   </div>
                 </div>
@@ -268,30 +228,6 @@ function InteractiveRecommendations({
                     </div>
                   ) : null}
 
-                  <div className="mt-3 flex items-center justify-end">
-                    <button
-                      type="button"
-                      onClick={() =>
-                        setReviewedIds((current) =>
-                          current.includes(rec.id)
-                            ? current.filter((id) => id !== rec.id)
-                            : [...current, rec.id],
-                        )
-                      }
-                      className={`inline-flex items-center gap-2 rounded border px-3 py-1.5 text-xs font-bold transition-all ${
-                        isReviewed
-                          ? "border-emerald-300 bg-emerald-50 text-emerald-700 hover:bg-emerald-100"
-                          : "border-gray-300 bg-white text-gray-700 hover:bg-gray-50"
-                      }`}
-                    >
-                      {isReviewed ? (
-                        <CheckCircle2 className="h-3.5 w-3.5" />
-                      ) : (
-                        <Circle className="h-3.5 w-3.5" />
-                      )}
-                      {isReviewed ? "Reviewed" : "Mark as reviewed"}
-                    </button>
-                  </div>
                 </div>
               ) : null}
             </div>
