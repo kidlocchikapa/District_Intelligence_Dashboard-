@@ -33,6 +33,7 @@ import SharedDistrictSelector from "../components/SharedDistrictSelector";
 import { buildDashboardPath } from "../lib/query";
 import PopulationRasterPanel from "../components/PopulationRasterPanel";
 import InteractiveRecommendations from "../components/InteractiveRecommendations";
+import Modal from "../components/Modal";
 
 function formatTaAxisLabel(value) {
   if (!value) {
@@ -822,6 +823,7 @@ function DisasterPage() {
           disasterSummary={disasterSummary}
           educationFacilityExposureSummary={educationFacilityExposureSummary}
           healthFacilityExposureSummary={healthFacilityExposureSummary}
+          taFloodExposure={taFloodExposure}
           educationFloodImpact={educationFloodImpact}
           schoolsExposed={schoolsExposed}
           schoolsTotal={schoolsTotal}
@@ -837,25 +839,167 @@ function DisasterPage() {
 
 /* ─── Disaster Recommendations ────────────────────────────────────────── */
 function DisasterRecommendations({
-  disasterSummary, educationFacilityExposureSummary, healthFacilityExposureSummary,
-  educationFloodImpact, schoolsExposed, schoolsTotal, healthFacilitiesExposed,
-  healthFacilitiesTotal, scopeLabel,
+  disasterSummary,
+  educationFacilityExposureSummary,
+  healthFacilityExposureSummary,
+  taFloodExposure,
+  educationFloodImpact,
+  schoolsExposed,
+  schoolsTotal,
+  healthFacilitiesExposed,
+  healthFacilitiesTotal,
+  scopeLabel,
 }) {
-  const loading = disasterSummary.loading || educationFacilityExposureSummary.loading ||
-    healthFacilityExposureSummary.loading || educationFloodImpact.loading;
+  const [metricPreview, setMetricPreview] = useState(null);
+  const loading =
+    disasterSummary.loading ||
+    educationFacilityExposureSummary.loading ||
+    healthFacilityExposureSummary.loading ||
+    taFloodExposure.loading ||
+    educationFloodImpact.loading;
 
-  const summary      = disasterSummary.data || {};
-  const eduImpact    = educationFloodImpact.data?.summary || {};
-  const exposedPop   = Number(summary.exposed_population || 0);
-  const totalPop     = Number(summary.total_population || 0);
-  const exposedPct   = Number(summary.exposed_population_pct || 0);
+  const summary = disasterSummary.data || {};
+  const eduImpact = educationFloodImpact.data?.summary || {};
+  const eduImpactTaBreakdown = educationFloodImpact.data?.ta_breakdown || [];
+  const exposedPop = Number(summary.exposed_population || 0);
+  const totalPop = Number(summary.total_population || 0);
+  const exposedPct = Number(summary.exposed_population_pct || 0);
   const studentsAtRisk = Number(eduImpact.students_at_risk || 0);
-  const highRiskPop  = Number(summary.high_risk_population || 0);
+  const highRiskPop = Number(summary.high_risk_population || 0);
+
+  const educationFacilityRows = useMemo(() => {
+    return (educationFacilityExposureSummary.data || [])
+      .map((row, index) => ({
+        id: `edu-facility-${row.admin_unit_id || row.admin_unit_name || index}`,
+        adminUnit: row.admin_unit_name || "Unknown Area",
+        district: row.district_name || row.district || "Unknown District",
+        exposedFacilities: Number(row.exposed_facilities || 0),
+        totalFacilities: Number(row.total_facilities || 0),
+        exposedPercent:
+          Number(row.total_facilities || 0) > 0
+            ? (Number(row.exposed_facilities || 0) / Number(row.total_facilities || 0)) * 100
+            : 0,
+      }))
+      .sort((left, right) => right.exposedFacilities - left.exposedFacilities);
+  }, [educationFacilityExposureSummary.data]);
+
+  const healthFacilityRows = useMemo(() => {
+    return (healthFacilityExposureSummary.data || [])
+      .map((row, index) => ({
+        id: `health-facility-${row.admin_unit_id || row.admin_unit_name || index}`,
+        adminUnit: row.admin_unit_name || "Unknown Area",
+        district: row.district_name || row.district || "Unknown District",
+        exposedFacilities: Number(row.exposed_facilities || 0),
+        totalFacilities: Number(row.total_facilities || 0),
+        exposedPercent:
+          Number(row.total_facilities || 0) > 0
+            ? (Number(row.exposed_facilities || 0) / Number(row.total_facilities || 0)) * 100
+            : 0,
+      }))
+      .sort((left, right) => right.exposedFacilities - left.exposedFacilities);
+  }, [healthFacilityExposureSummary.data]);
+
+  const taExposureRows = useMemo(() => {
+    return (taFloodExposure.data || [])
+      .map((row, index) => ({
+        id: `ta-exposure-${row.admin_unit_id || row.admin_unit_name || index}`,
+        ta: row.admin_unit_name || "Unknown TA",
+        district: row.district_name || row.district || "Unknown District",
+        exposedPopulation: Number(row.exposed_population || 0),
+        totalPopulation: Number(row.total_population || 0),
+        exposedPercent: Number(row.exposed_population_pct || 0),
+        riskLevel: row.risk_level || "unknown",
+      }))
+      .sort((left, right) => right.exposedPopulation - left.exposedPopulation);
+  }, [taFloodExposure.data]);
+
+  const educationImpactTaRows = useMemo(() => {
+    return eduImpactTaBreakdown
+      .map((row, index) => ({
+        id: `edu-impact-${row.ta_id || row.ta_name || index}`,
+        ta: row.ta_name || "Unknown TA",
+        district: row.district_name || "Unknown District",
+        studentsAtRisk: Number(row.students_at_risk || 0),
+        exposedSchools: Number(row.exposed_schools || 0),
+        highRiskSchools: Number(row.high_risk_schools || 0),
+        mediumRiskSchools: Number(row.medium_risk_schools || 0),
+        lowRiskSchools: Number(row.low_risk_schools || 0),
+      }))
+      .sort((left, right) => right.studentsAtRisk - left.studentsAtRisk);
+  }, [eduImpactTaBreakdown]);
+
+  const combinedFacilityRows = useMemo(() => {
+    return [
+      ...educationFacilityRows.map((row) => ({
+        ...row,
+        sector: "Education",
+      })),
+      ...healthFacilityRows.map((row) => ({
+        ...row,
+        sector: "Health",
+      })),
+    ].sort((left, right) => right.exposedFacilities - left.exposedFacilities);
+  }, [educationFacilityRows, healthFacilityRows]);
+
+  const summaryRows = [
+    { metric: "Scope", value: scopeLabel },
+    { metric: "Total Population", value: formatNumber(totalPop, 0) },
+    { metric: "Exposed Population", value: formatNumber(exposedPop, 0) },
+    { metric: "Exposed Population %", value: `${formatNumber(exposedPct, 1)}%` },
+    { metric: "High-Risk Population", value: formatNumber(highRiskPop, 0) },
+    { metric: "Exposed Area (sq km)", value: formatNumber(summary.exposed_area_sq_km || 0, 1) },
+    { metric: "Exposed Schools", value: formatNumber(schoolsExposed, 0) },
+    { metric: "Total Schools", value: formatNumber(schoolsTotal, 0) },
+    { metric: "Students at Flood Risk", value: formatNumber(studentsAtRisk, 0) },
+    { metric: "Exposed Health Facilities", value: formatNumber(healthFacilitiesExposed, 0) },
+    { metric: "Total Health Facilities", value: formatNumber(healthFacilitiesTotal, 0) },
+  ];
+
+  const facilityColumns = [
+    { key: "adminUnit", label: "Area" },
+    { key: "district", label: "District" },
+    { key: "exposedFacilities", label: "Exposed" },
+    { key: "totalFacilities", label: "Total" },
+    { key: "exposedPercent", label: "Exposed %" },
+  ];
+  const combinedFacilityColumns = [
+    { key: "sector", label: "Sector" },
+    ...facilityColumns,
+  ];
+  const taExposureColumns = [
+    { key: "ta", label: "TA" },
+    { key: "district", label: "District" },
+    { key: "exposedPopulation", label: "Exposed Population" },
+    { key: "totalPopulation", label: "Total Population" },
+    { key: "exposedPercent", label: "Exposed %" },
+    { key: "riskLevel", label: "Risk Level" },
+  ];
+  const educationImpactColumns = [
+    { key: "ta", label: "TA" },
+    { key: "district", label: "District" },
+    { key: "studentsAtRisk", label: "Students at Risk" },
+    { key: "exposedSchools", label: "Exposed Schools" },
+    { key: "highRiskSchools", label: "High Risk Schools" },
+    { key: "mediumRiskSchools", label: "Medium Risk Schools" },
+    { key: "lowRiskSchools", label: "Low Risk Schools" },
+  ];
+  const summaryColumns = [
+    { key: "metric", label: "Metric" },
+    { key: "value", label: "Value" },
+  ];
+
+  function openMetricPreview({ title, rows, columns }) {
+    setMetricPreview({
+      title,
+      rows: rows || [],
+      columns: columns || summaryColumns,
+    });
+  }
 
   const priorityConfig = {
-    high:   { label: "Immediate Action",  classes: "bg-red-50 border-red-200 text-red-700",    dot: "bg-red-500"    },
+    high: { label: "Immediate Action", classes: "bg-red-50 border-red-200 text-red-700", dot: "bg-red-500" },
     medium: { label: "Short-Term Action", classes: "bg-amber-50 border-amber-200 text-amber-700", dot: "bg-amber-500" },
-    low:    { label: "Planning Note",     classes: "bg-blue-50 border-blue-200 text-blue-700",  dot: "bg-blue-500"   },
+    low: { label: "Planning Note", classes: "bg-blue-50 border-blue-200 text-blue-700", dot: "bg-blue-500" },
   };
 
   const recommendations = [
@@ -865,6 +1009,30 @@ function DisasterRecommendations({
       title: "Temporary Learning Spaces for Flood Season",
       body: `${formatNumber(schoolsExposed)} schools are in flood-exposed zones, putting ${formatNumber(studentsAtRisk)} enrolled students at risk of disrupted education. All are currently low-risk but require contingency plans before the rainy season. Identify and pre-position temporary learning spaces in elevated areas within Ta Mwambo.`,
       action: "Pre-position temporary classrooms and establish school closure protocols for flood alerts",
+      metricLinks: [
+        {
+          id: "exposed-schools",
+          label: "Exposed Schools",
+          value: formatNumber(schoolsExposed, 0),
+          onClick: () =>
+            openMetricPreview({
+              title: "Exposed Education Facilities by Area",
+              rows: educationFacilityRows,
+              columns: facilityColumns,
+            }),
+        },
+        {
+          id: "students-risk-learning",
+          label: "Students at Risk",
+          value: formatNumber(studentsAtRisk, 0),
+          onClick: () =>
+            openMetricPreview({
+              title: "Flood Education Impact by TA",
+              rows: educationImpactTaRows,
+              columns: educationImpactColumns,
+            }),
+        },
+      ],
     },
     studentsAtRisk > 0 && {
       priority: "high",
@@ -872,6 +1040,30 @@ function DisasterRecommendations({
       title: "Student Continuity Plans Required",
       body: `${formatNumber(studentsAtRisk)} students face potential school closure during flood events. Without a continuity plan, this translates directly to learning loss and increased dropout risk, particularly for girls and children from low-income households who are least likely to return after disruption.`,
       action: "Develop and distribute flood-season learning continuity kits to all exposed schools",
+      metricLinks: [
+        {
+          id: "students-at-risk-total",
+          label: "Students at Risk",
+          value: formatNumber(studentsAtRisk, 0),
+          onClick: () =>
+            openMetricPreview({
+              title: "Flood Education Impact by TA",
+              rows: educationImpactTaRows,
+              columns: educationImpactColumns,
+            }),
+        },
+        {
+          id: "high-risk-schools",
+          label: "High Risk Schools",
+          value: formatNumber(eduImpact.high_risk_schools || 0, 0),
+          onClick: () =>
+            openMetricPreview({
+              title: "Flood Education Impact by TA",
+              rows: educationImpactTaRows,
+              columns: educationImpactColumns,
+            }),
+        },
+      ],
     },
     healthFacilitiesExposed > 0 && {
       priority: "high",
@@ -879,6 +1071,30 @@ function DisasterRecommendations({
       title: "Health Service Continuity at Risk",
       body: `${formatNumber(healthFacilitiesExposed)} health facilities are in flood-exposed zones. During flood events, these facilities may become inaccessible, cutting off ${formatNumber(exposedPop, 0)} people from essential health services. Emergency referral pathways to unaffected facilities must be established.`,
       action: "Map alternative health facilities and establish emergency referral routes for flood-affected zones",
+      metricLinks: [
+        {
+          id: "health-facilities-exposed",
+          label: "Exposed Health Facilities",
+          value: formatNumber(healthFacilitiesExposed, 0),
+          onClick: () =>
+            openMetricPreview({
+              title: "Exposed Health Facilities by Area",
+              rows: healthFacilityRows,
+              columns: facilityColumns,
+            }),
+        },
+        {
+          id: "population-cutoff",
+          label: "Exposed Population",
+          value: formatNumber(exposedPop, 0),
+          onClick: () =>
+            openMetricPreview({
+              title: "TA Flood Population Exposure",
+              rows: taExposureRows,
+              columns: taExposureColumns,
+            }),
+        },
+      ],
     },
     highRiskPop > 0 && {
       priority: "high",
@@ -886,13 +1102,61 @@ function DisasterRecommendations({
       title: "High-Risk Zone Evacuation Planning",
       body: `${formatNumber(highRiskPop, 0)} people live in high flood-risk zones. These communities need pre-identified evacuation routes, designated assembly points, and early warning system access. Coordination with district civil protection is essential before the next flood season.`,
       action: "Establish community-level early warning systems and evacuation drills in high-risk zones",
+      metricLinks: [
+        {
+          id: "high-risk-population",
+          label: "High-Risk Population",
+          value: formatNumber(highRiskPop, 0),
+          onClick: () =>
+            openMetricPreview({
+              title: "Flood Risk Summary",
+              rows: summaryRows,
+              columns: summaryColumns,
+            }),
+        },
+        {
+          id: "high-exposure-tas",
+          label: "Most Exposed TAs",
+          value: formatNumber(taExposureRows.length, 0),
+          onClick: () =>
+            openMetricPreview({
+              title: "TA Flood Population Exposure",
+              rows: taExposureRows,
+              columns: taExposureColumns,
+            }),
+        },
+      ],
     },
     exposedPct > 0 && {
       priority: "medium",
       icon: MapIcon,
       title: "Flood-Resilient Infrastructure Investment",
-      body: `${formatNumber(exposedPct, 1)}% of the ${scopeLabel} population lives in flood-exposed areas covering ${formatNumber(summary.exposed_area_sq_km, 1)} sq km. New schools and health facilities in these zones must be built to flood-resilient standards — elevated foundations, flood-resistant materials, and drainage systems.`,
+      body: `${formatNumber(exposedPct, 1)}% of the ${scopeLabel} population lives in flood-exposed areas covering ${formatNumber(summary.exposed_area_sq_km, 1)} sq km. New schools and health facilities in these zones must be built to flood-resilient standards - elevated foundations, flood-resistant materials, and drainage systems.`,
       action: "Enforce flood-resilient building codes for all new public infrastructure in exposed zones",
+      metricLinks: [
+        {
+          id: "exposed-population-share",
+          label: "Exposed Population %",
+          value: `${formatNumber(exposedPct, 1)}%`,
+          onClick: () =>
+            openMetricPreview({
+              title: "Flood Risk Summary",
+              rows: summaryRows,
+              columns: summaryColumns,
+            }),
+        },
+        {
+          id: "exposed-area",
+          label: "Exposed Area (sq km)",
+          value: formatNumber(summary.exposed_area_sq_km || 0, 1),
+          onClick: () =>
+            openMetricPreview({
+              title: "Flood Risk Summary",
+              rows: summaryRows,
+              columns: summaryColumns,
+            }),
+        },
+      ],
     },
     {
       priority: "medium",
@@ -900,6 +1164,30 @@ function DisasterRecommendations({
       title: "Cross-Sector Flood Response Coordination",
       body: `Flood exposure cuts across education, health, and welfare sectors simultaneously. A single flood event in Ta Mwambo can displace students, close health facilities, and cut off welfare beneficiaries at the same time. A unified district flood response plan covering all three sectors is needed.`,
       action: "Establish a multi-sector flood response committee with education, health, and social welfare representation",
+      metricLinks: [
+        {
+          id: "cross-sector-schools",
+          label: "Exposed Schools",
+          value: formatNumber(schoolsExposed, 0),
+          onClick: () =>
+            openMetricPreview({
+              title: "Combined Facility Exposure",
+              rows: combinedFacilityRows,
+              columns: combinedFacilityColumns,
+            }),
+        },
+        {
+          id: "cross-sector-health",
+          label: "Exposed Health Facilities",
+          value: formatNumber(healthFacilitiesExposed, 0),
+          onClick: () =>
+            openMetricPreview({
+              title: "Combined Facility Exposure",
+              rows: combinedFacilityRows,
+              columns: combinedFacilityColumns,
+            }),
+        },
+      ],
     },
     {
       priority: "low",
@@ -907,6 +1195,30 @@ function DisasterRecommendations({
       title: "Annual Flood Exposure Re-Analysis",
       body: `Flood risk patterns shift with climate variability. The current analysis is based on the latest available flood raster. Annual re-runs of the flood exposure pipeline after each rainy season will ensure the dashboard reflects current risk and that planning decisions are based on up-to-date data.`,
       action: "Schedule annual flood raster updates and re-run the exposure analysis pipeline each May",
+      metricLinks: [
+        {
+          id: "annual-baseline-exposed-pop",
+          label: "Current Exposed Pop",
+          value: formatNumber(exposedPop, 0),
+          onClick: () =>
+            openMetricPreview({
+              title: "Flood Risk Summary",
+              rows: summaryRows,
+              columns: summaryColumns,
+            }),
+        },
+        {
+          id: "annual-baseline-students",
+          label: "Current Students at Risk",
+          value: formatNumber(studentsAtRisk, 0),
+          onClick: () =>
+            openMetricPreview({
+              title: "Flood Education Impact by TA",
+              rows: educationImpactTaRows,
+              columns: educationImpactColumns,
+            }),
+        },
+      ],
     },
   ].filter(Boolean);
 
@@ -935,8 +1247,64 @@ function DisasterRecommendations({
         priorityConfig={priorityConfig}
         sectionKey={`disaster:${scopeLabel}`}
       />
+
+      <Modal
+        isOpen={Boolean(metricPreview)}
+        onClose={() => setMetricPreview(null)}
+        title={metricPreview?.title || "Metric Preview"}
+      >
+        <p className="mb-4 text-sm font-semibold text-slate-600">
+          Previewing records behind this recommendation metric.
+        </p>
+        <div className="max-h-[55vh] overflow-auto rounded-lg border border-slate-200">
+          <table className="min-w-full divide-y divide-slate-200 text-sm">
+            <thead className="sticky top-0 bg-slate-50">
+              <tr>
+                {(metricPreview?.columns || []).map((column) => (
+                  <th
+                    key={column.key}
+                    className="px-3 py-2 text-left text-[11px] font-bold uppercase tracking-wide text-slate-500"
+                  >
+                    {column.label || column.key}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100 bg-white">
+              {(metricPreview?.rows || []).length ? (
+                (metricPreview?.rows || []).map((row, rowIndex) => (
+                  <tr key={row.id || `row-${rowIndex}`}>
+                    {(metricPreview?.columns || []).map((column) => (
+                      <td
+                        key={`${row.id || rowIndex}-${column.key}`}
+                        className={`px-3 py-2 ${
+                          column.key === "adminUnit" ||
+                          column.key === "ta" ||
+                          column.key === "metric"
+                            ? "font-semibold text-slate-900"
+                            : "text-slate-700"
+                        }`}
+                      >
+                        {row[column.key] ?? "-"}
+                      </td>
+                    ))}
+                  </tr>
+                ))
+              ) : (
+                <tr>
+                  <td
+                    colSpan={Math.max((metricPreview?.columns || []).length, 1)}
+                    className="px-3 py-8 text-center text-sm font-semibold text-slate-400"
+                  >
+                    No preview records available for this metric.
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </Modal>
     </div>
   );
 }
-
 export default DisasterPage;
