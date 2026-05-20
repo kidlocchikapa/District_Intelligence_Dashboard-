@@ -365,6 +365,7 @@ function PopulationRasterPanel({
                   const [lng, lat] = f.geometry.coordinates;
                   const name =
                     f.properties?.school_name ||
+                    f.properties?.facility_name ||
                     f.properties?.name ||
                     "School";
                   return (
