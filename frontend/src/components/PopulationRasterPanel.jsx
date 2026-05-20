@@ -441,7 +441,7 @@ function PopulationRasterPanel({
                       focusProperties[metric.key] !== undefined ? (
                         <div key={metric.key}>
                           <p className="uppercase tracking-[0.12em] text-slate/40">
-                            {item.label}
+                            {metric.label}
                           </p>
                           <p className="mt-1 text-[14px] font-black text-slate">
                             {metric.format === "pct"
