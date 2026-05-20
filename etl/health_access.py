@@ -1632,6 +1632,7 @@ def process_health_access_visualizations(
         grid_size_m=grid_size_m,
     )
 
+    generated_at = datetime.now(timezone.utc).isoformat()
     metadata = {
         "district_names": selected_districts,
         "coverage_distance_km": float(coverage_distance_km),
@@ -1639,6 +1640,7 @@ def process_health_access_visualizations(
         "raster_path": raster_path,
         "worldpop_year": resolved_worldpop["year"] if resolved_worldpop else year,
         "preview_assets": previews,
+        "generated_at": generated_at,
         "routing_result": routing_result,
     }
     run_step(
@@ -1720,6 +1722,7 @@ def process_education_access_visualizations(
         grid_size_m=grid_size_m,
     )
 
+    generated_at = datetime.now(timezone.utc).isoformat()
     metadata = {
         "district_names": selected_districts,
         "coverage_distance_km": float(coverage_distance_km),
@@ -1727,6 +1730,7 @@ def process_education_access_visualizations(
         "raster_path": raster_path,
         "worldpop_year": resolved_worldpop["year"] if resolved_worldpop else year,
         "preview_assets": previews,
+        "generated_at": generated_at,
         "routing_result": routing_result,
     }
     run_step(
