@@ -5,6 +5,9 @@ import {
   Hospital,
   Map as MapIcon,
   Download,
+  Lightbulb,
+  BookOpen,
+  AlertTriangle,
 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { toast } from "react-hot-toast";
@@ -13,6 +16,8 @@ import {
   BarChart,
   CartesianGrid,
   Cell,
+  PieChart,
+  Pie,
   Rectangle,
   ResponsiveContainer,
   Tooltip,
@@ -22,10 +27,13 @@ import {
 import { useDashboardData } from "../hooks/useDashboardData";
 import { useDistrict } from "../context/DistrictContext";
 import { usePdfExport } from "../hooks/usePdfExport";
+import { formatNumber } from "../lib/format";
 import IntegrationSummaryPanel from "../components/IntegrationSummaryPanel";
 import SharedDistrictSelector from "../components/SharedDistrictSelector";
 import { buildDashboardPath } from "../lib/query";
 import PopulationRasterPanel from "../components/PopulationRasterPanel";
+import InteractiveRecommendations from "../components/InteractiveRecommendations";
+import Modal from "../components/Modal";
 
 function formatTaAxisLabel(value) {
   if (!value) {
@@ -108,6 +116,22 @@ function DisasterPage() {
       facility_type: "health",
     }),
   );
+  const educationFacilityExposureDetails = useDashboardData(
+    buildDashboardPath("/dashboard/disaster/flood/facilities", {
+      district: disasterDistrictFilter,
+      ta: selectedTa,
+      facility_type: "education",
+      exposed_only: "true",
+    }),
+  );
+  const healthFacilityExposureDetails = useDashboardData(
+    buildDashboardPath("/dashboard/disaster/flood/facilities", {
+      district: disasterDistrictFilter,
+      ta: selectedTa,
+      facility_type: "health",
+      exposed_only: "true",
+    }),
+  );
 
   // Flood risk GeoJSON source from database
   const floodRiskZones = useDashboardData(
@@ -144,6 +168,13 @@ function DisasterPage() {
       district: selectedDistrict,
       ta: selectedTa,
       admin_type: "District",
+    }),
+  );
+
+  // Students at risk from flood (education flood-impact endpoint)
+  const educationFloodImpact = useDashboardData(
+    buildDashboardPath("/dashboard/education/flood-impact", {
+      district: disasterDistrictFilter || "Zomba",
     }),
   );
 
@@ -208,10 +239,17 @@ function DisasterPage() {
     (sum, row) => sum + Number(row.exposed_facilities || 0),
     0,
   );
+  const schoolsTotal = (educationFacilityExposureSummary.data || []).reduce(
+    (sum, row) => sum + Number(row.total_facilities || 0),
+    0,
+  );
 
   const healthFacilitiesExposed = (
     healthFacilityExposureSummary.data || []
   ).reduce((sum, row) => sum + Number(row.exposed_facilities || 0), 0);
+  const healthFacilitiesTotal = (
+    healthFacilityExposureSummary.data || []
+  ).reduce((sum, row) => sum + Number(row.total_facilities || 0), 0);
 
   const beneficiariesAffected = Number(
     disasterIntegration.data?.summary?.flood_affected_count || 0,
@@ -483,7 +521,7 @@ function DisasterPage() {
                   title="High-Resolution Flood Risk Map"
                   subtitle="Rasterized surface detailing flood exposure intensity across the district."
                   heightClass="h-full w-full"
-                  rasterMetadataPath={
+                  metadataUrl={
                     disasterDistrictFilter
                       ? `/worldpop/flood_risk_${disasterDistrictFilter.toLowerCase().replace(/ /g, "_").replace(/[()]/g, "")}.preview.json`
                       : "/worldpop/flood_risk_zomba.preview.json"
@@ -493,8 +531,8 @@ function DisasterPage() {
                     educationFacilityExposureSummaryTA.loading ||
                     healthFacilityExposureSummaryTA.loading
                   }
-                  selectedAreaName={selectedTa}
-                  onSelectArea={(feature) => {
+                  selectedFeatureName={selectedTa}
+                  onFeatureClick={(feature) => {
                     const nextTa = feature?.properties?.admin_unit_name || "";
                     if (nextTa && nextTa !== selectedTa) {
                       setSelectedTa(nextTa);
@@ -639,9 +677,737 @@ function DisasterPage() {
             </div>
           </div>
         </div>
+        {/* ── Facility Impact Panels ──────────────────────────────── */}
+        <div className="grid grid-cols-1 xl:grid-cols-2 gap-8 mb-10">
+
+          {/* Schools Impact */}
+          <div className="border border-gray-100 rounded p-6 shadow-sm bg-white">
+            <div className="flex items-center gap-2 mb-1">
+              <School className="h-4 w-4 text-blue-600" />
+              <h3 className="text-[15px] font-extrabold">Schools Flood Impact</h3>
+            </div>
+            <p className="text-xs text-gray-500 font-semibold mb-5">
+              Exposed schools vs total, and enrolled students at risk
+            </p>
+
+            {educationFacilityExposureSummary.loading || educationFloodImpact.loading ? (
+              <div className="h-48 animate-pulse rounded bg-gray-50" />
+            ) : (
+              <div className="flex flex-col gap-6">
+                {/* Donut + numbers row */}
+                <div className="flex items-center gap-6">
+                  <div className="flex-shrink-0">
+                    <ResponsiveContainer width={140} height={140}>
+                      <PieChart>
+                        <Pie
+                          data={[
+                            { name: "Exposed", value: schoolsExposed, fill: "#dc2626" },
+                            { name: "Safe", value: Math.max(schoolsTotal - schoolsExposed, 0), fill: "#e5e7eb" },
+                          ]}
+                          cx="50%" cy="50%"
+                          innerRadius={42} outerRadius={62}
+                          paddingAngle={2} dataKey="value" startAngle={90} endAngle={-270}
+                        >
+                          <Cell fill="#dc2626" />
+                          <Cell fill="#e5e7eb" />
+                        </Pie>
+                        <Tooltip
+                          formatter={(v, n) => [v.toLocaleString(), n]}
+                          contentStyle={{ fontSize: 11, borderRadius: 4, border: "none", boxShadow: "0 2px 8px rgba(0,0,0,.1)" }}
+                        />
+                      </PieChart>
+                    </ResponsiveContainer>
+                  </div>
+                  <div className="flex flex-col gap-3 flex-1">
+                    <div>
+                      <p className="text-[10px] font-bold uppercase tracking-wide text-gray-400">Exposed Schools</p>
+                      <p className="text-[28px] font-extrabold text-red-600 leading-none">{formatNumber(schoolsExposed)}</p>
+                      <p className="text-xs text-gray-400 font-semibold">of {formatNumber(schoolsTotal)} total</p>
+                    </div>
+                    <div>
+                      <p className="text-[10px] font-bold uppercase tracking-wide text-gray-400">Students at Risk</p>
+                      <p className="text-[28px] font-extrabold text-amber-600 leading-none">
+                        {formatNumber(educationFloodImpact.data?.summary?.students_at_risk || 0)}
+                      </p>
+                      <p className="text-xs text-gray-400 font-semibold">enrolled in exposed schools</p>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Risk breakdown bar */}
+                <div className="space-y-2">
+                  {[
+                    { label: "High Risk Schools",   value: educationFloodImpact.data?.summary?.high_risk_schools   || 0, students: educationFloodImpact.data?.summary?.high_risk_students   || 0, color: "#dc2626" },
+                    { label: "Medium Risk Schools", value: educationFloodImpact.data?.summary?.medium_risk_schools || 0, students: educationFloodImpact.data?.summary?.medium_risk_students || 0, color: "#f59e0b" },
+                    { label: "Low Risk Schools",    value: educationFloodImpact.data?.summary?.low_risk_schools    || 0, students: educationFloodImpact.data?.summary?.low_risk_students    || 0, color: "#3b82f6" },
+                  ].map(item => (
+                    <div key={item.label} className="flex items-center justify-between gap-3 rounded bg-gray-50 px-3 py-2">
+                      <div className="flex items-center gap-2">
+                        <span className="h-2.5 w-2.5 rounded-full flex-shrink-0" style={{ background: item.color }} />
+                        <span className="text-xs font-bold text-gray-600">{item.label}</span>
+                      </div>
+                      <div className="text-right">
+                        <span className="text-xs font-extrabold" style={{ color: item.color }}>{formatNumber(item.value)}</span>
+                        <span className="text-[10px] text-gray-400 font-semibold ml-2">({formatNumber(item.students)} students)</span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Health Facilities Impact */}
+          <div className="border border-gray-100 rounded p-6 shadow-sm bg-white">
+            <div className="flex items-center gap-2 mb-1">
+              <Hospital className="h-4 w-4 text-red-600" />
+              <h3 className="text-[15px] font-extrabold">Health Facilities Flood Impact</h3>
+            </div>
+            <p className="text-xs text-gray-500 font-semibold mb-5">
+              Exposed facilities vs total, and population losing health access
+            </p>
+
+            {healthFacilityExposureSummary.loading || disasterSummary.loading ? (
+              <div className="h-48 animate-pulse rounded bg-gray-50" />
+            ) : (
+              <div className="flex flex-col gap-6">
+                {/* Donut + numbers row */}
+                <div className="flex items-center gap-6">
+                  <div className="flex-shrink-0">
+                    <ResponsiveContainer width={140} height={140}>
+                      <PieChart>
+                        <Pie
+                          data={[
+                            { name: "Exposed", value: healthFacilitiesExposed, fill: "#dc2626" },
+                            { name: "Safe", value: Math.max(healthFacilitiesTotal - healthFacilitiesExposed, 0), fill: "#e5e7eb" },
+                          ]}
+                          cx="50%" cy="50%"
+                          innerRadius={42} outerRadius={62}
+                          paddingAngle={2} dataKey="value" startAngle={90} endAngle={-270}
+                        >
+                          <Cell fill="#dc2626" />
+                          <Cell fill="#e5e7eb" />
+                        </Pie>
+                        <Tooltip
+                          formatter={(v, n) => [v.toLocaleString(), n]}
+                          contentStyle={{ fontSize: 11, borderRadius: 4, border: "none", boxShadow: "0 2px 8px rgba(0,0,0,.1)" }}
+                        />
+                      </PieChart>
+                    </ResponsiveContainer>
+                  </div>
+                  <div className="flex flex-col gap-3 flex-1">
+                    <div>
+                      <p className="text-[10px] font-bold uppercase tracking-wide text-gray-400">Exposed Facilities</p>
+                      <p className="text-[28px] font-extrabold text-red-600 leading-none">{formatNumber(healthFacilitiesExposed)}</p>
+                      <p className="text-xs text-gray-400 font-semibold">of {formatNumber(healthFacilitiesTotal)} total</p>
+                    </div>
+                    <div>
+                      <p className="text-[10px] font-bold uppercase tracking-wide text-gray-400">Population Impacted</p>
+                      <p className="text-[28px] font-extrabold text-amber-600 leading-none">
+                        {formatNumber(disasterSummary.data?.exposed_population || 0, 0)}
+                      </p>
+                      <p className="text-xs text-gray-400 font-semibold">
+                        {formatNumber(disasterSummary.data?.exposed_population_pct || 0, 1)}% of district population
+                      </p>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Risk population breakdown */}
+                <div className="space-y-2">
+                  {[
+                    { label: "High Risk Zone Pop.",   value: disasterSummary.data?.high_risk_population   || 0, color: "#dc2626" },
+                    { label: "Medium Risk Zone Pop.", value: disasterSummary.data?.medium_risk_population || 0, color: "#f59e0b" },
+                    { label: "Low Risk Zone Pop.",    value: disasterSummary.data?.low_risk_population    || 0, color: "#3b82f6" },
+                  ].map(item => (
+                    <div key={item.label} className="flex items-center justify-between gap-3 rounded bg-gray-50 px-3 py-2">
+                      <div className="flex items-center gap-2">
+                        <span className="h-2.5 w-2.5 rounded-full flex-shrink-0" style={{ background: item.color }} />
+                        <span className="text-xs font-bold text-gray-600">{item.label}</span>
+                      </div>
+                      <span className="text-xs font-extrabold" style={{ color: item.color }}>{formatNumber(item.value, 0)}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* ── Insights & Recommendations ──────────────────────────────── */}
+        <DisasterRecommendations
+          disasterSummary={disasterSummary}
+          educationFacilityExposureSummary={educationFacilityExposureSummary}
+          healthFacilityExposureSummary={healthFacilityExposureSummary}
+          educationFacilityExposureDetails={educationFacilityExposureDetails}
+          healthFacilityExposureDetails={healthFacilityExposureDetails}
+          taFloodExposure={taFloodExposure}
+          educationFloodImpact={educationFloodImpact}
+          schoolsExposed={schoolsExposed}
+          schoolsTotal={schoolsTotal}
+          healthFacilitiesExposed={healthFacilitiesExposed}
+          healthFacilitiesTotal={healthFacilitiesTotal}
+          scopeLabel={scopeLabel}
+        />
+
       </div>
     </div>
   );
 }
 
+/* ─── Disaster Recommendations ────────────────────────────────────────── */
+function DisasterRecommendations({
+  disasterSummary,
+  educationFacilityExposureSummary,
+  healthFacilityExposureSummary,
+  educationFacilityExposureDetails,
+  healthFacilityExposureDetails,
+  taFloodExposure,
+  educationFloodImpact,
+  schoolsExposed,
+  schoolsTotal,
+  healthFacilitiesExposed,
+  healthFacilitiesTotal,
+  scopeLabel,
+}) {
+  const [metricPreview, setMetricPreview] = useState(null);
+  const loading =
+    disasterSummary.loading ||
+    educationFacilityExposureSummary.loading ||
+    healthFacilityExposureSummary.loading ||
+    educationFacilityExposureDetails.loading ||
+    healthFacilityExposureDetails.loading ||
+    taFloodExposure.loading ||
+    educationFloodImpact.loading;
+
+  const summary = disasterSummary.data || {};
+  const eduImpact = educationFloodImpact.data?.summary || {};
+  const eduImpactTaBreakdown = educationFloodImpact.data?.ta_breakdown || [];
+  const exposedPop = Number(summary.exposed_population || 0);
+  const totalPop = Number(summary.total_population || 0);
+  const exposedPct = Number(summary.exposed_population_pct || 0);
+  const studentsAtRisk = Number(eduImpact.students_at_risk || 0);
+  const highRiskPop = Number(summary.high_risk_population || 0);
+
+  const riskRank = { high: 3, medium: 2, low: 1 };
+
+  const educationFacilityRows = useMemo(() => {
+    const deduped = new Map();
+
+    (educationFacilityExposureDetails.data || []).forEach((row) => {
+      const riskClass = String(row.risk_class || "unknown").toLowerCase();
+      const facilityName = row.facility_name || "Unnamed School";
+      const ta = row.ta_name || "Unknown TA";
+      const district = row.district_name || "Unknown District";
+      const floodDepth = Number(row.flood_value || 0);
+      const keyBase =
+        row.facility_id !== null && row.facility_id !== undefined
+          ? `id:${row.facility_id}`
+          : `name:${facilityName.toLowerCase()}|ta:${ta.toLowerCase()}|district:${district.toLowerCase()}`;
+      const key = `edu-${keyBase}`;
+
+      const candidate = {
+        id: `edu-facility-${keyBase}`,
+        facilityName,
+        ta,
+        district,
+        riskClass,
+        floodDepth,
+        exposed: row.is_exposed ? "Yes" : "No",
+      };
+      const existing = deduped.get(key);
+
+      if (!existing) {
+        deduped.set(key, candidate);
+        return;
+      }
+
+      const existingRisk = riskRank[existing.riskClass] || 0;
+      const candidateRisk = riskRank[candidate.riskClass] || 0;
+      if (
+        candidateRisk > existingRisk ||
+        (candidateRisk === existingRisk &&
+          candidate.floodDepth > existing.floodDepth)
+      ) {
+        deduped.set(key, candidate);
+      }
+    });
+
+    return Array.from(deduped.values()).sort((left, right) => {
+      const riskDelta =
+        (riskRank[right.riskClass] || 0) - (riskRank[left.riskClass] || 0);
+      if (riskDelta !== 0) return riskDelta;
+      return right.floodDepth - left.floodDepth;
+    });
+  }, [educationFacilityExposureDetails.data]);
+
+  const highRiskEducationFacilityRows = useMemo(() => {
+    return educationFacilityRows.filter((row) => row.riskClass === "high");
+  }, [educationFacilityRows]);
+
+  const healthFacilityRows = useMemo(() => {
+    const deduped = new Map();
+
+    (healthFacilityExposureDetails.data || []).forEach((row) => {
+      const riskClass = String(row.risk_class || "unknown").toLowerCase();
+      const facilityName = row.facility_name || "Unnamed Facility";
+      const ta = row.ta_name || "Unknown TA";
+      const district = row.district_name || "Unknown District";
+      const floodDepth = Number(row.flood_value || 0);
+      const keyBase =
+        row.facility_id !== null && row.facility_id !== undefined
+          ? `id:${row.facility_id}`
+          : `name:${facilityName.toLowerCase()}|ta:${ta.toLowerCase()}|district:${district.toLowerCase()}`;
+      const key = `health-${keyBase}`;
+
+      const candidate = {
+        id: `health-facility-${keyBase}`,
+        facilityName,
+        ta,
+        district,
+        riskClass,
+        floodDepth,
+        exposed: row.is_exposed ? "Yes" : "No",
+      };
+      const existing = deduped.get(key);
+
+      if (!existing) {
+        deduped.set(key, candidate);
+        return;
+      }
+
+      const existingRisk = riskRank[existing.riskClass] || 0;
+      const candidateRisk = riskRank[candidate.riskClass] || 0;
+      if (
+        candidateRisk > existingRisk ||
+        (candidateRisk === existingRisk &&
+          candidate.floodDepth > existing.floodDepth)
+      ) {
+        deduped.set(key, candidate);
+      }
+    });
+
+    return Array.from(deduped.values()).sort((left, right) => {
+      const riskDelta =
+        (riskRank[right.riskClass] || 0) - (riskRank[left.riskClass] || 0);
+      if (riskDelta !== 0) return riskDelta;
+      return right.floodDepth - left.floodDepth;
+    });
+  }, [healthFacilityExposureDetails.data]);
+
+  const taExposureRows = useMemo(() => {
+    return (taFloodExposure.data || [])
+      .map((row, index) => ({
+        id: `ta-exposure-${row.admin_unit_id || row.admin_unit_name || index}`,
+        ta: row.admin_unit_name || "Unknown TA",
+        district: row.district_name || row.district || "Unknown District",
+        exposedPopulation: Number(row.exposed_population || 0),
+        totalPopulation: Number(row.total_population || 0),
+        exposedPercent: Number(row.exposed_population_pct || 0),
+        riskLevel: row.risk_level || "unknown",
+      }))
+      .sort((left, right) => right.exposedPopulation - left.exposedPopulation);
+  }, [taFloodExposure.data]);
+
+  const educationImpactTaRows = useMemo(() => {
+    return eduImpactTaBreakdown
+      .map((row, index) => ({
+        id: `edu-impact-${row.ta_id || row.ta_name || index}`,
+        ta: row.ta_name || "Unknown TA",
+        district: row.district_name || "Unknown District",
+        studentsAtRisk: Number(row.students_at_risk || 0),
+        exposedSchools: Number(row.exposed_schools || 0),
+        highRiskSchools: Number(row.high_risk_schools || 0),
+        mediumRiskSchools: Number(row.medium_risk_schools || 0),
+        lowRiskSchools: Number(row.low_risk_schools || 0),
+      }))
+      .sort((left, right) => right.studentsAtRisk - left.studentsAtRisk);
+  }, [eduImpactTaBreakdown]);
+
+  const combinedFacilityRows = useMemo(() => {
+    return [
+      ...educationFacilityRows.map((row) => ({
+        ...row,
+        sector: "Education",
+      })),
+      ...healthFacilityRows.map((row) => ({
+        ...row,
+        sector: "Health",
+      })),
+    ].sort((left, right) => {
+      const riskDelta =
+        (riskRank[right.riskClass] || 0) - (riskRank[left.riskClass] || 0);
+      if (riskDelta !== 0) return riskDelta;
+      return right.floodDepth - left.floodDepth;
+    });
+  }, [educationFacilityRows, healthFacilityRows]);
+
+  const summaryRows = [
+    { metric: "Scope", value: scopeLabel },
+    { metric: "Total Population", value: formatNumber(totalPop, 0) },
+    { metric: "Exposed Population", value: formatNumber(exposedPop, 0) },
+    { metric: "Exposed Population %", value: `${formatNumber(exposedPct, 1)}%` },
+    { metric: "High-Risk Population", value: formatNumber(highRiskPop, 0) },
+    { metric: "Exposed Area (sq km)", value: formatNumber(summary.exposed_area_sq_km || 0, 1) },
+    { metric: "Exposed Schools", value: formatNumber(schoolsExposed, 0) },
+    { metric: "Total Schools", value: formatNumber(schoolsTotal, 0) },
+    { metric: "Students at Flood Risk", value: formatNumber(studentsAtRisk, 0) },
+    { metric: "Exposed Health Facilities", value: formatNumber(healthFacilitiesExposed, 0) },
+    { metric: "Total Health Facilities", value: formatNumber(healthFacilitiesTotal, 0) },
+  ];
+
+  const facilityColumns = [
+    { key: "facilityName", label: "Facility" },
+    { key: "ta", label: "TA" },
+    { key: "district", label: "District" },
+    { key: "riskClass", label: "Risk" },
+    { key: "floodDepth", label: "Flood Value" },
+    { key: "exposed", label: "Exposed" },
+  ];
+  const combinedFacilityColumns = [
+    { key: "sector", label: "Sector" },
+    ...facilityColumns,
+  ];
+  const taExposureColumns = [
+    { key: "ta", label: "TA" },
+    { key: "district", label: "District" },
+    { key: "exposedPopulation", label: "Exposed Population" },
+    { key: "totalPopulation", label: "Total Population" },
+    { key: "exposedPercent", label: "Exposed %" },
+    { key: "riskLevel", label: "Risk Level" },
+  ];
+  const educationImpactColumns = [
+    { key: "ta", label: "TA" },
+    { key: "district", label: "District" },
+    { key: "studentsAtRisk", label: "Students at Risk" },
+    { key: "exposedSchools", label: "Exposed Schools" },
+    { key: "highRiskSchools", label: "High Risk Schools" },
+    { key: "mediumRiskSchools", label: "Medium Risk Schools" },
+    { key: "lowRiskSchools", label: "Low Risk Schools" },
+  ];
+  const summaryColumns = [
+    { key: "metric", label: "Metric" },
+    { key: "value", label: "Value" },
+  ];
+
+  function openMetricPreview({ title, rows, columns }) {
+    setMetricPreview({
+      title,
+      rows: rows || [],
+      columns: columns || summaryColumns,
+    });
+  }
+
+  const priorityConfig = {
+    high: { label: "Immediate Action", classes: "bg-red-50 border-red-200 text-red-700", dot: "bg-red-500" },
+    medium: { label: "Short-Term Action", classes: "bg-amber-50 border-amber-200 text-amber-700", dot: "bg-amber-500" },
+    low: { label: "Planning Note", classes: "bg-blue-50 border-blue-200 text-blue-700", dot: "bg-blue-500" },
+  };
+
+  const recommendations = [
+    schoolsExposed > 0 && {
+      priority: "high",
+      icon: School,
+      title: "Temporary Learning Spaces for Flood Season",
+      body: `${formatNumber(schoolsExposed)} schools are in flood-exposed zones, putting ${formatNumber(studentsAtRisk)} enrolled students at risk of disrupted education. All are currently low-risk but require contingency plans before the rainy season. Identify and pre-position temporary learning spaces in elevated areas within Ta Mwambo.`,
+      action: "Pre-position temporary classrooms and establish school closure protocols for flood alerts",
+      metricLinks: [
+        {
+          id: "exposed-schools",
+          label: "Exposed Schools",
+          value: formatNumber(schoolsExposed, 0),
+          onClick: () =>
+            openMetricPreview({
+              title: "Exposed Schools (Facility List)",
+              rows: educationFacilityRows,
+              columns: facilityColumns,
+            }),
+        },
+        {
+          id: "students-risk-learning",
+          label: "Students at Risk",
+          value: formatNumber(studentsAtRisk, 0),
+          onClick: () =>
+            openMetricPreview({
+              title: "Flood Education Impact by TA",
+              rows: educationImpactTaRows,
+              columns: educationImpactColumns,
+            }),
+        },
+      ],
+    },
+    studentsAtRisk > 0 && {
+      priority: "high",
+      icon: BookOpen,
+      title: "Student Continuity Plans Required",
+      body: `${formatNumber(studentsAtRisk)} students face potential school closure during flood events. Without a continuity plan, this translates directly to learning loss and increased dropout risk, particularly for girls and children from low-income households who are least likely to return after disruption.`,
+      action: "Develop and distribute flood-season learning continuity kits to all exposed schools",
+      metricLinks: [
+        {
+          id: "students-at-risk-total",
+          label: "Students at Risk",
+          value: formatNumber(studentsAtRisk, 0),
+          onClick: () =>
+            openMetricPreview({
+              title: "Flood Education Impact by TA",
+              rows: educationImpactTaRows,
+              columns: educationImpactColumns,
+            }),
+        },
+        {
+          id: "high-risk-schools",
+          label: "High Risk Schools",
+          value: formatNumber(highRiskEducationFacilityRows.length, 0),
+          onClick: () =>
+            openMetricPreview({
+              title: "High-Risk Schools (Facility List)",
+              rows: highRiskEducationFacilityRows,
+              columns: facilityColumns,
+            }),
+        },
+      ],
+    },
+    healthFacilitiesExposed > 0 && {
+      priority: "high",
+      icon: Hospital,
+      title: "Health Service Continuity at Risk",
+      body: `${formatNumber(healthFacilitiesExposed)} health facilities are in flood-exposed zones. During flood events, these facilities may become inaccessible, cutting off ${formatNumber(exposedPop, 0)} people from essential health services. Emergency referral pathways to unaffected facilities must be established.`,
+      action: "Map alternative health facilities and establish emergency referral routes for flood-affected zones",
+      metricLinks: [
+        {
+          id: "health-facilities-exposed",
+          label: "Exposed Health Facilities",
+          value: formatNumber(healthFacilitiesExposed, 0),
+          onClick: () =>
+            openMetricPreview({
+              title: "Exposed Health Facilities (Facility List)",
+              rows: healthFacilityRows,
+              columns: facilityColumns,
+            }),
+        },
+        {
+          id: "population-cutoff",
+          label: "Exposed Population",
+          value: formatNumber(exposedPop, 0),
+          onClick: () =>
+            openMetricPreview({
+              title: "TA Flood Population Exposure",
+              rows: taExposureRows,
+              columns: taExposureColumns,
+            }),
+        },
+      ],
+    },
+    highRiskPop > 0 && {
+      priority: "high",
+      icon: AlertTriangle,
+      title: "High-Risk Zone Evacuation Planning",
+      body: `${formatNumber(highRiskPop, 0)} people live in high flood-risk zones. These communities need pre-identified evacuation routes, designated assembly points, and early warning system access. Coordination with district civil protection is essential before the next flood season.`,
+      action: "Establish community-level early warning systems and evacuation drills in high-risk zones",
+      metricLinks: [
+        {
+          id: "high-risk-population",
+          label: "High-Risk Population",
+          value: formatNumber(highRiskPop, 0),
+          onClick: () =>
+            openMetricPreview({
+              title: "Flood Risk Summary",
+              rows: summaryRows,
+              columns: summaryColumns,
+            }),
+        },
+        {
+          id: "high-exposure-tas",
+          label: "Most Exposed TAs",
+          value: formatNumber(taExposureRows.length, 0),
+          onClick: () =>
+            openMetricPreview({
+              title: "TA Flood Population Exposure",
+              rows: taExposureRows,
+              columns: taExposureColumns,
+            }),
+        },
+      ],
+    },
+    exposedPct > 0 && {
+      priority: "medium",
+      icon: MapIcon,
+      title: "Flood-Resilient Infrastructure Investment",
+      body: `${formatNumber(exposedPct, 1)}% of the ${scopeLabel} population lives in flood-exposed areas covering ${formatNumber(summary.exposed_area_sq_km, 1)} sq km. New schools and health facilities in these zones must be built to flood-resilient standards - elevated foundations, flood-resistant materials, and drainage systems.`,
+      action: "Enforce flood-resilient building codes for all new public infrastructure in exposed zones",
+      metricLinks: [
+        {
+          id: "exposed-population-share",
+          label: "Exposed Population %",
+          value: `${formatNumber(exposedPct, 1)}%`,
+          onClick: () =>
+            openMetricPreview({
+              title: "Flood Risk Summary",
+              rows: summaryRows,
+              columns: summaryColumns,
+            }),
+        },
+        {
+          id: "exposed-area",
+          label: "Exposed Area (sq km)",
+          value: formatNumber(summary.exposed_area_sq_km || 0, 1),
+          onClick: () =>
+            openMetricPreview({
+              title: "Flood Risk Summary",
+              rows: summaryRows,
+              columns: summaryColumns,
+            }),
+        },
+      ],
+    },
+    {
+      priority: "medium",
+      icon: Users,
+      title: "Cross-Sector Flood Response Coordination",
+      body: `Flood exposure cuts across education, health, and welfare sectors simultaneously. A single flood event in Ta Mwambo can displace students, close health facilities, and cut off welfare beneficiaries at the same time. A unified district flood response plan covering all three sectors is needed.`,
+      action: "Establish a multi-sector flood response committee with education, health, and social welfare representation",
+      metricLinks: [
+        {
+          id: "cross-sector-schools",
+          label: "Exposed Schools",
+          value: formatNumber(schoolsExposed, 0),
+          onClick: () =>
+            openMetricPreview({
+              title: "Combined Facility Exposure",
+              rows: combinedFacilityRows,
+              columns: combinedFacilityColumns,
+            }),
+        },
+        {
+          id: "cross-sector-health",
+          label: "Exposed Health Facilities",
+          value: formatNumber(healthFacilitiesExposed, 0),
+          onClick: () =>
+            openMetricPreview({
+              title: "Combined Facility Exposure",
+              rows: combinedFacilityRows,
+              columns: combinedFacilityColumns,
+            }),
+        },
+      ],
+    },
+    {
+      priority: "low",
+      icon: Lightbulb,
+      title: "Annual Flood Exposure Re-Analysis",
+      body: `Flood risk patterns shift with climate variability. The current analysis is based on the latest available flood raster. Annual re-runs of the flood exposure pipeline after each rainy season will ensure the dashboard reflects current risk and that planning decisions are based on up-to-date data.`,
+      action: "Schedule annual flood raster updates and re-run the exposure analysis pipeline each May",
+      metricLinks: [
+        {
+          id: "annual-baseline-exposed-pop",
+          label: "Current Exposed Pop",
+          value: formatNumber(exposedPop, 0),
+          onClick: () =>
+            openMetricPreview({
+              title: "Flood Risk Summary",
+              rows: summaryRows,
+              columns: summaryColumns,
+            }),
+        },
+        {
+          id: "annual-baseline-students",
+          label: "Current Students at Risk",
+          value: formatNumber(studentsAtRisk, 0),
+          onClick: () =>
+            openMetricPreview({
+              title: "Flood Education Impact by TA",
+              rows: educationImpactTaRows,
+              columns: educationImpactColumns,
+            }),
+        },
+      ],
+    },
+  ].filter(Boolean);
+
+  if (loading) {
+    return (
+      <div className="mt-10">
+        <div className="h-6 w-64 bg-gray-100 rounded animate-pulse mb-6" />
+        <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
+          {[...Array(4)].map((_, i) => <div key={i} className="h-36 animate-pulse rounded border border-gray-100 bg-gray-50" />)}
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="mt-2 mb-10">
+      <div className="flex items-center gap-3 mb-2">
+        <Lightbulb className="h-5 w-5 text-amber-500" />
+        <h3 className="text-[16px] font-extrabold">Insights & Recommendations</h3>
+      </div>
+      <p className="text-sm text-gray-500 font-semibold mb-6">
+        Planning actions derived from flood exposure analysis across population, schools, and health facilities in {scopeLabel}.
+      </p>
+      <InteractiveRecommendations
+        recommendations={recommendations}
+        priorityConfig={priorityConfig}
+        sectionKey={`disaster:${scopeLabel}`}
+      />
+
+      <Modal
+        isOpen={Boolean(metricPreview)}
+        onClose={() => setMetricPreview(null)}
+        title={metricPreview?.title || "Metric Preview"}
+      >
+        <p className="mb-4 text-sm font-semibold text-slate-600">
+          Previewing records behind this recommendation metric.
+        </p>
+        <div className="max-h-[55vh] overflow-auto rounded-lg border border-slate-200">
+          <table className="min-w-full divide-y divide-slate-200 text-sm">
+            <thead className="sticky top-0 bg-slate-50">
+              <tr>
+                {(metricPreview?.columns || []).map((column) => (
+                  <th
+                    key={column.key}
+                    className="px-3 py-2 text-left text-[11px] font-bold uppercase tracking-wide text-slate-500"
+                  >
+                    {column.label || column.key}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100 bg-white">
+              {(metricPreview?.rows || []).length ? (
+                (metricPreview?.rows || []).map((row, rowIndex) => (
+                  <tr key={row.id || `row-${rowIndex}`}>
+                    {(metricPreview?.columns || []).map((column) => (
+                      <td
+                        key={`${row.id || rowIndex}-${column.key}`}
+                        className={`px-3 py-2 ${
+                          column.key === "facilityName" ||
+                          column.key === "adminUnit" ||
+                          column.key === "ta" ||
+                          column.key === "metric"
+                            ? "font-semibold text-slate-900"
+                            : "text-slate-700"
+                        }`}
+                      >
+                        {row[column.key] ?? "-"}
+                      </td>
+                    ))}
+                  </tr>
+                ))
+              ) : (
+                <tr>
+                  <td
+                    colSpan={Math.max((metricPreview?.columns || []).length, 1)}
+                    className="px-3 py-8 text-center text-sm font-semibold text-slate-400"
+                  >
+                    No preview records available for this metric.
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </Modal>
+    </div>
+  );
+}
 export default DisasterPage;

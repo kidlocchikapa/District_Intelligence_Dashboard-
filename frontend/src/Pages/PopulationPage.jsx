@@ -56,6 +56,14 @@ function formatTaAxisLabel(value) {
   return `${value.slice(0, 16)}...`;
 }
 
+function formatStat(value) {
+  if (!Number.isFinite(value)) {
+    return "0";
+  }
+
+  return Number(value).toLocaleString();
+}
+
 function PopulationPage() {
   const { selectedDistrict, selectedTa, setSelectedTa } = useDistrict();
   const { contentRef, exportDataPdf } = usePdfExport("Population_Report.pdf");

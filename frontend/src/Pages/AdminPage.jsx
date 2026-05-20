@@ -7,6 +7,7 @@ import {
   AUTH_EVENT_NAME,
   fetchJson,
   hydrateAuthToken,
+  setAuthToken,
   patchJson,
   postJson,
   uploadForm,
@@ -211,6 +212,13 @@ function AdminPage() {
       const profile = user?.access || {};
       setAuthProfile({ ...profile, role: user?.role });
     } catch (error) {
+      const statusCode = error?.response?.status;
+      if (statusCode === 401 || statusCode === 403 || statusCode === 404) {
+        setAuthToken(null);
+        setAuthProfile(null);
+        return;
+      }
+
       console.error("Load auth profile error:", error);
     }
   }
