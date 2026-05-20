@@ -892,25 +892,53 @@ function DisasterRecommendations({
   const riskRank = { high: 3, medium: 2, low: 1 };
 
   const educationFacilityRows = useMemo(() => {
-    return (educationFacilityExposureDetails.data || [])
-      .map((row, index) => {
-        const riskClass = String(row.risk_class || "unknown").toLowerCase();
-        return {
-          id: `edu-facility-${row.facility_id || index}`,
-          facilityName: row.facility_name || "Unnamed School",
-          ta: row.ta_name || "Unknown TA",
-          district: row.district_name || "Unknown District",
-          riskClass,
-          floodDepth: Number(row.flood_value || 0),
-          exposed: row.is_exposed ? "Yes" : "No",
-        };
-      })
-      .sort((left, right) => {
-        const riskDelta =
-          (riskRank[right.riskClass] || 0) - (riskRank[left.riskClass] || 0);
-        if (riskDelta !== 0) return riskDelta;
-        return right.floodDepth - left.floodDepth;
-      });
+    const deduped = new Map();
+
+    (educationFacilityExposureDetails.data || []).forEach((row) => {
+      const riskClass = String(row.risk_class || "unknown").toLowerCase();
+      const facilityName = row.facility_name || "Unnamed School";
+      const ta = row.ta_name || "Unknown TA";
+      const district = row.district_name || "Unknown District";
+      const floodDepth = Number(row.flood_value || 0);
+      const keyBase =
+        row.facility_id !== null && row.facility_id !== undefined
+          ? `id:${row.facility_id}`
+          : `name:${facilityName.toLowerCase()}|ta:${ta.toLowerCase()}|district:${district.toLowerCase()}`;
+      const key = `edu-${keyBase}`;
+
+      const candidate = {
+        id: `edu-facility-${keyBase}`,
+        facilityName,
+        ta,
+        district,
+        riskClass,
+        floodDepth,
+        exposed: row.is_exposed ? "Yes" : "No",
+      };
+      const existing = deduped.get(key);
+
+      if (!existing) {
+        deduped.set(key, candidate);
+        return;
+      }
+
+      const existingRisk = riskRank[existing.riskClass] || 0;
+      const candidateRisk = riskRank[candidate.riskClass] || 0;
+      if (
+        candidateRisk > existingRisk ||
+        (candidateRisk === existingRisk &&
+          candidate.floodDepth > existing.floodDepth)
+      ) {
+        deduped.set(key, candidate);
+      }
+    });
+
+    return Array.from(deduped.values()).sort((left, right) => {
+      const riskDelta =
+        (riskRank[right.riskClass] || 0) - (riskRank[left.riskClass] || 0);
+      if (riskDelta !== 0) return riskDelta;
+      return right.floodDepth - left.floodDepth;
+    });
   }, [educationFacilityExposureDetails.data]);
 
   const highRiskEducationFacilityRows = useMemo(() => {
@@ -918,25 +946,53 @@ function DisasterRecommendations({
   }, [educationFacilityRows]);
 
   const healthFacilityRows = useMemo(() => {
-    return (healthFacilityExposureDetails.data || [])
-      .map((row, index) => {
-        const riskClass = String(row.risk_class || "unknown").toLowerCase();
-        return {
-          id: `health-facility-${row.facility_id || index}`,
-          facilityName: row.facility_name || "Unnamed Facility",
-          ta: row.ta_name || "Unknown TA",
-          district: row.district_name || "Unknown District",
-          riskClass,
-          floodDepth: Number(row.flood_value || 0),
-          exposed: row.is_exposed ? "Yes" : "No",
-        };
-      })
-      .sort((left, right) => {
-        const riskDelta =
-          (riskRank[right.riskClass] || 0) - (riskRank[left.riskClass] || 0);
-        if (riskDelta !== 0) return riskDelta;
-        return right.floodDepth - left.floodDepth;
-      });
+    const deduped = new Map();
+
+    (healthFacilityExposureDetails.data || []).forEach((row) => {
+      const riskClass = String(row.risk_class || "unknown").toLowerCase();
+      const facilityName = row.facility_name || "Unnamed Facility";
+      const ta = row.ta_name || "Unknown TA";
+      const district = row.district_name || "Unknown District";
+      const floodDepth = Number(row.flood_value || 0);
+      const keyBase =
+        row.facility_id !== null && row.facility_id !== undefined
+          ? `id:${row.facility_id}`
+          : `name:${facilityName.toLowerCase()}|ta:${ta.toLowerCase()}|district:${district.toLowerCase()}`;
+      const key = `health-${keyBase}`;
+
+      const candidate = {
+        id: `health-facility-${keyBase}`,
+        facilityName,
+        ta,
+        district,
+        riskClass,
+        floodDepth,
+        exposed: row.is_exposed ? "Yes" : "No",
+      };
+      const existing = deduped.get(key);
+
+      if (!existing) {
+        deduped.set(key, candidate);
+        return;
+      }
+
+      const existingRisk = riskRank[existing.riskClass] || 0;
+      const candidateRisk = riskRank[candidate.riskClass] || 0;
+      if (
+        candidateRisk > existingRisk ||
+        (candidateRisk === existingRisk &&
+          candidate.floodDepth > existing.floodDepth)
+      ) {
+        deduped.set(key, candidate);
+      }
+    });
+
+    return Array.from(deduped.values()).sort((left, right) => {
+      const riskDelta =
+        (riskRank[right.riskClass] || 0) - (riskRank[left.riskClass] || 0);
+      if (riskDelta !== 0) return riskDelta;
+      return right.floodDepth - left.floodDepth;
+    });
   }, [healthFacilityExposureDetails.data]);
 
   const taExposureRows = useMemo(() => {
