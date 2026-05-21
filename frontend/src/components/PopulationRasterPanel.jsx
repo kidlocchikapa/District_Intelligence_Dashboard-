@@ -18,6 +18,20 @@ function MapFitter({ bounds }) {
   return null;
 }
 
+function MapInstanceCapture({ onReady }) {
+  const map = useMap();
+
+  useEffect(() => {
+    onReady?.(map);
+
+    return () => {
+      onReady?.(null);
+    };
+  }, [map, onReady]);
+
+  return null;
+}
+
 function PopulationRasterPanel({
   geojson,
   pointsGeojson,
@@ -42,6 +56,9 @@ function PopulationRasterPanel({
   const [metadata, setMetadata] = useState(null);
   const [hoveredDistrict, setHoveredDistrict] = useState(null);
   const [showPointLayer, setShowPointLayer] = useState(true);
+  const [showRasterLayer, setShowRasterLayer] = useState(true);
+  const [showBoundaryLayer, setShowBoundaryLayer] = useState(true);
+  const [mapInstance, setMapInstance] = useState(null);
   const [error, setError] = useState(null);
 
   useEffect(() => {
@@ -288,6 +305,21 @@ function PopulationRasterPanel({
       focusProperties[metric.key] !== undefined &&
       !tooltipMetrics.some((tooltipMetric) => tooltipMetric.key === metric.key),
   );
+  const activeFeatureBounds = (() => {
+    if (!activeFeature) {
+      return null;
+    }
+
+    const bounds = getGeoBounds([activeFeature]);
+    if (bounds.minLat === Infinity) {
+      return null;
+    }
+
+    return [
+      [bounds.minLat, bounds.minLon],
+      [bounds.maxLat, bounds.maxLon],
+    ];
+  })();
 
   function legendBackground(colors = []) {
     if (!Array.isArray(colors) || !colors.length) {
@@ -295,6 +327,33 @@ function PopulationRasterPanel({
     }
     return `linear-gradient(90deg, ${colors.join(", ")})`;
   }
+
+  const zoomToBounds = (targetBounds) => {
+    if (!mapInstance || !Array.isArray(targetBounds)) {
+      return;
+    }
+
+    mapInstance.fitBounds(targetBounds, {
+      padding: [18, 18],
+      maxZoom: 13,
+      animate: true,
+      duration: 0.45,
+    });
+  };
+
+  const handleZoomToFocus = () => {
+    if (!activeFeatureBounds) {
+      return;
+    }
+
+    zoomToBounds(activeFeatureBounds);
+  };
+
+  const handleResetView = () => {
+    if (defaultBounds) {
+      zoomToBounds(defaultBounds);
+    }
+  };
 
   return (
     <div className={wrapperClassName}>
@@ -316,7 +375,7 @@ function PopulationRasterPanel({
           onPanelLeave?.();
         }}
       >
-        {showPointLayerToggle && hasPointLayer ? (
+        {showPointLayerToggle && hasPointLayer && !legend ? (
           <div className="absolute left-2 top-2 z-[402] sm:left-4 sm:top-4">
             <button
               type="button"
@@ -337,9 +396,10 @@ function PopulationRasterPanel({
           zoomControl={false}
           attributionControl={false}
         >
+          <MapInstanceCapture onReady={setMapInstance} />
           <MapFitter bounds={activeBounds || defaultBounds} />
           <ZoomControl position="topright" />
-          {imageUrl ? (
+          {imageUrl && showRasterLayer ? (
             <ImageOverlay
               key={imageUrl}
               bounds={defaultBounds}
@@ -347,7 +407,7 @@ function PopulationRasterPanel({
               opacity={0.94}
             />
           ) : null}
-          {features.length ? (
+          {features.length && showBoundaryLayer ? (
             <GeoJSON
               key={`pop-raster-geojson-${features.map((feature) => feature.id || getFeatureName(feature)).join("|")}-${selectedDistrict}-${selectedFeatureName || "all"}-${hoveredFeatureName || "none"}`}
               data={geojson}
@@ -475,7 +535,7 @@ function PopulationRasterPanel({
 
         {legend ? (
           <div
-            className={`pointer-events-none absolute z-[401] w-[160px] rounded-xl border border-white/80 bg-white/92 px-3 py-2 shadow-md backdrop-blur-md sm:w-[190px] sm:rounded-2xl sm:px-4 sm:py-3 ${legendPositionClass}`}
+            className={`absolute z-[401] w-[185px] rounded-xl border border-white/80 bg-white/92 px-3 py-2 shadow-md backdrop-blur-md sm:w-[220px] sm:rounded-2xl sm:px-4 sm:py-3 ${legendPositionClass}`}
           >
             <p className="text-[10px] font-bold uppercase tracking-[0.15em] text-slate/50">
               Legend
@@ -491,33 +551,100 @@ function PopulationRasterPanel({
               <span>{legend.lowLabel || "Low"}</span>
               <span>{legend.highLabel || "High"}</span>
             </div>
-            {hasPointLayer ? (
-              <div className="mt-3 flex items-center gap-2 border-t border-slate-100 pt-2.5">
-                <span
-                  className="inline-block h-3 w-3 flex-shrink-0 rounded-full border-2 border-white shadow-sm"
-                  style={{
-                    background: "#f59e0b",
-                    opacity: showPointLayer ? 1 : 0.4,
-                  }}
-                />
-                <span className="text-[10px] font-bold uppercase tracking-[0.12em] text-slate/55">
-                  {resolvedPointLayerLabel}
-                </span>
-                <span className="text-[9px] font-bold uppercase tracking-[0.12em] text-slate/45">
-                  {showPointLayer ? "Shown" : "Hidden"}
-                </span>
+            <div className="mt-3 border-t border-slate-100 pt-2.5">
+              <p className="text-[9px] font-bold uppercase tracking-[0.14em] text-slate/45">
+                Layer Controls
+              </p>
+              <div className="mt-2 grid gap-1.5">
+                <button
+                  type="button"
+                  onClick={() => setShowRasterLayer((current) => !current)}
+                  className={`rounded-full border px-2.5 py-1 text-left text-[10px] font-bold uppercase tracking-[0.11em] transition ${
+                    showRasterLayer
+                      ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+                      : "border-gray-200 bg-white text-gray-500"
+                  }`}
+                >
+                  Raster {showRasterLayer ? "On" : "Off"}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setShowBoundaryLayer((current) => !current)}
+                  className={`rounded-full border px-2.5 py-1 text-left text-[10px] font-bold uppercase tracking-[0.11em] transition ${
+                    showBoundaryLayer
+                      ? "border-blue-200 bg-blue-50 text-blue-700"
+                      : "border-gray-200 bg-white text-gray-500"
+                  }`}
+                >
+                  Boundaries {showBoundaryLayer ? "On" : "Off"}
+                </button>
+                {hasPointLayer && showPointLayerToggle ? (
+                  <button
+                    type="button"
+                    onClick={() => setShowPointLayer((current) => !current)}
+                    className={`inline-flex items-center gap-2 rounded-full border px-2.5 py-1 text-left text-[10px] font-bold uppercase tracking-[0.11em] transition ${
+                      showPointLayer
+                        ? "border-amber-200 bg-amber-50 text-amber-700"
+                        : "border-gray-200 bg-white text-gray-500"
+                    }`}
+                  >
+                    <span
+                      className="inline-block h-2.5 w-2.5 flex-shrink-0 rounded-full border border-white shadow-sm"
+                      style={{ background: "#f59e0b" }}
+                    />
+                    {resolvedPointLayerLabel} {showPointLayer ? "On" : "Off"}
+                  </button>
+                ) : null}
               </div>
-            ) : null}
+            </div>
           </div>
         ) : null}
 
         {activeFeature ? (
-          <div className="pointer-events-none absolute inset-x-4 bottom-4 flex items-end justify-start z-[401]">
+          <div className="absolute inset-x-4 bottom-4 z-[401] flex items-end justify-start">
             <div className="rounded-2xl border border-white/80 bg-white/92 px-5 py-4 shadow-md backdrop-blur-md min-w-[240px]">
             <div>
-              <p className="text-[10px] font-bold uppercase tracking-[0.15em] text-slate/50 leading-none mb-2.5">
-                {focusLabel}
-              </p>
+              <div className="mb-2.5 flex flex-wrap items-start justify-between gap-2">
+                <p className="text-[10px] font-bold uppercase tracking-[0.15em] text-slate/50 leading-none">
+                  {focusLabel}
+                </p>
+                <div className="flex flex-wrap items-center justify-end gap-1.5">
+                  <button
+                    type="button"
+                    onClick={handleZoomToFocus}
+                    className="rounded-full border border-gray-200 bg-white px-2 py-0.5 text-[9px] font-bold uppercase tracking-[0.1em] text-gray-600 transition hover:border-gray-300 hover:text-black"
+                  >
+                    Zoom
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleResetView}
+                    className="rounded-full border border-gray-200 bg-white px-2 py-0.5 text-[9px] font-bold uppercase tracking-[0.1em] text-gray-600 transition hover:border-gray-300 hover:text-black"
+                  >
+                    Reset
+                  </button>
+                  {hoveredFeature &&
+                  !selectedFeatureName &&
+                  typeof onFeatureClick === "function" ? (
+                    <button
+                      type="button"
+                      onClick={() => onFeatureClick(hoveredFeature)}
+                      className="rounded-full border border-gray-900 bg-gray-900 px-2 py-0.5 text-[9px] font-bold uppercase tracking-[0.1em] text-white transition hover:bg-black"
+                    >
+                      Lock
+                    </button>
+                  ) : null}
+                  {selectedFeatureName && typeof onFeatureClick === "function" ? (
+                    <button
+                      type="button"
+                      onClick={() => onFeatureClick(null)}
+                      className="rounded-full border border-gray-200 bg-white px-2 py-0.5 text-[9px] font-bold uppercase tracking-[0.1em] text-gray-600 transition hover:border-gray-300 hover:text-black"
+                    >
+                      Clear
+                    </button>
+                  ) : null}
+                </div>
+              </div>
               {focusName ? (
                 <div className="space-y-3">
                   <p className="text-[13px] font-black leading-none text-slate sm:text-[15px]">
