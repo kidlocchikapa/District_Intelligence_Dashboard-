@@ -1550,20 +1550,20 @@ function HealthRecommendations({
       .sort((left, right) => left.coveragePct - right.coveragePct);
   }, [taBreakdown]);
 
-  // Underserved TAs: top 3 by population per facility
-  const underservedTAs = useMemo(() => {
+  // Underserved TAs ranked by population pressure (highest first)
+  const allUnderservedTAs = useMemo(() => {
     return [...taBreakdown]
       .filter((row) => Number(row.population_per_facility || 0) > 2000)
       .sort(
         (left, right) =>
           Number(right.population_per_facility || 0) -
           Number(left.population_per_facility || 0),
-      )
-      .slice(0, 3);
+      );
   }, [taBreakdown]);
+  const topPriorityUnderservedTAs = allUnderservedTAs.slice(0, 3);
 
   const underservedTaRows = useMemo(() => {
-    return underservedTAs.map((row) => ({
+    return allUnderservedTAs.map((row) => ({
       id: `underserved-${row.ta_id || row.ta_name}`,
       ta: row.ta_name,
       district: row.district_name,
@@ -1571,13 +1571,13 @@ function HealthRecommendations({
       populationTotal: Number(row.population_total || 0),
       facilityCount: Number(row.facility_count || 0),
     }));
-  }, [underservedTAs]);
+  }, [allUnderservedTAs]);
 
   // Derive key metrics
   const popPerFacility = Number(drillSummary.population_per_facility || 0);
   const totalPop = Number(drillSummary.population_total || 0);
 
-  const worstTA = underservedTAs[0];
+  const worstTA = allUnderservedTAs[0];
 
   // Workforce
   const doctors = facilities.reduce(
@@ -1719,20 +1719,22 @@ function HealthRecommendations({
       ],
     },
     // 2 — Underserved TAs
-    underservedTAs.length > 0 && {
+    allUnderservedTAs.length > 0 && {
       priority: "high",
       icon: Building,
       title: "Facility Shortage in High-Population TAs",
-      body: `${underservedTAs.length} TA${underservedTAs.length > 1 ? "s" : ""} exceed 2,000 people per facility — well above the recommended threshold.${worstTA ? ` ${worstTA.ta_name} is the most underserved with ${formatNumber(worstTA.population_per_facility, 0)} people per facility serving a population of ${formatNumber(worstTA.population_total, 0)}.` : ""} New facility construction or upgrading existing health posts to full clinics is needed.`,
-      action: `Prioritise new health facility construction in ${underservedTAs.map(t => t.ta_name).join(", ")}`,
+      body: `${allUnderservedTAs.length} TA${allUnderservedTAs.length > 1 ? "s" : ""} exceed 2,000 people per facility — well above the recommended threshold.${worstTA ? ` ${worstTA.ta_name} is the most underserved with ${formatNumber(worstTA.population_per_facility, 0)} people per facility serving a population of ${formatNumber(worstTA.population_total, 0)}.` : ""}${topPriorityUnderservedTAs.length ? ` Highest-priority TAs are ${topPriorityUnderservedTAs.map((row) => row.ta_name).join(", ")}.` : ""} New facility construction or upgrading existing health posts to full clinics is needed.`,
+      action: topPriorityUnderservedTAs.length
+        ? `Prioritise new health facility construction in ${topPriorityUnderservedTAs.map((row) => row.ta_name).join(", ")} first, then phase the remaining underserved TAs.`
+        : "Prioritise new health facility construction in underserved TAs.",
       metricLinks: [
         {
           id: "underserved-tas",
           label: "Underserved TAs",
-          value: formatNumber(underservedTAs.length, 0),
+          value: formatNumber(allUnderservedTAs.length, 0),
           onClick: () =>
             openMetricPreview({
-              title: "Underserved TAs",
+              title: "Underserved TAs (Ranked)",
               rows: underservedTaRows,
               columns: underservedTaColumns,
             }),
@@ -1745,7 +1747,7 @@ function HealthRecommendations({
             : "N/A",
           onClick: () =>
             openMetricPreview({
-              title: "Underserved TAs",
+              title: "Underserved TAs (Ranked)",
               rows: underservedTaRows,
               columns: underservedTaColumns,
             }),
