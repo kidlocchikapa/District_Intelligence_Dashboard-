@@ -2027,8 +2027,10 @@ function FloodImpactSection({ floodImpact, floodImpactGeojson, coverageFocusDist
 
         {/* Stacked bar chart */}
         <div className="relative isolate border border-gray-100 rounded p-4 shadow-sm bg-white">
-          <p className="text-[13px] font-extrabold mb-1">Top TAs by Students at Risk</p>
-          <p className="text-[11px] text-gray-400 font-semibold mb-4">Stacked by flood risk class</p>
+          <p className="text-[13px] font-extrabold mb-1">Impacted TAs by Students at Risk</p>
+          <p className="text-[11px] text-gray-400 font-semibold mb-4">
+            Only TAs with flood-exposed schools are shown; stacked by flood risk class.
+          </p>
           <div className="mb-4 rounded border border-gray-100 bg-white p-3">
             <div className="flex flex-wrap items-center gap-2">
               {EDUCATION_CHART_LIMITS.map((option) => {
