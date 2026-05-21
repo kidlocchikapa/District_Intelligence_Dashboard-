@@ -121,6 +121,13 @@ const SCHOOL_RISK_COLORS = {
   "OK":                 "#22c55e",  // green
 };
 
+const SCHOOL_RISK_PRIORITY = {
+  "OK": 0,
+  "Overcrowding Risk": 1,
+  "Infrastructure Gap": 2,
+  "Both Risks": 3,
+};
+
 function classifySchoolRisk(properties) {
   const enrollment = Number(properties?.student_enrollment_total || 0);
   const teachers   = Number(properties?.teacher_count ?? properties?.teacher_distribution ?? 0);
@@ -152,6 +159,64 @@ function getSchoolRiskBadgeClasses(riskCategory) {
     "OK":                 "border border-emerald-200 bg-emerald-50 text-emerald-700",
   };
   return map[riskCategory] || map["OK"];
+}
+
+function normalizeSchoolIdentity(value) {
+  return String(value || "")
+    .trim()
+    .replace(/\s+/g, " ")
+    .toLowerCase();
+}
+
+function getSchoolFeatureDedupKey(feature) {
+  const properties = feature?.properties || {};
+  const name = normalizeSchoolIdentity(properties.school_name || properties.name);
+
+  if (!name) {
+    return `id:${properties.school_id ?? feature?.id ?? JSON.stringify(feature?.geometry?.coordinates || "")}`;
+  }
+
+  const district = normalizeSchoolIdentity(
+    properties.district || properties.district_name,
+  );
+  const ta = normalizeSchoolIdentity(
+    properties.ta_id ?? properties.ward_id ?? properties.ta_name ?? properties.admin_unit_name,
+  );
+
+  return `school:${name}|district:${district}|ta:${ta}`;
+}
+
+function getSchoolFeaturePriority(feature) {
+  const properties = feature?.properties || {};
+  const enrollment = Number(properties.student_enrollment_total || 0);
+  const teachers = Number(properties.teacher_count ?? properties.teacher_distribution ?? 0);
+  const classrooms = Number(properties.blocks_count ?? 0);
+  const teacherRatio = teachers > 0 ? enrollment / teachers : enrollment > 0 ? 9999 : 0;
+  const classroomRatio = classrooms > 0 ? enrollment / classrooms : enrollment > 0 ? 9999 : 0;
+
+  return [
+    SCHOOL_RISK_PRIORITY[properties.risk_category] ?? 0,
+    teacherRatio,
+    classroomRatio,
+    enrollment,
+  ];
+}
+
+function isHigherPrioritySchool(candidate, current) {
+  const candidatePriority = getSchoolFeaturePriority(candidate);
+  const currentPriority = getSchoolFeaturePriority(current);
+
+  for (let index = 0; index < candidatePriority.length; index += 1) {
+    if (candidatePriority[index] > currentPriority[index]) {
+      return true;
+    }
+
+    if (candidatePriority[index] < currentPriority[index]) {
+      return false;
+    }
+  }
+
+  return false;
 }
 
 const PRESSURE_FILTER_CATEGORIES = [
@@ -434,8 +499,9 @@ function EducationPage() {
 
   const schoolFeaturesWithPressure = useMemo(() => {
     const features = schoolLocations.data?.features || [];
+    const uniqueSchools = new Map();
 
-    return features.map((feature) => {
+    features.forEach((feature) => {
       const taId =
         feature?.properties?.ta_id !== undefined &&
         feature?.properties?.ta_id !== null
@@ -450,7 +516,7 @@ function EducationPage() {
       // Per-school risk classification using national thresholds
       const riskCategory = classifySchoolRisk(feature?.properties);
 
-      return {
+      const enrichedFeature = {
         ...feature,
         properties: {
           ...feature.properties,
@@ -458,7 +524,16 @@ function EducationPage() {
           risk_category: riskCategory,
         },
       };
+
+      const schoolKey = getSchoolFeatureDedupKey(enrichedFeature);
+      const existingFeature = uniqueSchools.get(schoolKey);
+
+      if (!existingFeature || isHigherPrioritySchool(enrichedFeature, existingFeature)) {
+        uniqueSchools.set(schoolKey, enrichedFeature);
+      }
     });
+
+    return Array.from(uniqueSchools.values());
   }, [schoolLocations.data, pressureByTaId]);
 
   // At-risk schools for the table (all except "OK")
