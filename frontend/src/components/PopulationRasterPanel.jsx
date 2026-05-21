@@ -100,8 +100,8 @@ function PopulationRasterPanel({
     return findFeatureByName(selectedFeatureName);
   }, [findFeatureByName, selectedFeatureName]);
   const hoveredFeature = useMemo(() => {
-    return findFeatureByName(hoveredFeatureName);
-  }, [findFeatureByName, hoveredFeatureName]);
+    return findFeatureByName(hoveredFeatureName || hoveredDistrict);
+  }, [findFeatureByName, hoveredDistrict, hoveredFeatureName]);
   const activeBounds = useMemo(() => {
     if (!metadata) {
       return null;
@@ -247,13 +247,13 @@ function PopulationRasterPanel({
         },
       ];
 
-  const focusFeature = selectedFeature || hoveredFeature;
+  const focusFeature = hoveredFeature || selectedFeature;
   const focusProperties = focusFeature?.properties || {};
   const focusName =
     (focusFeature ? getFeatureName(focusFeature) : null) ||
     hoveredFeatureName ||
     null;
-  const focusLabel = selectedFeature ? "Selected Area" : "Hovering Area";
+  const focusLabel = hoveredFeature ? "Hovering Area" : "Selected Area";
 
   function legendBackground(colors = []) {
     if (!Array.isArray(colors) || !colors.length) {
