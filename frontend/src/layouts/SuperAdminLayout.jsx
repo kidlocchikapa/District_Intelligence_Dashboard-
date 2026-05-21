@@ -1,11 +1,15 @@
+import { useState } from 'react';
 import { NavLink, useNavigate } from 'react-router-dom';
-import { Users2, ShieldAlert, LogOut, Database } from 'lucide-react';
+import { Users2, ShieldAlert, LogOut, Database, KeyRound } from 'lucide-react';
 import { setAuthToken } from '../lib/api';
+import ChangePasswordModal from '../components/ChangePasswordModal';
 
 export default function SuperAdminLayout({ children }) {
   const navigate = useNavigate();
+  const [isChangePasswordOpen, setIsChangePasswordOpen] = useState(false);
 
   function handleLogout() {
+    setIsChangePasswordOpen(false);
     setAuthToken(null);
     navigate('/login');
   }
@@ -56,7 +60,15 @@ export default function SuperAdminLayout({ children }) {
 
         </div>
 
-        <div className="mt-auto p-4">
+        <div className="mt-auto p-4 space-y-2">
+          <button
+            onClick={() => setIsChangePasswordOpen(true)}
+            className="flex w-full items-center justify-center gap-3 rounded border border-gray-300 bg-white px-4 py-3 text-sm font-bold text-gray-800 transition-all duration-200 hover:bg-gray-100 active:scale-[0.98]"
+          >
+            <KeyRound size={18} />
+            Change Password
+          </button>
+
           <button 
             onClick={handleLogout}
             className="flex w-full items-center justify-center gap-3 rounded bg-black px-4 py-3 text-sm font-bold text-white shadow-lg transition-all duration-200 hover:bg-gray-800 active:scale-[0.98]"
@@ -72,6 +84,11 @@ export default function SuperAdminLayout({ children }) {
         <div className="absolute inset-0 bg-grid-slate-100 [mask-image:linear-gradient(0deg,white,rgba(255,255,255,0.6))] -z-10" />
         {children}
       </main>
+
+      <ChangePasswordModal
+        isOpen={isChangePasswordOpen}
+        onClose={() => setIsChangePasswordOpen(false)}
+      />
     </div>
   );
 }
