@@ -118,9 +118,6 @@ function getPriorityBandClass(band) {
 
 function OverviewPage() {
   const { selectedDistrict, selectedTa, setSelectedTa } = useDistrict();
-  const [chartSearch, setChartSearch] = useState("");
-  const [chartLimit, setChartLimit] = useState(24);
-  const [chartSortMode, setChartSortMode] = useState("population_desc");
   const districtScope = selectedDistrict || "";
   const scopeLabel = selectedTa
     ? selectedTa
@@ -206,6 +203,12 @@ function OverviewPage() {
     district: item.district,
     population: item.population,
   }));
+  const filteredChartData = useMemo(() => {
+    return [...chartData].sort(
+      (left, right) =>
+        Number(right.population || 0) - Number(left.population || 0),
+    );
+  }, [chartData]);
 
   const selectedTaChartRow = chartData.find(
     (item) => normalizeName(item.admin3) === normalizeName(selectedTa),
@@ -1077,7 +1080,7 @@ function OverviewPage() {
                     </div>
                   </div>
                 </div>
-              ) : (
+              ) : filteredChartData.length > 0 ? (
                 <ResponsiveContainer width="100%" height="100%">
                   <BarChart
                     data={filteredChartData}
@@ -1159,8 +1162,7 @@ function OverviewPage() {
                       })}
                     </Bar>
                   </BarChart>
-                  </ResponsiveContainer>
-                </div>
+                </ResponsiveContainer>
               ) : (
                 <div className="flex h-full items-center justify-center rounded border border-dashed border-gray-200 bg-gray-50 text-sm font-semibold text-gray-400">
                   No rows match the current chart filters.
