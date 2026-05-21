@@ -231,10 +231,6 @@ function OverviewPage() {
     }
 
     const features = (densityMap.data.features || [])
-      .filter((feature) => {
-        const name = feature?.properties?.name || "";
-        return !selectedTa || name.toLowerCase() === selectedTa.toLowerCase();
-      })
       .map((feature) => {
         const name = feature?.properties?.name || "";
         const floodStats = taFloodLookup.get(name.toLowerCase()) || {};
@@ -266,7 +262,7 @@ function OverviewPage() {
       ...densityMap.data,
       features,
     };
-  }, [densityMap.data, selectedTa, taFloodLookup, taServiceLookup]);
+  }, [densityMap.data, taFloodLookup, taServiceLookup]);
 
   const selectTa = (taName) => {
     setSelectedTa(taName || "");
