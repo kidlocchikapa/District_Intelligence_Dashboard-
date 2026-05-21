@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import "leaflet/dist/leaflet.css";
-import L from "leaflet";
 import { CircleMarker, GeoJSON, ImageOverlay, MapContainer, Tooltip, ZoomControl, useMap } from "react-leaflet";
 import { useDistrict } from "../context/DistrictContext";
 import { getGeoBounds } from "../lib/geo";
@@ -32,10 +31,13 @@ function PopulationRasterPanel({
   hoveredFeatureName,
   featureNameResolver,
   customTooltipMetrics,
+  pointLayerLabel = "Locations",
+  showPointLayerToggle = true,
 }) {
   const { selectedDistrict, setSelectedDistrict } = useDistrict();
   const [metadata, setMetadata] = useState(null);
   const [hoveredDistrict, setHoveredDistrict] = useState(null);
+  const [showPointLayer, setShowPointLayer] = useState(true);
   const [error, setError] = useState(null);
 
   useEffect(() => {
@@ -119,6 +121,15 @@ function PopulationRasterPanel({
       [bounds.maxLat, bounds.maxLon],
     ];
   }, [defaultBounds, features, metadata, selectedFeature]);
+  const pointFeatures = useMemo(() => {
+    return (pointsGeojson?.features || []).filter(
+      (feature) =>
+        feature?.geometry?.type === "Point" &&
+        Array.isArray(feature.geometry.coordinates) &&
+        feature.geometry.coordinates.length >= 2,
+    );
+  }, [pointsGeojson]);
+  const hasPointLayer = pointFeatures.length > 0;
 
   const hasHeader = Boolean(title || subtitle);
   const wrapperClassName = hasHeader
@@ -261,6 +272,17 @@ function PopulationRasterPanel({
       <div
         className={`relative isolate ${heightClass} min-h-0 overflow-hidden rounded-[1.5rem] border border-fog bg-[#f8f8f3] group`}
       >
+        {showPointLayerToggle && hasPointLayer ? (
+          <div className="absolute top-4 left-4 z-[402]">
+            <button
+              type="button"
+              onClick={() => setShowPointLayer((current) => !current)}
+              className="rounded-full border border-white/80 bg-white/92 px-3 py-1.5 text-[10px] font-bold uppercase tracking-[0.12em] text-slate/70 shadow-sm backdrop-blur-md transition hover:bg-white"
+            >
+              {showPointLayer ? `Hide ${pointLayerLabel}` : `Show ${pointLayerLabel}`}
+            </button>
+          </div>
+        ) : null}
         <MapContainer
           bounds={defaultBounds}
           boundsOptions={{ padding: [12, 12] }}
@@ -353,51 +375,46 @@ function PopulationRasterPanel({
           ) : null}
 
           {/* School point overlay */}
-          {pointsGeojson?.features?.length
-            ? pointsGeojson.features
-                .filter(
-                  (f) =>
-                    f?.geometry?.type === "Point" &&
-                    Array.isArray(f.geometry.coordinates) &&
-                    f.geometry.coordinates.length >= 2,
-                )
-                .map((f) => {
-                  const [lng, lat] = f.geometry.coordinates;
-                  const name =
-                    f.properties?.school_name ||
-                    f.properties?.facility_name ||
-                    f.properties?.name ||
-                    "School";
-                  return (
-                    <CircleMarker
-                      key={f.id ?? `${lat}-${lng}-${name}`}
-                      center={[lat, lng]}
-                      radius={3.5}
-                      pathOptions={{
-                        color: "#ffffff",
-                        weight: 1.2,
-                        fillColor: "#f59e0b",
-                        fillOpacity: 0.92,
-                        opacity: 1,
-                      }}
+          {hasPointLayer && showPointLayer
+            ? pointFeatures.map((f) => {
+                const [lng, lat] = f.geometry.coordinates;
+                const name =
+                  f.properties?.school_name ||
+                  f.properties?.facility_name ||
+                  f.properties?.name ||
+                  "Location";
+                return (
+                  <CircleMarker
+                    key={f.id ?? `${lat}-${lng}-${name}`}
+                    center={[lat, lng]}
+                    radius={3.5}
+                    pathOptions={{
+                      color: "#ffffff",
+                      weight: 1.2,
+                      fillColor: "#f59e0b",
+                      fillOpacity: 0.92,
+                      opacity: 1,
+                    }}
+                  >
+                    <Tooltip
+                      direction="top"
+                      offset={[0, -6]}
+                      opacity={0.96}
+                      className="health-ta-tooltip"
                     >
-                      <Tooltip
-                        direction="top"
-                        offset={[0, -6]}
-                        opacity={0.96}
-                        className="health-ta-tooltip"
-                      >
-                        {name}
-                      </Tooltip>
-                    </CircleMarker>
-                  );
-                })
+                      {name}
+                    </Tooltip>
+                  </CircleMarker>
+                );
+              })
             : null}
         </MapContainer>
 
         {/* Subtle Background Loading Indicator */}
         {loading && (
-          <div className="absolute top-4 left-4 z-[400] animate-in fade-in duration-500">
+          <div
+            className={`absolute left-4 z-[400] animate-in fade-in duration-500 ${showPointLayerToggle && hasPointLayer ? "top-[3.2rem]" : "top-4"}`}
+          >
              <div className="flex items-center gap-3 bg-white/95 backdrop-blur-md px-4 py-2.5 rounded-2xl border border-white/50 shadow-lg shadow-blue-900/5">
                 <div className="h-4 w-4 border-2 border-blue-600/20 border-t-blue-600 rounded-full animate-spin"></div>
                 <span className="text-[10px] font-bold text-slate uppercase tracking-widest">District Data Refreshing...</span>
@@ -421,14 +438,20 @@ function PopulationRasterPanel({
               <span>{legend.lowLabel || "Low"}</span>
               <span>{legend.highLabel || "High"}</span>
             </div>
-            {pointsGeojson?.features?.length ? (
+            {hasPointLayer ? (
               <div className="mt-3 flex items-center gap-2 border-t border-slate-100 pt-2.5">
                 <span
                   className="inline-block h-3 w-3 flex-shrink-0 rounded-full border-2 border-white shadow-sm"
-                  style={{ background: "#f59e0b" }}
+                  style={{
+                    background: "#f59e0b",
+                    opacity: showPointLayer ? 1 : 0.4,
+                  }}
                 />
                 <span className="text-[10px] font-bold uppercase tracking-[0.12em] text-slate/55">
-                  Schools
+                  {pointLayerLabel}
+                </span>
+                <span className="text-[9px] font-bold uppercase tracking-[0.12em] text-slate/45">
+                  {showPointLayer ? "Shown" : "Hidden"}
                 </span>
               </div>
             ) : null}
