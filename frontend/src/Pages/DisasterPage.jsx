@@ -10,7 +10,6 @@ import {
   AlertTriangle,
 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
-import { toast } from "react-hot-toast";
 import {
   Bar,
   BarChart,
@@ -61,11 +60,46 @@ function getExposureBarColor(value, maxValue) {
   return "#22c55e";
 }
 
+function normalizeEntityKeyPart(value) {
+  return String(value || "")
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, " ")
+    .replace(/[^a-z0-9 ]/g, "");
+}
+
+function buildFacilityDedupKey(row, fallbackName) {
+  const facilityName = normalizeEntityKeyPart(row?.facility_name || fallbackName);
+  const ta = normalizeEntityKeyPart(row?.ta_name || "unknown ta");
+  const district = normalizeEntityKeyPart(row?.district_name || "unknown district");
+  return `${facilityName}|${ta}|${district}`;
+}
+
 const DISASTER_EXPOSURE_CHART_LIMITS = [
   { value: 8, label: "Top 8" },
   { value: 12, label: "Top 12" },
   { value: 0, label: "All" },
 ];
+const RISK_RANK = { high: 3, medium: 2, low: 1 };
+const DISASTER_CHART_SKELETON_HEIGHTS = [28, 34, 52, 61, 44, 37, 57];
+
+function ChartSkeleton() {
+  return (
+    <div className="h-full w-full flex flex-col gap-4 animate-pulse">
+      <div className="flex-1 bg-gray-50 rounded-lg relative overflow-hidden">
+        <div className="absolute inset-0 flex items-end justify-around px-4 pb-4">
+          {DISASTER_CHART_SKELETON_HEIGHTS.map((height, index) => (
+            <div
+              key={index}
+              className="w-8 bg-gray-200 rounded-t"
+              style={{ height: `${height}%` }}
+            />
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
 
 function DisasterPage() {
   const { selectedDistrict, selectedTa, setSelectedTa } = useDistrict();
@@ -76,7 +110,7 @@ function DisasterPage() {
 
   useEffect(() => {
     setSelectedTa("");
-  }, [selectedDistrict]);
+  }, [selectedDistrict, setSelectedTa]);
 
   const disasterDistrictFilter = useMemo(() => {
     const normalized = String(selectedDistrict || "")
@@ -451,22 +485,6 @@ function DisasterPage() {
       icon: Users,
     },
   ];
-
-  const ChartSkeleton = () => (
-    <div className="h-full w-full flex flex-col gap-4 animate-pulse">
-      <div className="flex-1 bg-gray-50 rounded-lg relative overflow-hidden">
-        <div className="absolute inset-0 flex items-end justify-around px-4 pb-4">
-          {[...Array(7)].map((_, index) => (
-            <div
-              key={index}
-              className="w-8 bg-gray-200 rounded-t"
-              style={{ height: `${Math.random() * 55 + 25}%` }}
-            />
-          ))}
-        </div>
-      </div>
-    </div>
-  );
 
   return (
     <div
@@ -984,14 +1002,15 @@ function DisasterRecommendations({
 
   const summary = disasterSummary.data || {};
   const eduImpact = educationFloodImpact.data?.summary || {};
-  const eduImpactTaBreakdown = educationFloodImpact.data?.ta_breakdown || [];
+  const eduImpactTaBreakdown = useMemo(
+    () => educationFloodImpact.data?.ta_breakdown ?? [],
+    [educationFloodImpact.data],
+  );
   const exposedPop = Number(summary.exposed_population || 0);
   const totalPop = Number(summary.total_population || 0);
   const exposedPct = Number(summary.exposed_population_pct || 0);
   const studentsAtRisk = Number(eduImpact.students_at_risk || 0);
   const highRiskPop = Number(summary.high_risk_population || 0);
-
-  const riskRank = { high: 3, medium: 2, low: 1 };
 
   const educationFacilityRows = useMemo(() => {
     const deduped = new Map();
@@ -1002,10 +1021,7 @@ function DisasterRecommendations({
       const ta = row.ta_name || "Unknown TA";
       const district = row.district_name || "Unknown District";
       const floodDepth = Number(row.flood_value || 0);
-      const keyBase =
-        row.facility_id !== null && row.facility_id !== undefined
-          ? `id:${row.facility_id}`
-          : `name:${facilityName.toLowerCase()}|ta:${ta.toLowerCase()}|district:${district.toLowerCase()}`;
+      const keyBase = buildFacilityDedupKey(row, "unnamed school");
       const key = `edu-${keyBase}`;
 
       const candidate = {
@@ -1024,8 +1040,8 @@ function DisasterRecommendations({
         return;
       }
 
-      const existingRisk = riskRank[existing.riskClass] || 0;
-      const candidateRisk = riskRank[candidate.riskClass] || 0;
+      const existingRisk = RISK_RANK[existing.riskClass] || 0;
+      const candidateRisk = RISK_RANK[candidate.riskClass] || 0;
       if (
         candidateRisk > existingRisk ||
         (candidateRisk === existingRisk &&
@@ -1037,7 +1053,7 @@ function DisasterRecommendations({
 
     return Array.from(deduped.values()).sort((left, right) => {
       const riskDelta =
-        (riskRank[right.riskClass] || 0) - (riskRank[left.riskClass] || 0);
+        (RISK_RANK[right.riskClass] || 0) - (RISK_RANK[left.riskClass] || 0);
       if (riskDelta !== 0) return riskDelta;
       return right.floodDepth - left.floodDepth;
     });
@@ -1056,10 +1072,7 @@ function DisasterRecommendations({
       const ta = row.ta_name || "Unknown TA";
       const district = row.district_name || "Unknown District";
       const floodDepth = Number(row.flood_value || 0);
-      const keyBase =
-        row.facility_id !== null && row.facility_id !== undefined
-          ? `id:${row.facility_id}`
-          : `name:${facilityName.toLowerCase()}|ta:${ta.toLowerCase()}|district:${district.toLowerCase()}`;
+      const keyBase = buildFacilityDedupKey(row, "unnamed facility");
       const key = `health-${keyBase}`;
 
       const candidate = {
@@ -1078,8 +1091,8 @@ function DisasterRecommendations({
         return;
       }
 
-      const existingRisk = riskRank[existing.riskClass] || 0;
-      const candidateRisk = riskRank[candidate.riskClass] || 0;
+      const existingRisk = RISK_RANK[existing.riskClass] || 0;
+      const candidateRisk = RISK_RANK[candidate.riskClass] || 0;
       if (
         candidateRisk > existingRisk ||
         (candidateRisk === existingRisk &&
@@ -1091,7 +1104,7 @@ function DisasterRecommendations({
 
     return Array.from(deduped.values()).sort((left, right) => {
       const riskDelta =
-        (riskRank[right.riskClass] || 0) - (riskRank[left.riskClass] || 0);
+        (RISK_RANK[right.riskClass] || 0) - (RISK_RANK[left.riskClass] || 0);
       if (riskDelta !== 0) return riskDelta;
       return right.floodDepth - left.floodDepth;
     });
@@ -1138,7 +1151,7 @@ function DisasterRecommendations({
       })),
     ].sort((left, right) => {
       const riskDelta =
-        (riskRank[right.riskClass] || 0) - (riskRank[left.riskClass] || 0);
+        (RISK_RANK[right.riskClass] || 0) - (RISK_RANK[left.riskClass] || 0);
       if (riskDelta !== 0) return riskDelta;
       return right.floodDepth - left.floodDepth;
     });
