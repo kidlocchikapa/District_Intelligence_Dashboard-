@@ -1388,13 +1388,21 @@ function HealthPage() {
 
         {/* Deep-Dive Analytics Section */}
         <div className="mb-10">
-          <div className="flex items-center gap-2 mb-6 border-b pb-2">
-            <Building2 className="text-[#1e3a8a]" size={24} />
-            <h2 className="text-[20px] font-black tracking-tight text-[#1e3a8a]">
-              Deep-Dive Analytics
-            </h2>
+          <div className="mb-8 pt-2">
+            <div className="flex items-center gap-3">
+              <span className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-blue-100 bg-blue-50/70">
+                <Building2 className="text-[#1e3a8a]" size={20} />
+              </span>
+              <h2 className="text-[22px] font-black tracking-tight text-[#1e3a8a]">
+                Deep-Dive Analytics
+              </h2>
+            </div>
+            <p className="mt-2 text-sm font-semibold text-gray-500">
+              Facility pressure and TA-level vulnerability signals for targeted planning.
+            </p>
+            <div className="mt-4 h-px w-full bg-gradient-to-r from-[#1e3a8a]/45 via-[#1e3a8a]/20 to-transparent" />
           </div>
-          <div className="grid grid-cols-1 xl:grid-cols-2 gap-8">
+          <div className="grid grid-cols-1 xl:grid-cols-2 gap-8 xl:items-start">
             <div className="border border-gray-100 rounded-lg p-6 shadow-sm bg-white">
               <h3 className="text-[16px] font-extrabold mb-2 text-gray-800">
                 Facility Burden Analysis
@@ -1417,6 +1425,7 @@ function HealthPage() {
                   loading={taAnalytics.loading}
                   selectedTa={selectedTa}
                   onSelectTa={selectTa}
+                  maxBodyHeightClass="max-h-[460px]"
                 />
               </div>
             </div>
