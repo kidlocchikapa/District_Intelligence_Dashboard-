@@ -67,12 +67,52 @@ function getHealthRasterAsset(assets, key) {
   return assets?.[key] || "/worldpop/zomba_ppp_2020.preview.json";
 }
 
+const HEALTH_RASTER_LAYERS = [
+  {
+    key: "health_buffer_8km",
+    shortLabel: "8 km Coverage",
+    title: "Access in 8 Km radius",
+    subtitle: "Population served in 8 Km radius",
+  },
+  {
+    key: "health_network_8km",
+    shortLabel: "Road Distance",
+    title: "8 km Road distance",
+    subtitle: "Beneficiary road-network distance to healthy facility",
+  },
+  {
+    key: "health_2sfca",
+    shortLabel: "2SFCA Score",
+    title: "2SFCA Access Score",
+    subtitle:
+      "Healthcare staff per 1,000 people (interpolated from TA centroids).",
+  },
+];
+
+const HEALTH_CHART_LIMITS = [
+  { value: 10, label: "Top 10" },
+  { value: 20, label: "Top 20" },
+  { value: 0, label: "All" },
+];
+
 function HealthPage() {
   const { selectedDistrict, selectedTa, setSelectedTa } = useDistrict();
   const [hoveredTa, setHoveredTa] = useState("");
+  const [activeHealthRasterKey, setActiveHealthRasterKey] = useState(
+    HEALTH_RASTER_LAYERS[0].key,
+  );
+  const [coverageChartSearch, setCoverageChartSearch] = useState("");
+  const [coverageChartLimit, setCoverageChartLimit] = useState(20);
+  const [coverageChartSort, setCoverageChartSort] = useState("coverage_asc");
+  const [facilityChartSearch, setFacilityChartSearch] = useState("");
+  const [facilityChartLimit, setFacilityChartLimit] = useState(20);
+  const [facilityChartSort, setFacilityChartSort] = useState("facilities_desc");
   const { contentRef, exportPdf } = usePdfExport("Health_Report.pdf");
   const districtScope = selectedDistrict || "Zomba";
   const activeTaPreview = selectedTa || hoveredTa;
+  const activeHealthRasterLayer =
+    HEALTH_RASTER_LAYERS.find((layer) => layer.key === activeHealthRasterKey) ||
+    HEALTH_RASTER_LAYERS[0];
 
   const servedPopulationSummary = useDashboardData(
     buildDashboardPath("/dashboard/health/served-population", {
@@ -299,8 +339,43 @@ function HealthPage() {
       district: metric.admin_unit_name,
       facilities: Number(metric.metric_value || 0),
     }));
+  const filteredFacilityChartData = useMemo(() => {
+    const searchTerm = facilityChartSearch.trim().toLowerCase();
+    let rows = [...facilityChartData];
+
+    if (searchTerm) {
+      rows = rows.filter((item) =>
+        String(item.district || "").toLowerCase().includes(searchTerm),
+      );
+    }
+
+    rows.sort((left, right) => {
+      if (facilityChartSort === "facilities_asc") {
+        return Number(left.facilities || 0) - Number(right.facilities || 0);
+      }
+
+      if (facilityChartSort === "district_asc") {
+        return String(left.district || "").localeCompare(
+          String(right.district || ""),
+        );
+      }
+
+      return Number(right.facilities || 0) - Number(left.facilities || 0);
+    });
+
+    if (facilityChartLimit > 0) {
+      return rows.slice(0, facilityChartLimit);
+    }
+
+    return rows;
+  }, [
+    facilityChartData,
+    facilityChartLimit,
+    facilityChartSearch,
+    facilityChartSort,
+  ]);
   const maxFacilities = Math.max(
-    ...facilityChartData.map((item) => item.facilities || 0),
+    ...filteredFacilityChartData.map((item) => item.facilities || 0),
     0,
   );
 
@@ -430,7 +505,40 @@ function HealthPage() {
         ...row,
         coverage_pct: row.served_population_pct,
       }));
-  const hasPopulationCoverageTrend = coverageTrendData.some(
+  const filteredCoverageTrendData = useMemo(() => {
+    const searchTerm = coverageChartSearch.trim().toLowerCase();
+    let rows = [...coverageTrendData];
+
+    if (searchTerm) {
+      rows = rows.filter((item) =>
+        String(item.area || "").toLowerCase().includes(searchTerm),
+      );
+    }
+
+    rows.sort((left, right) => {
+      if (coverageChartSort === "coverage_desc") {
+        return Number(right.coverage_pct || 0) - Number(left.coverage_pct || 0);
+      }
+
+      if (coverageChartSort === "area_asc") {
+        return String(left.area || "").localeCompare(String(right.area || ""));
+      }
+
+      return Number(left.coverage_pct || 0) - Number(right.coverage_pct || 0);
+    });
+
+    if (coverageChartLimit > 0) {
+      return rows.slice(0, coverageChartLimit);
+    }
+
+    return rows;
+  }, [
+    coverageChartLimit,
+    coverageChartSearch,
+    coverageChartSort,
+    coverageTrendData,
+  ]);
+  const hasPopulationCoverageTrend = filteredCoverageTrendData.some(
     (row) => row.served_population_pct > 0,
   );
 
@@ -586,55 +694,40 @@ function HealthPage() {
                   : "Hover any TA boundary to preview its details across all maps, or click to lock it."}
             </p>
           </div>
-          <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
-            <div className="border border-gray-100 rounded p-4 shadow-sm bg-white">
-              <PopulationRasterPanel
-                geojson={healthCoverageTaGeojson.data}
-                title="Access in 8 Km radius"
-                subtitle="Population served in 8 Km radius"
-                metadataUrl={getHealthRasterAsset(
-                  healthRasterMetadata.data?.assets,
-                  "health_buffer_8km",
-                )}
-                heightClass="h-[320px]"
-                loading={
-                  healthCoverageTaGeojson.loading || healthRasterMetadata.loading
-                }
-                selectedFeatureName={selectedTa}
-                hoveredFeatureName={selectedTa ? "" : hoveredTa}
-                onFeatureHover={previewTaFromFeature}
-                onFeatureClick={selectTaFromFeature}
-              />
+          <div className="border border-gray-100 rounded p-5 shadow-sm bg-white">
+            <div className="flex flex-wrap gap-2">
+              {HEALTH_RASTER_LAYERS.map((layer) => {
+                const isActive = layer.key === activeHealthRasterLayer.key;
+                return (
+                  <button
+                    key={layer.key}
+                    type="button"
+                    onClick={() => setActiveHealthRasterKey(layer.key)}
+                    className={`rounded-full border px-3 py-1.5 text-[11px] font-bold uppercase tracking-[0.12em] transition ${
+                      isActive
+                        ? "border-gray-900 bg-gray-900 text-white"
+                        : "border-gray-200 bg-white text-gray-500 hover:text-black"
+                    }`}
+                  >
+                    {layer.shortLabel}
+                  </button>
+                );
+              })}
             </div>
-            <div className="border border-gray-100 rounded p-4 shadow-sm bg-white">
+            <p className="mt-3 text-xs font-semibold text-gray-500">
+              Showing one layer at a time keeps the map readable while preserving
+              TA hover/click interactions.
+            </p>
+            <div className="mt-4 border border-gray-100 rounded p-3 bg-white">
               <PopulationRasterPanel
                 geojson={healthCoverageTaGeojson.data}
-                title="8 km Road distance "
-                subtitle="Beneficiary road-network distance to healthy facility"
+                title={activeHealthRasterLayer.title}
+                subtitle={activeHealthRasterLayer.subtitle}
                 metadataUrl={getHealthRasterAsset(
                   healthRasterMetadata.data?.assets,
-                  "health_network_8km",
+                  activeHealthRasterLayer.key,
                 )}
-                heightClass="h-[320px]"
-                loading={
-                  healthCoverageTaGeojson.loading || healthRasterMetadata.loading
-                }
-                selectedFeatureName={selectedTa}
-                hoveredFeatureName={selectedTa ? "" : hoveredTa}
-                onFeatureHover={previewTaFromFeature}
-                onFeatureClick={selectTaFromFeature}
-              />
-            </div>
-            <div className="border border-gray-100 rounded p-4 shadow-sm bg-white">
-              <PopulationRasterPanel
-                geojson={healthCoverageTaGeojson.data}
-                title="2SFCA Access Score"
-                subtitle="Healthcare staff per 1,000 people (interpolated from TA centroids)."
-                metadataUrl={getHealthRasterAsset(
-                  healthRasterMetadata.data?.assets,
-                  "health_2sfca",
-                )}
-                heightClass="h-[320px]"
+                heightClass="h-[430px]"
                 loading={
                   healthCoverageTaGeojson.loading || healthRasterMetadata.loading
                 }
@@ -841,17 +934,58 @@ function HealthPage() {
                 ? `Showing the selected TA coverage for ${selectedTa}.`
                 : "Health service coverage by TA. Click a bar to focus the page on that TA."}
             </p>
+            <div className="mb-4 rounded border border-gray-100 bg-white p-3">
+              <div className="flex flex-wrap items-center gap-2">
+                {HEALTH_CHART_LIMITS.map((option) => {
+                  const isActive = option.value === coverageChartLimit;
+                  return (
+                    <button
+                      key={`health-coverage-limit-${option.label}`}
+                      type="button"
+                      onClick={() => setCoverageChartLimit(option.value)}
+                      className={`rounded-full border px-3 py-1 text-[10px] font-bold uppercase tracking-[0.12em] transition ${
+                        isActive
+                          ? "border-gray-900 bg-gray-900 text-white"
+                          : "border-gray-200 bg-white text-gray-500 hover:text-black"
+                      }`}
+                    >
+                      {option.label}
+                    </button>
+                  );
+                })}
+                <select
+                  value={coverageChartSort}
+                  onChange={(event) => setCoverageChartSort(event.target.value)}
+                  className="rounded-full border border-gray-200 bg-white px-3 py-1 text-[10px] font-bold uppercase tracking-[0.12em] text-gray-600"
+                >
+                  <option value="coverage_asc">Lowest coverage</option>
+                  <option value="coverage_desc">Highest coverage</option>
+                  <option value="area_asc">Name A-Z</option>
+                </select>
+                <input
+                  type="search"
+                  value={coverageChartSearch}
+                  onChange={(event) => setCoverageChartSearch(event.target.value)}
+                  placeholder="Search TA..."
+                  className="min-w-[180px] flex-1 rounded-full border border-gray-200 px-3 py-1.5 text-xs font-semibold text-gray-700 outline-none focus:border-gray-900"
+                />
+              </div>
+              <p className="mt-2 text-[11px] font-semibold text-gray-500">
+                Showing {filteredCoverageTrendData.length} of{" "}
+                {coverageTrendData.length} TAs.
+              </p>
+            </div>
             <div className="flex-1 rounded overflow-hidden relative border border-gray-50 bg-gray-50 p-4">
               {servedPopulationTrend.loading || healthAccessZones.loading ? (
                 <div className="h-full w-full animate-pulse rounded bg-white" />
-              ) : coverageTrendData.length === 0 ? (
+              ) : filteredCoverageTrendData.length === 0 ? (
                 <div className="h-full flex items-center justify-center text-center text-sm text-gray-500 px-6">
-                  No TA-level health coverage trend is available for this filter yet.
+                  No TA-level health coverage rows match the current filters.
                 </div>
               ) : (
                 <ResponsiveContainer width="100%" height="100%">
                   <ComposedChart
-                    data={coverageTrendData}
+                    data={filteredCoverageTrendData}
                     margin={{ top: 16, right: 20, left: 4, bottom: 84 }}
                   >
                     <CartesianGrid
@@ -917,7 +1051,7 @@ function HealthPage() {
                       barSize={16}
                       onClick={(entry) => selectTa(entry?.area || "")}
                     >
-                      {coverageTrendData.map((entry) => {
+                      {filteredCoverageTrendData.map((entry) => {
                         const isSelected =
                           selectedTa &&
                           entry.area.toLowerCase() ===
@@ -1029,13 +1163,59 @@ function HealthPage() {
                   )}
                 </div>
               ) : (
+                <div className="space-y-3">
+                  <div className="rounded border border-gray-100 bg-white p-3">
+                    <div className="flex flex-wrap items-center gap-2">
+                      {HEALTH_CHART_LIMITS.map((option) => {
+                        const isActive = option.value === facilityChartLimit;
+                        return (
+                          <button
+                            key={`health-facility-limit-${option.label}`}
+                            type="button"
+                            onClick={() => setFacilityChartLimit(option.value)}
+                            className={`rounded-full border px-3 py-1 text-[10px] font-bold uppercase tracking-[0.12em] transition ${
+                              isActive
+                                ? "border-gray-900 bg-gray-900 text-white"
+                                : "border-gray-200 bg-white text-gray-500 hover:text-black"
+                            }`}
+                          >
+                            {option.label}
+                          </button>
+                        );
+                      })}
+                      <select
+                        value={facilityChartSort}
+                        onChange={(event) => setFacilityChartSort(event.target.value)}
+                        className="rounded-full border border-gray-200 bg-white px-3 py-1 text-[10px] font-bold uppercase tracking-[0.12em] text-gray-600"
+                      >
+                        <option value="facilities_desc">Highest first</option>
+                        <option value="facilities_asc">Lowest first</option>
+                        <option value="district_asc">Name A-Z</option>
+                      </select>
+                      <input
+                        type="search"
+                        value={facilityChartSearch}
+                        onChange={(event) => setFacilityChartSearch(event.target.value)}
+                        placeholder="Search district..."
+                        className="min-w-[170px] flex-1 rounded-full border border-gray-200 px-3 py-1.5 text-xs font-semibold text-gray-700 outline-none focus:border-gray-900"
+                      />
+                    </div>
+                    <p className="mt-2 text-[11px] font-semibold text-gray-500">
+                      Showing {filteredFacilityChartData.length} of{" "}
+                      {facilityChartData.length} districts.
+                    </p>
+                  </div>
                 <div className="h-[300px]">
                   {districtHealthSummary.loading ? (
                     <div className="h-full w-full animate-pulse rounded bg-gray-50" />
+                  ) : filteredFacilityChartData.length === 0 ? (
+                    <div className="flex h-full items-center justify-center rounded border border-dashed border-gray-200 bg-gray-50 text-sm font-semibold text-gray-400">
+                      No facility rows match the current filters.
+                    </div>
                   ) : (
                     <ResponsiveContainer width="100%" height="100%">
                       <BarChart
-                        data={facilityChartData}
+                        data={filteredFacilityChartData}
                         margin={{ top: 8, right: 16, left: 8, bottom: 44 }}
                       >
                         <CartesianGrid
@@ -1086,7 +1266,7 @@ function HealthPage() {
                           barSize={14}
                           activeBar={<Rectangle fill="#7e22ce" />}
                         >
-                          {facilityChartData.map((entry) => (
+                          {filteredFacilityChartData.map((entry) => (
                             <Cell
                               key={`health-facility-bar-${entry.district}`}
                               fill={getFacilityBarColor(
@@ -1099,6 +1279,7 @@ function HealthPage() {
                       </BarChart>
                     </ResponsiveContainer>
                   )}
+                </div>
                 </div>
               )}
             </div>
