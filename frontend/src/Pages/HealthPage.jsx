@@ -804,9 +804,37 @@ function HealthPage() {
                 );
               })}
             </div>
+            <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-3">
+              {HEALTH_RASTER_LAYERS.map((layer) => {
+                const isActive = layer.key === activeHealthRasterLayer.key;
+                return (
+                  <button
+                    key={`health-layer-card-${layer.key}`}
+                    type="button"
+                    onClick={() => setActiveHealthRasterKey(layer.key)}
+                    className={`rounded-xl border px-3 py-3 text-left transition ${
+                      isActive
+                        ? "border-gray-900 bg-gray-900 text-white"
+                        : "border-gray-100 bg-gray-50 text-gray-700 hover:border-gray-300"
+                    }`}
+                  >
+                    <p className="text-[10px] font-bold uppercase tracking-[0.12em]">
+                      {isActive ? "Active Layer" : "Layer"}
+                    </p>
+                    <p className="mt-1 text-sm font-extrabold">{layer.shortLabel}</p>
+                    <p
+                      className={`mt-1 text-xs font-semibold ${
+                        isActive ? "text-white/75" : "text-gray-500"
+                      }`}
+                    >
+                      {layer.subtitle}
+                    </p>
+                  </button>
+                );
+              })}
+            </div>
             <p className="mt-3 text-xs font-semibold text-gray-500">
-              Layer focus keeps the map clean while still letting users compare
-              coverage, road distance, and access score quickly.
+              Click any layer card above to switch the active raster map.
             </p>
             <div className="mt-4 border border-gray-100 rounded p-3 bg-white">
               <PopulationRasterPanel
@@ -830,31 +858,6 @@ function HealthPage() {
                 onFeatureClick={selectTaFromFeature}
                 onPanelLeave={clearTaFocus}
               />
-            </div>
-            <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-3">
-              {HEALTH_RASTER_LAYERS.map((layer) => {
-                const isActive = layer.key === activeHealthRasterLayer.key;
-                return (
-                  <button
-                    key={`health-layer-card-${layer.key}`}
-                    type="button"
-                    onClick={() => setActiveHealthRasterKey(layer.key)}
-                    className={`rounded-xl border px-3 py-3 text-left transition ${
-                      isActive
-                        ? "border-gray-900 bg-gray-900 text-white"
-                        : "border-gray-100 bg-gray-50 text-gray-700 hover:border-gray-300"
-                    }`}
-                  >
-                    <p className="text-[10px] font-bold uppercase tracking-[0.12em]">
-                      {isActive ? "Active Layer" : "Layer"}
-                    </p>
-                    <p className="mt-1 text-sm font-extrabold">{layer.shortLabel}</p>
-                    <p className={`mt-1 text-xs font-semibold ${isActive ? "text-white/75" : "text-gray-500"}`}>
-                      {layer.subtitle}
-                    </p>
-                  </button>
-                );
-              })}
             </div>
           </div>
         </div>
