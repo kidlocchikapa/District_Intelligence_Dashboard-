@@ -267,6 +267,9 @@ function PopulationRasterPanel({
 
   const focusFeature = hoveredFeature || selectedFeature;
   const focusProperties = focusFeature?.properties || {};
+  const legendPositionClass = focusFeature
+    ? "right-2 top-16 sm:right-4 sm:bottom-4 sm:top-auto"
+    : "bottom-2 right-2 sm:right-4 sm:bottom-4";
   const focusName =
     (focusFeature ? getFeatureName(focusFeature) : null) ||
     hoveredFeatureName ||
@@ -467,7 +470,9 @@ function PopulationRasterPanel({
         )}
 
         {legend ? (
-          <div className="pointer-events-none absolute bottom-2 right-2 z-[401] w-[160px] rounded-xl border border-white/80 bg-white/92 px-3 py-2 shadow-md backdrop-blur-md sm:bottom-4 sm:right-4 sm:w-[190px] sm:rounded-2xl sm:px-4 sm:py-3">
+          <div
+            className={`pointer-events-none absolute z-[401] w-[160px] rounded-xl border border-white/80 bg-white/92 px-3 py-2 shadow-md backdrop-blur-md sm:w-[190px] sm:rounded-2xl sm:px-4 sm:py-3 ${legendPositionClass}`}
+          >
             <p className="text-[10px] font-bold uppercase tracking-[0.15em] text-slate/50">
               Legend
             </p>
