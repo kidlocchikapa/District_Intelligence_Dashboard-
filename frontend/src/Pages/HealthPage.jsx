@@ -90,6 +90,52 @@ const HEALTH_RASTER_LAYERS = [
   },
 ];
 
+const HEALTH_RASTER_TOOLTIP_METRICS = {
+  health_buffer_8km: [
+    { key: "health_population_served_total", label: "Within 8 km" },
+    { key: "health_population_unserved_total", label: "Outside 8 km" },
+    {
+      key: "health_population_served_pct",
+      label: "Within 8 km %",
+      format: "pct",
+      digits: 1,
+    },
+    {
+      key: "health_population_unserved_pct",
+      label: "Outside 8 km %",
+      format: "pct",
+      digits: 1,
+    },
+  ],
+  health_network_8km: [
+    {
+      key: "nearest_health_distance_km",
+      label: "Road Distance (km)",
+      digits: 1,
+    },
+    {
+      key: "health_population_served_total",
+      label: "Within 8 km",
+    },
+    {
+      key: "health_population_unserved_total",
+      label: "Outside 8 km",
+    },
+  ],
+  health_2sfca: [
+    {
+      key: "health_2sfca_access_score",
+      label: "2SFCA Score",
+      digits: 2,
+    },
+    {
+      key: "health_2sfca_catchment_minutes",
+      label: "Catchment (min)",
+      digits: 0,
+    },
+  ],
+};
+
 const HEALTH_CHART_LIMITS = [
   { value: 10, label: "Top 10" },
   { value: 20, label: "Top 20" },
@@ -99,7 +145,7 @@ const HEALTH_CHART_LIMITS = [
 function HealthPage() {
   const { selectedDistrict, selectedTa, setSelectedTa } = useDistrict();
   const [hoveredTa, setHoveredTa] = useState("");
-  const [activeHealthRasterKey] = useState(
+  const [activeHealthRasterKey, setActiveHealthRasterKey] = useState(
     HEALTH_RASTER_LAYERS[0].key,
   );
   const [coverageChartSearch, setCoverageChartSearch] = useState("");
@@ -738,46 +784,29 @@ function HealthPage() {
                   : "Hover any TA boundary to preview its details on the active layer, or click to lock it."}
             </p>
           </div>
-          <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
-            <div className="border border-gray-100 rounded p-4 shadow-sm bg-white">
-              <PopulationRasterPanel
-                geojson={healthCoverageTaGeojson.data}
-                title="Access in 8 Km radius"
-                subtitle="Population served in 8 Km radius"
-                metadataUrl={getHealthRasterAsset(
-                  healthRasterMetadata.data?.assets,
-                  "health_buffer_8km",
-                )}
-                heightClass="h-[420px]"
-                loading={
-                  healthCoverageTaGeojson.loading || healthRasterMetadata.loading
-                }
-                customTooltipMetrics={[
-                  { key: "health_population_served_total", label: "Within 8 km" },
-                  { key: "health_population_unserved_total", label: "Outside 8 km" },
-                  {
-                    key: "health_population_served_pct",
-                    label: "Within 8 km %",
-                    format: "pct",
-                    digits: 1,
-                  },
-                  {
-                    key: "health_population_unserved_pct",
-                    label: "Outside 8 km %",
-                    format: "pct",
-                    digits: 1,
-                  },
-                ]}
-                selectedFeatureName={selectedTa}
-                hoveredFeatureName={selectedTa ? "" : hoveredTa}
-                onFeatureHover={previewTaFromFeature}
-                onFeatureClick={selectTaFromFeature}
-                onPanelLeave={clearTaFocus}
-              />
+          <div className="border border-gray-100 rounded p-5 shadow-sm bg-white">
+            <div className="flex flex-wrap gap-2">
+              {HEALTH_RASTER_LAYERS.map((layer) => {
+                const isActive = layer.key === activeHealthRasterLayer.key;
+                return (
+                  <button
+                    key={layer.key}
+                    type="button"
+                    onClick={() => setActiveHealthRasterKey(layer.key)}
+                    className={`rounded-full border px-3 py-1.5 text-[11px] font-bold uppercase tracking-[0.12em] transition ${
+                      isActive
+                        ? "border-gray-900 bg-gray-900 text-white"
+                        : "border-gray-200 bg-white text-gray-500 hover:text-black"
+                    }`}
+                  >
+                    {layer.shortLabel}
+                  </button>
+                );
+              })}
             </div>
             <p className="mt-3 text-xs font-semibold text-gray-500">
-              Showing one layer at a time keeps the map readable. Use the layer
-              buttons to compare coverage, road distance, and access score.
+              Layer focus keeps the map clean while still letting users compare
+              coverage, road distance, and access score quickly.
             </p>
             <div className="mt-4 border border-gray-100 rounded p-3 bg-white">
               <PopulationRasterPanel
@@ -786,23 +815,15 @@ function HealthPage() {
                 subtitle={activeHealthRasterLayer.subtitle}
                 metadataUrl={getHealthRasterAsset(
                   healthRasterMetadata.data?.assets,
-                  "health_network_8km",
+                  activeHealthRasterLayer.key,
                 )}
-                heightClass="h-[420px]"
+                heightClass="h-[430px]"
                 loading={
                   healthCoverageTaGeojson.loading || healthRasterMetadata.loading
                 }
-                customTooltipMetrics={[
-                  {
-                    key: "nearest_health_distance_km",
-                    label: "Road Distance (km)",
-                    digits: 1,
-                  },
-                  {
-                    key: "health_population_served_total",
-                    label: "Within 8 km",
-                  },
-                ]}
+                customTooltipMetrics={
+                  HEALTH_RASTER_TOOLTIP_METRICS[activeHealthRasterLayer.key]
+                }
                 selectedFeatureName={selectedTa}
                 hoveredFeatureName={selectedTa ? "" : hoveredTa}
                 onFeatureHover={previewTaFromFeature}
@@ -810,37 +831,30 @@ function HealthPage() {
                 onPanelLeave={clearTaFocus}
               />
             </div>
-            <div className="border border-gray-100 rounded p-4 shadow-sm bg-white">
-              <PopulationRasterPanel
-                geojson={healthCoverageTaGeojson.data}
-                title="2SFCA Access Score"
-                subtitle="Healthcare staff per 1,000 people (interpolated from TA centroids)."
-                metadataUrl={getHealthRasterAsset(
-                  healthRasterMetadata.data?.assets,
-                  "health_2sfca",
-                )}
-                heightClass="h-[420px]"
-                loading={
-                  healthCoverageTaGeojson.loading || healthRasterMetadata.loading
-                }
-                customTooltipMetrics={[
-                  {
-                    key: "health_2sfca_access_score",
-                    label: "2SFCA Score",
-                    digits: 2,
-                  },
-                  {
-                    key: "health_2sfca_catchment_minutes",
-                    label: "Catchment (min)",
-                    digits: 0,
-                  },
-                ]}
-                selectedFeatureName={selectedTa}
-                hoveredFeatureName={selectedTa ? "" : hoveredTa}
-                onFeatureHover={previewTaFromFeature}
-                onFeatureClick={selectTaFromFeature}
-                onPanelLeave={clearTaFocus}
-              />
+            <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-3">
+              {HEALTH_RASTER_LAYERS.map((layer) => {
+                const isActive = layer.key === activeHealthRasterLayer.key;
+                return (
+                  <button
+                    key={`health-layer-card-${layer.key}`}
+                    type="button"
+                    onClick={() => setActiveHealthRasterKey(layer.key)}
+                    className={`rounded-xl border px-3 py-3 text-left transition ${
+                      isActive
+                        ? "border-gray-900 bg-gray-900 text-white"
+                        : "border-gray-100 bg-gray-50 text-gray-700 hover:border-gray-300"
+                    }`}
+                  >
+                    <p className="text-[10px] font-bold uppercase tracking-[0.12em]">
+                      {isActive ? "Active Layer" : "Layer"}
+                    </p>
+                    <p className="mt-1 text-sm font-extrabold">{layer.shortLabel}</p>
+                    <p className={`mt-1 text-xs font-semibold ${isActive ? "text-white/75" : "text-gray-500"}`}>
+                      {layer.subtitle}
+                    </p>
+                  </button>
+                );
+              })}
             </div>
           </div>
         </div>
