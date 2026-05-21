@@ -1500,12 +1500,38 @@ function HealthRecommendations({
         status: properties?.status || "Unknown",
         doctorCount: Number(properties?.doctor_count || 0),
         nurseCount: Number(properties?.nurse_midwife_count || 0),
+        bedsCount: Number(properties?.beds_count || properties?.bed_capacity || 0),
         enrollment: Number(properties?.student_enrollment_total || 0),
         travelMinutes: Number(properties?.avg_travel_time_min || 0),
         floodExposed: Boolean(properties?.flood_is_exposed),
       };
     });
   }, [facilities]);
+
+  const taHealthResourceLookup = useMemo(() => {
+    return facilityPreviewRows.reduce((lookup, row) => {
+      const key = String(row.ta || "").toLowerCase();
+
+      if (!key || key === "unknown ta") {
+        return lookup;
+      }
+
+      if (!lookup.has(key)) {
+        lookup.set(key, {
+          doctorCount: 0,
+          nurseCount: 0,
+          bedsCount: 0,
+        });
+      }
+
+      const current = lookup.get(key);
+      current.doctorCount += row.doctorCount;
+      current.nurseCount += row.nurseCount;
+      current.bedsCount += row.bedsCount;
+
+      return lookup;
+    }, new Map());
+  }, [facilityPreviewRows]);
 
   const privateFacilityPreviewRows = useMemo(() => {
     return facilityPreviewRows.filter(
@@ -1563,15 +1589,24 @@ function HealthRecommendations({
   const topPriorityUnderservedTAs = allUnderservedTAs.slice(0, 3);
 
   const underservedTaRows = useMemo(() => {
-    return allUnderservedTAs.map((row) => ({
-      id: `underserved-${row.ta_id || row.ta_name}`,
-      ta: row.ta_name,
-      district: row.district_name,
-      populationPerFacility: Number(row.population_per_facility || 0),
-      populationTotal: Number(row.population_total || 0),
-      facilityCount: Number(row.facility_count || 0),
-    }));
-  }, [allUnderservedTAs]);
+    return allUnderservedTAs.map((row) => {
+      const resources =
+        taHealthResourceLookup.get(String(row.ta_name || "").toLowerCase()) ||
+        {};
+
+      return {
+        id: `underserved-${row.ta_id || row.ta_name}`,
+        ta: row.ta_name,
+        district: row.district_name,
+        populationPerFacility: Number(row.population_per_facility || 0),
+        populationTotal: Number(row.population_total || 0),
+        healthFacilities: Number(row.facility_count || 0),
+        doctors: Number(resources.doctorCount || 0),
+        nursesMidwives: Number(resources.nurseCount || 0),
+        beds: Number(resources.bedsCount || 0),
+      };
+    });
+  }, [allUnderservedTAs, taHealthResourceLookup]);
 
   // Derive key metrics
   const popPerFacility = Number(drillSummary.population_per_facility || 0);
@@ -1664,7 +1699,10 @@ function HealthRecommendations({
     { key: "district", label: "District" },
     { key: "populationPerFacility", label: "Pop/Facility" },
     { key: "populationTotal", label: "Population" },
-    { key: "facilityCount", label: "Facilities" },
+    { key: "healthFacilities", label: "Health Facilities" },
+    { key: "doctors", label: "Doctors" },
+    { key: "nursesMidwives", label: "Nurses/Midwives" },
+    { key: "beds", label: "Beds" },
   ];
   const summaryColumns = [
     { key: "metric", label: "Metric" },
