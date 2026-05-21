@@ -1,4 +1,4 @@
-import { BarChart3, HeartPulse, Home, School, ShieldAlert, UploadCloud, Users2, Menu, ChevronLeft, ChevronRight, LogIn, LogOut, GraduationCap, Activity, UserCheck, LayoutDashboard, Database } from 'lucide-react';
+import { BarChart3, HeartPulse, Home, School, ShieldAlert, UploadCloud, Users2, Menu, X, ChevronLeft, ChevronRight, LogIn, LogOut, GraduationCap, Activity, UserCheck, LayoutDashboard, Database } from 'lucide-react';
 import { useState, useEffect } from 'react';
 import { NavLink, Route, Routes, useNavigate, useLocation } from 'react-router-dom';
 import { Toaster, toast } from 'react-hot-toast';
@@ -37,6 +37,7 @@ function decodeJwtRole(token) {
 
 function App() {
   const [isCollapsed, setIsCollapsed] = useState(false);
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [isAuthenticated, setIsAuthenticated] = useState(() => Boolean(hydrateAuthToken()));
   const [userRole, setUserRole] = useState(() => decodeJwtRole(hydrateAuthToken()));
   const { selectedDistrict } = useDistrict();
@@ -56,6 +57,21 @@ function App() {
     return () => window.removeEventListener(AUTH_EVENT_NAME, syncAuthState);
   }, []);
 
+  useEffect(() => {
+    setIsMobileMenuOpen(false);
+  }, [location.pathname]);
+
+  useEffect(() => {
+    function handleResize() {
+      if (window.innerWidth >= 1024) {
+        setIsMobileMenuOpen(false);
+      }
+    }
+
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
+
   const navItems = [
     ...navigation,
     ...(isAuthenticated ? [{ 
@@ -69,14 +85,18 @@ function App() {
     if (isAuthenticated) {
       setAuthToken(null);
       setIsAuthenticated(false);
+      setIsMobileMenuOpen(false);
       navigate('/');
       return;
     }
+    setIsMobileMenuOpen(false);
     navigate('/login');
   }
 
+  const isCompactSidebar = isCollapsed && !isMobileMenuOpen;
+
   return (
-    <div className="h-screen overflow-hidden bg-[#F9FAFB] font-sans">
+    <div className="min-h-screen overflow-hidden bg-[#F9FAFB] font-sans lg:h-screen">
       <Toaster position="top-right" />
       
       <Routes>
@@ -118,9 +138,33 @@ function App() {
 
         {/* Standard App Layout */}
         <Route path="/*" element={
-          <div className="mx-auto flex h-full w-full flex-col lg:flex-row">
+          <div className="mx-auto flex h-full min-h-0 w-full flex-col lg:flex-row">
+            <div className="flex items-center justify-between border-b border-gray-200 bg-white px-4 py-3 lg:hidden">
+              <button
+                type="button"
+                onClick={() => setIsMobileMenuOpen(true)}
+                className="inline-flex items-center gap-2 rounded border border-gray-200 bg-white px-3 py-2 text-sm font-bold text-gray-700"
+              >
+                <Menu size={18} />
+                Menu
+              </button>
+              <div className="text-right">
+                <p className="text-[10px] font-bold uppercase tracking-[0.12em] text-gray-400">Scope</p>
+                <p className="text-xs font-bold text-black">{selectedDistrict || 'All Districts'}</p>
+              </div>
+            </div>
+
+            {isMobileMenuOpen ? (
+              <button
+                type="button"
+                aria-label="Close navigation"
+                onClick={() => setIsMobileMenuOpen(false)}
+                className="fixed inset-0 z-[65] bg-black/35 lg:hidden"
+              />
+            ) : null}
+
             {/* Sidebar Container */}
-            <div className={`relative flex flex-col bg-[#F9FAFB] border-b border-gray-200 lg:h-full transition-all duration-300 ease-in-out lg:border-b-0 lg:border-r flex-shrink-0 ${isCollapsed ? 'lg:w-20' : 'lg:w-64'}`}>
+            <div className={`fixed inset-y-0 left-0 z-[70] flex w-72 max-w-[85vw] -translate-x-full flex-col border-r border-gray-200 bg-[#F9FAFB] shadow-xl transition-all duration-300 ease-in-out lg:static lg:h-full lg:max-w-none lg:translate-x-0 lg:shadow-none ${isCollapsed ? 'lg:w-20' : 'lg:w-64'} ${isMobileMenuOpen ? 'translate-x-0' : ''}`}>
               <button
                 onClick={() => setIsCollapsed(!isCollapsed)}
                 className="hidden lg:flex absolute -right-3 top-10 z-[60] bg-white border border-gray-200 rounded-full p-1 shadow-sm text-gray-500 hover:text-black hover:bg-gray-50 transition-all hover:scale-110 active:scale-95"
@@ -128,9 +172,17 @@ function App() {
                 {isCollapsed ? <ChevronRight size={16} /> : <ChevronLeft size={16} />}
               </button>
 
-              <aside className="flex flex-col h-full w-full overflow-y-auto px-4 py-8">
-                <div className={`mb-10 px-2 transition-all ${isCollapsed ? 'items-center flex flex-col' : ''}`}>
-                {!isCollapsed ? (
+              <button
+                type="button"
+                onClick={() => setIsMobileMenuOpen(false)}
+                className="absolute right-3 top-3 rounded border border-gray-200 bg-white p-2 text-gray-500 lg:hidden"
+              >
+                <X size={16} />
+              </button>
+
+              <aside className="flex flex-col h-full w-full overflow-y-auto px-4 py-6 lg:py-8">
+                <div className={`mb-10 px-2 transition-all ${isCompactSidebar ? 'items-center flex flex-col' : ''}`}>
+                {!isCompactSidebar ? (
                   <>
                     <h1 className="text-[24px] font-extrabold text-black tracking-tight leading-tight">
                       District Intel
@@ -148,47 +200,48 @@ function App() {
                 )}
               </div>
 
-              {!isCollapsed && (
+              {!isCompactSidebar && (
                 <div className="mb-4 px-2">
                   <h2 className="text-xs font-extrabold text-black uppercase tracking-wider">Departments</h2>
                 </div>
               )}
 
-              <nav className={`flex-1 space-y-1 ${isCollapsed ? 'flex flex-col items-center' : ''}`}>
+              <nav className={`flex-1 space-y-1 ${isCompactSidebar ? 'flex flex-col items-center' : ''}`}>
                 {navItems.map(({ to, label, icon: Icon }) => (
                   <NavLink
                     key={to}
                     to={to}
-                    title={isCollapsed ? label : ''}
+                    onClick={() => setIsMobileMenuOpen(false)}
+                    title={isCompactSidebar ? label : ''}
                     className={({ isActive }) =>
-                      `flex items-center gap-3 rounded transition-all duration-200 ${isCollapsed ? 'p-3 justify-center' : 'px-3 py-2.5 text-[15px]'
+                      `flex items-center gap-3 rounded transition-all duration-200 ${isCompactSidebar ? 'p-3 justify-center' : 'px-3 py-2.5 text-[15px]'
                       } font-semibold ${isActive
                         ? 'bg-gray-200/60 text-black shadow-sm'
                         : 'text-gray-700 hover:bg-gray-100 hover:text-black'
                       }`
                     }
                   >
-                    <Icon className={`opacity-70 ${isCollapsed ? 'h-6 w-6' : 'h-5 w-5'}`} />
-                    {!isCollapsed && <span>{label}</span>}
+                    <Icon className={`opacity-70 ${isCompactSidebar ? 'h-6 w-6' : 'h-5 w-5'}`} />
+                    {!isCompactSidebar && <span>{label}</span>}
                   </NavLink>
                 ))}
               </nav>
 
-              <div className={`mt-auto pt-8 ${isCollapsed ? 'flex justify-center' : ''}`}>
+              <div className={`mt-auto pt-8 ${isCompactSidebar ? 'flex justify-center' : ''}`}>
                 <button
                   onClick={handleSessionAction}
-                  title={isCollapsed ? (isAuthenticated ? "Sign Out" : "Sign In") : ""}
-                  className={`rounded bg-black text-white transition-all duration-200 hover:bg-gray-800 shadow-lg active:scale-[0.98] ${isCollapsed ? 'p-3' : 'w-full px-4 py-3 text-sm font-bold'
+                  title={isCompactSidebar ? (isAuthenticated ? "Sign Out" : "Sign In") : ""}
+                  className={`rounded bg-black text-white transition-all duration-200 hover:bg-gray-800 shadow-lg active:scale-[0.98] ${isCompactSidebar ? 'p-3' : 'w-full px-4 py-3 text-sm font-bold'
                     }`}
                 >
-                  {isCollapsed ? (isAuthenticated ? <LogOut size={20} /> : <LogIn size={20} />) : (isAuthenticated ? "Sign Out" : "Sign In")}
+                  {isCompactSidebar ? (isAuthenticated ? <LogOut size={20} /> : <LogIn size={20} />) : (isAuthenticated ? "Sign Out" : "Sign In")}
                 </button>
               </div>
               </aside>
             </div>
 
             {/* Main Content Area */}
-            <main className="flex-1 bg-white overflow-y-auto">
+            <main className="flex-1 min-h-0 bg-white overflow-y-auto">
               <Routes>
                 <Route path="/" element={<OverviewPage />} />
                 <Route path="/education" element={<EducationPage />} />
