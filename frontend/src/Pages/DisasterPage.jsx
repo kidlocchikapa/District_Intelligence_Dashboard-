@@ -408,21 +408,6 @@ function DisasterPage() {
               : "Risk analysis for All Districts"}
         </p>
 
-        {selectedTa ? (
-          <div className="mb-4 flex items-center gap-3 text-xs font-semibold text-gray-600">
-            <span className="rounded-full bg-gray-100 px-3 py-1">
-              {scopeLabel} 0 {selectedTa}
-            </span>
-            <button
-              type="button"
-              onClick={() => setSelectedTa("")}
-              className="rounded-full border border-gray-200 px-3 py-1 text-[11px] font-bold uppercase tracking-wide text-gray-500 hover:text-black hover:border-gray-300"
-            >
-              Clear TA
-            </button>
-          </div>
-        ) : null}
-
         {/* Actions Row */}
         <div className="flex gap-4 mb-8">
           <button
