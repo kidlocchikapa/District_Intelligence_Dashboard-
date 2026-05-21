@@ -1,6 +1,36 @@
 import React, { useMemo, useState } from 'react';
 import { Search, Filter, AlertCircle, Building2, MapPin, BedSingle, Users2, X } from 'lucide-react';
 
+function normalizeKeyPart(value) {
+  return String(value || '')
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, '-')
+    .replace(/[^a-z0-9-_]/g, '');
+}
+
+function buildStableHospitalId(feature, index) {
+  const properties = feature?.properties || {};
+  const sourceId = feature?.id ?? properties.id ?? properties.facility_id;
+  if (sourceId !== undefined && sourceId !== null && sourceId !== '') {
+    return `hospital-${sourceId}`;
+  }
+
+  const name = normalizeKeyPart(properties?.name || properties?.name_en || 'unnamed-hospital');
+  const district = normalizeKeyPart(
+    properties?.district_name ||
+      properties?.district ||
+      properties?.admin_unit_name ||
+      'unknown-district',
+  );
+  const ward = normalizeKeyPart(properties?.ward || properties?.ward_name || 'no-ward');
+  const coords = Array.isArray(feature?.geometry?.coordinates)
+    ? feature.geometry.coordinates.join('_')
+    : `idx-${index}`;
+
+  return `hospital-${name}-${district}-${ward}-${coords}`;
+}
+
 /**
  * GlobalHospitalRegistry - A comprehensive, filterable list of all hospitals.
  * Only shown when in "All Districts" mode.
@@ -20,8 +50,8 @@ function GlobalHospitalRegistry({ data, loading }) {
         const type = (f.properties?.type || '').toLowerCase();
         return type.includes('hospital');
       })
-      .map(f => ({
-        id: f.id || Math.random().toString(36).substr(2, 9),
+      .map((f, index) => ({
+        id: buildStableHospitalId(f, index),
         name: f.properties?.name || f.properties?.name_en || 'Unnamed Hospital',
         district: f.properties?.district_name || f.properties?.district || f.properties?.admin_unit_name || 'Unknown District',
         ward: f.properties?.ward || f.properties?.ward_name || 'N/A',
