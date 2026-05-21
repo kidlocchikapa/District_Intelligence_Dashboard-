@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
 import EmptyState from "../components/EmptyState";
-import PageHeader from "../components/PageHeader";
 import Panel from "../components/Panel";
 import AdminDataStewardship from "../components/AdminDataStewardship";
 import {
@@ -8,7 +7,6 @@ import {
   fetchJson,
   hydrateAuthToken,
   setAuthToken,
-  patchJson,
   postJson,
   uploadForm,
 } from "../lib/api";
@@ -17,11 +15,9 @@ import {
   UploadCloud,
   Activity,
   Terminal,
-  CheckCircle2,
   AlertCircle,
   LayoutDashboard,
   ChevronRight,
-  ChevronLeft,
   RefreshCw,
 } from "lucide-react";
 
@@ -142,7 +138,6 @@ function AdminPage() {
     analysisDate: new Date().toISOString().split("T")[0],
     file: null,
   });
-  const [welfarePrograms, setWelfarePrograms] = useState([]);
   const [status, setStatus] = useState("");
   const [jobs, setJobs] = useState([]);
   const [selectedJobId, setSelectedJobId] = useState("");
@@ -313,16 +308,16 @@ function AdminPage() {
   }
 
   return (
-    <div className="h-[calc(100vh-2rem)] max-w-[1600px] mx-auto flex flex-col overflow-auto px-4 py-5 md:px-8 md:py-8">
-      <div className="flex flex-col gap-5 lg:flex-row lg:items-center lg:justify-between mb-6 md:mb-8">
-        <div>
-          <h1 className="text-2xl font-bold text-slate-900 tracking-tight flex items-center gap-3">
-            <div className="h-10 w-10 bg-slate-900 rounded-xl flex items-center justify-center text-white">
+    <div className="mx-auto flex h-full min-h-0 w-full max-w-[1600px] flex-col overflow-y-auto px-3 py-4 sm:px-4 sm:py-5 md:px-6 md:py-6 lg:px-8 lg:py-8">
+      <div className="mb-5 flex flex-col gap-4 lg:mb-7 lg:flex-row lg:items-center lg:justify-between">
+        <div className="min-w-0">
+          <h1 className="flex items-center gap-3 text-xl font-bold tracking-tight text-slate-900 sm:text-2xl">
+            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-slate-900 text-white sm:h-10 sm:w-10 sm:rounded-xl">
               <Database size={20} />
             </div>
-            Data Management Portal
+            <span className="leading-tight">Data Management Portal</span>
           </h1>
-          <p className="mt-1 text-sm text-slate-500">
+          <p className="mt-1 max-w-3xl text-xs text-slate-500 sm:text-sm">
             Manage your department's datasets, run pipeline updates, and monitor
             system health.
           </p>
@@ -335,7 +330,7 @@ function AdminPage() {
         </div>
       </div>
 
-      <div className="flex-1 min-h-[640px] lg:min-h-0">
+      <div className="flex-1 min-h-0">
         {activeTab === 'stewardship' && (
           selectedDepartment ? (
             <AdminDataStewardship
@@ -351,7 +346,7 @@ function AdminPage() {
         )}
 
         {activeTab === "operations" && (
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 h-full overflow-auto pb-8">
+          <div className="grid h-full grid-cols-1 gap-4 overflow-auto pb-6 sm:gap-6 lg:grid-cols-2 lg:gap-8 lg:pb-8">
             <Panel
               title="Dataset Ingestion"
               subtitle="Upload new records to the system via CSV or GeoJSON."
@@ -416,7 +411,7 @@ function AdminPage() {
                     />
                   </label>
                 </div>
-                <button className="w-full bg-slate-900 text-white py-3 rounded-xl font-bold hover:bg-slate-800 transition-all flex items-center justify-center gap-2">
+                <button className="flex w-full items-center justify-center gap-2 rounded-xl bg-slate-900 py-3 font-bold text-white transition-all hover:bg-slate-800">
                   <UploadCloud size={18} />
                   Import Data 
                 </button>
@@ -498,8 +493,8 @@ function AdminPage() {
         )}
 
         {activeTab === "logs" && (
-          <div className="h-full bg-slate-900 rounded-2xl overflow-hidden flex flex-col shadow-2xl">
-            <div className="p-4 border-b border-white/10 flex items-center justify-between bg-white/5">
+          <div className="flex h-full min-h-[60vh] flex-col overflow-hidden rounded-2xl bg-slate-900 shadow-2xl">
+            <div className="flex flex-col gap-3 border-b border-white/10 bg-white/5 p-4 sm:flex-row sm:items-center sm:justify-between">
               <div className="flex items-center gap-3">
                 <Terminal className="text-emerald-400" size={18} />
                 <h3 className="text-sm font-bold text-white tracking-tight">
@@ -509,27 +504,28 @@ function AdminPage() {
                   LIVE
                 </span>
               </div>
-              <div className="flex items-center gap-4">
-                <span className="text-[10px] text-slate-400 font-bold uppercase tracking-widest">
+              <div className="flex items-center justify-between gap-3 sm:justify-end sm:gap-4">
+                <span className="truncate text-[10px] font-bold uppercase tracking-widest text-slate-400">
                   Active Job: {selectedJob?.label || "None"}
                 </span>
                 <button
                   onClick={loadJobs}
-                  className="p-2 text-white/40 hover:text-white transition-colors"
+                  className="p-2 text-white/40 transition-colors hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
+                  disabled={isRefreshingJobs}
                 >
-                  <RefreshCw size={16} />
+                  <RefreshCw size={16} className={isRefreshingJobs ? "animate-spin" : ""} />
                 </button>
               </div>
             </div>
 
-            <div className="flex-1 overflow-auto p-6 font-mono text-xs leading-relaxed">
+            <div className="flex-1 overflow-auto p-3 font-mono text-[11px] leading-relaxed sm:p-4 sm:text-xs md:p-6">
               {selectedJob?.logs?.length ? (
                 selectedJob.logs.map((log, i) => (
                   <div
                     key={i}
-                    className="mb-1.5 flex gap-4 animate-in fade-in slide-in-from-left-2 duration-300"
+                    className="mb-1.5 flex flex-col gap-1 animate-in fade-in slide-in-from-left-2 duration-300 sm:flex-row sm:gap-4"
                   >
-                    <span className="text-slate-500 flex-shrink-0 w-20">
+                    <span className="w-20 shrink-0 text-slate-500">
                       [{new Date(log.at).toLocaleTimeString()}]
                     </span>
                     <span
@@ -557,7 +553,9 @@ function AdminPage() {
   );
 }
 
-function TabButton({ active, onClick, icon: Icon, label }) {
+function TabButton({ active, onClick, icon, label }) {
+  const IconComponent = icon;
+
   return (
     <button
       onClick={onClick}
@@ -566,9 +564,9 @@ function TabButton({ active, onClick, icon: Icon, label }) {
         borderColor: active ? "#000000" : "transparent",
         color: active ? "#ffffff" : "#374151",
       }}
-      className="shrink-0 px-4 py-2.5 md:px-6 rounded border text-sm font-bold flex items-center gap-2 transition-all duration-200 ease-out hover:brightness-95"
+      className="flex shrink-0 items-center gap-2 rounded border px-3 py-2 text-xs font-bold transition-all duration-200 ease-out hover:brightness-95 sm:px-4 sm:py-2.5 sm:text-sm md:px-6"
     >
-      <Icon size={16} />
+      {IconComponent ? <IconComponent size={15} /> : null}
       {label}
     </button>
   );

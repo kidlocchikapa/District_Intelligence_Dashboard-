@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { toast } from "react-hot-toast";
 import Modal from "./Modal";
 import { postJson } from "../lib/api";
 
@@ -55,10 +56,11 @@ export default function ChangePasswordModal({
 
     try {
       setBusy(true);
-      await postJson("/auth/change-password", {
+      const response = await postJson("/auth/change-password", {
         currentPassword: form.currentPassword,
         newPassword: form.newPassword,
       });
+      toast.success(response?.message || "Password updated successfully.");
       setForm(INITIAL_FORM);
       onClose?.();
     } catch (requestError) {
