@@ -430,11 +430,11 @@ function OverviewPage() {
   return (
     <div className="min-h-screen bg-white text-black font-sans pb-10">
       {/* Header Area */}
-      <div className="flex items-center gap-4 px-8 py-8 border-b border-gray-200">
-        <h1 className="text-[28px] font-extrabold tracking-tight">OVERVIEW</h1>
+      <div className="flex items-center gap-4 border-b border-gray-200 px-4 py-5 sm:px-6 sm:py-6 lg:px-8 lg:py-8">
+        <h1 className="text-2xl font-extrabold tracking-tight sm:text-[28px]">OVERVIEW</h1>
       </div>
 
-      <div className="px-8 mt-8">
+      <div className="mt-6 px-4 sm:mt-8 sm:px-6 lg:px-8">
         <p className="text-[14px] font-semibold text-gray-500 mb-6">
           {selectedTa
             ? `Showing records for ${selectedTa}`
@@ -444,19 +444,19 @@ function OverviewPage() {
         </p>
 
         {/* Actions Row */}
-        <div className="flex gap-4 mb-8">
+        <div className="mb-8 flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center sm:gap-4">
           <button
             onClick={handleDownloadReport}
             disabled={(!selectedDistrict && !selectedTa) || summary.loading}
             title={selectedDistrict || selectedTa ? "Download analysis for selected area" : "Select a district or TA first"}
-            className="flex items-center gap-2 border border-gray-300 rounded px-3 py-1.5 text-[13px] font-bold hover:bg-gray-50 transition-all shadow-sm active:scale-95 disabled:cursor-not-allowed disabled:opacity-50"
+            className="flex w-full items-center justify-center gap-2 rounded border border-gray-300 px-3 py-2 text-[13px] font-bold shadow-sm transition-all hover:bg-gray-50 active:scale-95 disabled:cursor-not-allowed disabled:opacity-50 sm:w-auto sm:justify-start sm:py-1.5"
           >
             <Download className="h-4 w-4" />
             Download Area Analysis
           </button>
           <button
             onClick={downloadImage}
-            className="flex items-center gap-2 border border-gray-300 rounded px-3 py-1.5 text-[13px] font-bold hover:bg-gray-50 transition-all shadow-sm active:scale-95"
+            className="flex w-full items-center justify-center gap-2 rounded border border-gray-300 px-3 py-2 text-[13px] font-bold shadow-sm transition-all hover:bg-gray-50 active:scale-95 sm:w-auto sm:justify-start sm:py-1.5"
           >
             <MapIcon className="h-4 w-4" />
             Download Map
@@ -520,7 +520,7 @@ function OverviewPage() {
 
         {/* Middle Row (Map + Bar Chart) */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-10">
-          <div className="border border-gray-100 rounded p-8 shadow-sm bg-white flex flex-col h-160">
+          <div className="border border-gray-100 rounded bg-white p-4 shadow-sm sm:p-6 lg:p-8 flex flex-col h-160">
             <h3 className="text-[16px] font-extrabold mb-6">
               {selectedTa ? `${selectedTa} Map Overview` : "TA Map Overview"}
             </h3>
@@ -532,7 +532,7 @@ function OverviewPage() {
                 geojson={mapGeojson}
                 title={null}
                 subtitle={null}
-                heightClass="h-full min-h-[520px] w-full"
+                heightClass="h-full min-h-[360px] sm:min-h-[520px] w-full"
                 loading={densityMap.loading}
                 metadataUrl="/worldpop/zomba_ppp_2020.preview.json"
                 selectedFeatureName={selectedTa}
@@ -555,7 +555,7 @@ function OverviewPage() {
             </div>
           </div>
 
-          <div className="border border-gray-100 rounded p-8 shadow-sm bg-white flex flex-col min-h-115">
+          <div className="border border-gray-100 rounded bg-white p-4 shadow-sm sm:p-6 lg:p-8 flex flex-col min-h-115">
             <h3 className="text-[16px] font-extrabold mb-6">
               {selectedTa ? `Population for ${selectedTa}` : "Population by TA"}
             </h3>
@@ -604,11 +604,12 @@ function OverviewPage() {
                 Showing {filteredChartData.length} of {chartData.length} TAs.
               </p>
             </div>
-            <div className="flex-1">
+            <div className="flex-1 overflow-x-auto">
               {populationDistribution.loading ? (
                 <ChartSkeleton />
               ) : filteredChartData.length ? (
-                <ResponsiveContainer width="100%" height="100%">
+                <div className="h-full min-w-[620px] sm:min-w-0">
+                  <ResponsiveContainer width="100%" height="100%">
                   <BarChart
                     data={filteredChartData}
                     margin={{ top: 20, right: 20, left: 12, bottom: 92 }}
@@ -689,7 +690,8 @@ function OverviewPage() {
                       })}
                     </Bar>
                   </BarChart>
-                </ResponsiveContainer>
+                  </ResponsiveContainer>
+                </div>
               ) : (
                 <div className="flex h-full items-center justify-center rounded border border-dashed border-gray-200 bg-gray-50 text-sm font-semibold text-gray-400">
                   No rows match the current chart filters.
