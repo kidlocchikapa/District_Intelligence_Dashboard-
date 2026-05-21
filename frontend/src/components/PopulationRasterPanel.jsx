@@ -32,7 +32,7 @@ function PopulationRasterPanel({
   hoveredFeatureName,
   featureNameResolver,
   customTooltipMetrics,
-  pointLayerLabel = "Locations",
+  pointLayerLabel,
   showPointLayerToggle = true,
 }) {
   const { selectedDistrict, setSelectedDistrict } = useDistrict();
@@ -133,6 +133,36 @@ function PopulationRasterPanel({
     );
   }, [pointsGeojson]);
   const hasPointLayer = pointFeatures.length > 0;
+  const resolvedPointLayerLabel = useMemo(() => {
+    if (pointLayerLabel) {
+      return pointLayerLabel;
+    }
+
+    const hasSchoolPoints = pointFeatures.some((feature) => {
+      const properties = feature?.properties || {};
+      return properties.school_name || properties.school_id;
+    });
+
+    if (hasSchoolPoints) {
+      return "Schools";
+    }
+
+    const hasHospitalPoints = pointFeatures.some((feature) => {
+      const properties = feature?.properties || {};
+      return (
+        properties.facility_name ||
+        properties.hospital_name ||
+        properties.doctor_count !== undefined ||
+        properties.nurse_midwife_count !== undefined
+      );
+    });
+
+    if (hasHospitalPoints) {
+      return "Hospitals";
+    }
+
+    return "Points";
+  }, [pointFeatures, pointLayerLabel]);
 
   const hasHeader = Boolean(title || subtitle);
   const wrapperClassName = hasHeader
@@ -284,7 +314,9 @@ function PopulationRasterPanel({
               onClick={() => setShowPointLayer((current) => !current)}
               className="rounded-full border border-white/80 bg-white/92 px-3 py-1.5 text-[10px] font-bold uppercase tracking-[0.12em] text-slate/70 shadow-sm backdrop-blur-md transition hover:bg-white"
             >
-              {showPointLayer ? `Hide ${pointLayerLabel}` : `Show ${pointLayerLabel}`}
+              {showPointLayer
+                ? `Hide ${resolvedPointLayerLabel}`
+                : `Show ${resolvedPointLayerLabel}`}
             </button>
           </div>
         ) : null}
@@ -458,7 +490,7 @@ function PopulationRasterPanel({
                   }}
                 />
                 <span className="text-[10px] font-bold uppercase tracking-[0.12em] text-slate/55">
-                  {pointLayerLabel}
+                  {resolvedPointLayerLabel}
                 </span>
                 <span className="text-[9px] font-bold uppercase tracking-[0.12em] text-slate/45">
                   {showPointLayer ? "Shown" : "Hidden"}
@@ -526,25 +558,6 @@ function PopulationRasterPanel({
                   )}
                 </div>
               </div>
-
-            {legend ? (
-              <div className="w-[148px] self-end rounded-xl border border-white/80 bg-white/92 px-3 py-2.5 shadow-md backdrop-blur-md sm:self-auto sm:shrink-0">
-                <p className="text-[9px] font-bold uppercase tracking-[0.14em] text-slate/50">
-                  Legend
-                </p>
-                <p className="mt-1 text-[11px] font-semibold leading-4 text-slate">
-                  {resolveLegendLabel(legend.label || title || "Raster surface")}
-                </p>
-                <div
-                  className="mt-2 h-2.5 w-full rounded-full border border-slate-200/80"
-                  style={{ background: legendBackground(legend.colors) }}
-                />
-                <div className="mt-1.5 flex items-center justify-between text-[9px] font-bold uppercase tracking-[0.12em] text-slate/55">
-                  <span>{legend.lowLabel || "Low"}</span>
-                  <span>{legend.highLabel || "High"}</span>
-                </div>
-              </div>
-            ) : null}
           </div>
         ) : null}
       </div>

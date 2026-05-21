@@ -1874,6 +1874,7 @@ function FloodImpactMap({ geojson, loading, coverageFocusDistrict }) {
       <PopulationRasterPanel
         geojson={taGeojson}
         pointsGeojson={schoolGeojson}
+        pointLayerLabel="Schools"
         metadataUrl={rasterMetadataUrl}
         heightClass="h-full w-full"
         loading={loading}
