@@ -367,7 +367,7 @@ export default function AdminDataStewardship({ department, deptConfig }) {
 
   return (
     <div className="flex h-full min-h-[520px] flex-col overflow-hidden rounded border border-slate-200 !bg-white shadow-none md:min-h-[640px]">
-      <header className="!bg-white">
+      <div className="!bg-white">
         <div className="flex flex-col gap-4 !bg-white p-3 sm:p-4 xl:flex-row xl:items-center xl:justify-between">
           <div className="min-w-0">
             <div className="flex items-center gap-2 text-sm font-bold text-slate-900">
@@ -420,7 +420,7 @@ export default function AdminDataStewardship({ department, deptConfig }) {
             );
           })}
         </div>
-      </header>
+      </div>
 
       {errorMessage && (
         <div className="border-b border-red-100 bg-red-50 px-3 py-3 text-sm font-semibold text-red-700 sm:px-4">
