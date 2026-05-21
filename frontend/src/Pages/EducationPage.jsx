@@ -309,7 +309,7 @@ function EducationPage() {
       analysis_type: "education_summary",
       admin_type: "TA",
       metric_name: "school_age_population_total",
-      district: selectedDistrict,
+      district: coverageFocusDistrict,
     }),
   );
 
@@ -652,12 +652,12 @@ function EducationPage() {
       ref={contentRef}
       className="min-h-screen bg-white text-black font-sans pb-10"
     >
-      <div className="flex items-center gap-4 px-8 py-8 border-b border-gray-200">
+      <div className="flex items-center gap-3 border-b border-gray-200 px-4 py-5 sm:gap-4 sm:px-6 sm:py-6 lg:px-8 lg:py-8">
         <GraduationCap className="h-8 w-8 text-black" />
-        <h1 className="text-[28px] font-extrabold tracking-tight">EDUCATION</h1>
+        <h1 className="text-2xl font-extrabold tracking-tight sm:text-[28px]">EDUCATION</h1>
       </div>
 
-      <div className="px-8 mt-8">
+      <div className="mt-6 px-4 sm:mt-8 sm:px-6 lg:px-8">
         <p className="text-[14px] font-semibold text-gray-500 mb-6">
           {selectedDistrict
             ? `Education stats for ${selectedTa || selectedDistrict}`
@@ -666,10 +666,10 @@ function EducationPage() {
               : "National Education Overview"}
         </p>
 
-        <div className="flex gap-4 mb-6">
+        <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center sm:gap-4">
           <button
             onClick={handleDownloadReport}
-            className="flex items-center gap-2 border border-gray-300 rounded px-3 py-1.5 text-[13px] font-bold hover:bg-gray-50 transition-all shadow-sm active:scale-95"
+            className="flex w-full items-center justify-center gap-2 rounded border border-gray-300 px-3 py-2 text-[13px] font-bold shadow-sm transition-all hover:bg-gray-50 active:scale-95 sm:w-auto sm:justify-start sm:py-1.5"
           >
             <Download className="h-4 w-4" />
             Download Area Analysis
@@ -2027,8 +2027,10 @@ function FloodImpactSection({ floodImpact, floodImpactGeojson, coverageFocusDist
 
         {/* Stacked bar chart */}
         <div className="relative isolate border border-gray-100 rounded p-4 shadow-sm bg-white">
-          <p className="text-[13px] font-extrabold mb-1">Top TAs by Students at Risk</p>
-          <p className="text-[11px] text-gray-400 font-semibold mb-4">Stacked by flood risk class</p>
+          <p className="text-[13px] font-extrabold mb-1">Impacted TAs by Students at Risk</p>
+          <p className="text-[11px] text-gray-400 font-semibold mb-4">
+            Only TAs with flood-exposed schools are shown; stacked by flood risk class.
+          </p>
           <div className="mb-4 rounded border border-gray-100 bg-white p-3">
             <div className="flex flex-wrap items-center gap-2">
               {EDUCATION_CHART_LIMITS.map((option) => {

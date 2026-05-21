@@ -46,6 +46,11 @@ import {
 } from "recharts";
 
 const COLORS = ["#4A72E4", "#F4B41A", "#3BB182", "#6974D6", "#D96459"];
+const WELFARE_TA_CHART_LIMITS = [
+  { value: 8, label: "Top 8" },
+  { value: 12, label: "Top 12" },
+  { value: 0, label: "All" },
+];
 
 function formatWholeNumber(value) {
   return Number(value || 0).toLocaleString(undefined, {
@@ -154,6 +159,9 @@ function WelfarePage() {
   const [selectedProgram, setSelectedProgram] = useState("");
   const [riskFilter, setRiskFilter] = useState("all");
   const [serviceFilter, setServiceFilter] = useState("all");
+  const [taChartSearch, setTaChartSearch] = useState("");
+  const [taChartLimit, setTaChartLimit] = useState(12);
+  const [taChartSort, setTaChartSort] = useState("beneficiaries_desc");
 
   const baseIntegration = useDashboardData(
     buildDashboardPath("/dashboard/welfare/integration", {
@@ -254,7 +262,7 @@ function WelfarePage() {
     return Array.from(names).sort((left, right) => left.localeCompare(right));
   }, [adminType, baseByArea, beneficiaryPreview]);
 
-  const taChartData = useMemo(
+  const allTaChartRows = useMemo(
     () =>
       baseByArea
         .filter((row) => row.admin_unit_name)
@@ -269,6 +277,42 @@ function WelfarePage() {
         .sort((left, right) => right.beneficiaries - left.beneficiaries),
     [baseByArea],
   );
+  const taChartData = useMemo(() => {
+    const searchTerm = taChartSearch.trim().toLowerCase();
+    let rows = [...allTaChartRows];
+
+    if (searchTerm) {
+      rows = rows.filter((row) =>
+        String(row.ta || "").toLowerCase().includes(searchTerm),
+      );
+    }
+
+    rows.sort((left, right) => {
+      if (taChartSort === "beneficiaries_asc") {
+        return Number(left.beneficiaries || 0) - Number(right.beneficiaries || 0);
+      }
+
+      if (taChartSort === "flood_desc") {
+        return Number(right.floodAffected || 0) - Number(left.floodAffected || 0);
+      }
+
+      if (taChartSort === "health_desc") {
+        return Number(right.healthAccess || 0) - Number(left.healthAccess || 0);
+      }
+
+      if (taChartSort === "name_asc") {
+        return String(left.ta || "").localeCompare(String(right.ta || ""));
+      }
+
+      return Number(right.beneficiaries || 0) - Number(left.beneficiaries || 0);
+    });
+
+    if (taChartLimit > 0) {
+      return rows.slice(0, taChartLimit);
+    }
+
+    return rows;
+  }, [allTaChartRows, taChartLimit, taChartSearch, taChartSort]);
 
   const maxTaBeneficiaries = Math.max(
     ...taChartData.map((row) => row.beneficiaries),
@@ -278,12 +322,12 @@ function WelfarePage() {
   const taMetricLookup = useMemo(() => {
     const lookup = new Map();
 
-    taChartData.forEach((row) => {
+    allTaChartRows.forEach((row) => {
       lookup.set(row.ta.toLowerCase(), row);
     });
 
     return lookup;
-  }, [taChartData]);
+  }, [allTaChartRows]);
 
   const taMapGeojson = useMemo(() => {
     if (!taBoundaries.data) {
@@ -291,13 +335,6 @@ function WelfarePage() {
     }
 
     const features = (taBoundaries.data.features || [])
-      .filter((feature) => {
-        const name = feature?.properties?.name || "";
-        return (
-          !selectedTa ||
-          name.toLowerCase() === selectedTa.toLowerCase()
-        );
-      })
       .map((feature) => {
         const name = feature?.properties?.name || "";
         const metrics = taMetricLookup.get(name.toLowerCase()) || {};
@@ -320,7 +357,7 @@ function WelfarePage() {
       ...taBoundaries.data,
       features,
     };
-  }, [selectedTa, taBoundaries.data, taMetricLookup]);
+  }, [taBoundaries.data, taMetricLookup]);
 
   const selectTa = (taName) => {
     setSelectedTa(taName || "");
@@ -549,14 +586,14 @@ function WelfarePage() {
 
   return (
     <div ref={contentRef} className="min-h-screen bg-white text-black font-sans pb-10">
-      <div className="flex items-center gap-4 px-8 py-8 border-b border-gray-200">
+      <div className="flex items-center gap-3 border-b border-gray-200 px-4 py-5 sm:gap-4 sm:px-6 sm:py-6 lg:px-8 lg:py-8">
         <UserCheck className="h-8 w-8 text-black" />
-        <h1 className="text-[28px] font-extrabold tracking-tight">
+        <h1 className="text-xl font-extrabold tracking-tight sm:text-[28px]">
           SOCIAL WELFARE INTEGRATION
         </h1>
       </div>
 
-      <div className="px-8 mt-8">
+      <div className="mt-6 px-4 sm:mt-8 sm:px-6 lg:px-8">
         <p className="text-[14px] font-semibold text-gray-500 mb-6">
           {selectedDistrict
             ? `Integrated welfare view for ${selectedTa || selectedDistrict}`
@@ -565,17 +602,17 @@ function WelfarePage() {
               : "Integrated welfare decision-support across linked departments"}
         </p>
 
-        <div className="flex flex-wrap gap-4 mb-8">
+        <div className="mb-8 flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center sm:gap-4">
           <button
             onClick={handleDownloadReport}
-            className="flex items-center gap-2 border border-gray-300 rounded px-3 py-1.5 text-[13px] font-bold hover:bg-gray-50 transition-all shadow-sm active:scale-95"
+            className="flex w-full items-center justify-center gap-2 rounded border border-gray-300 px-3 py-2 text-[13px] font-bold shadow-sm transition-all hover:bg-gray-50 active:scale-95 sm:w-auto sm:justify-start sm:py-1.5"
           >
             <Download className="h-4 w-4" />
             Download Area Analysis
           </button>
           <SharedDistrictSelector />
 
-          <div className="inline-flex rounded border border-gray-200 bg-white p-1 shadow-sm">
+          <div className="inline-flex w-full rounded border border-gray-200 bg-white p-1 shadow-sm sm:w-auto">
             {["TA", "District"].map((value) => (
               <button
                 key={value}
@@ -683,12 +720,55 @@ function WelfarePage() {
                   ? `${selectedTa} is highlighted; click another bar to sync the map, records, and insights.`
                   : "Click a TA bar to focus the map, records, and insights."}
               </p>
-              <div className="flex-1">
+              <div className="mb-4 rounded border border-gray-100 bg-white p-3">
+                <div className="flex flex-wrap items-center gap-2">
+                  {WELFARE_TA_CHART_LIMITS.map((option) => {
+                    const isActive = option.value === taChartLimit;
+                    return (
+                      <button
+                        key={`welfare-ta-limit-${option.label}`}
+                        type="button"
+                        onClick={() => setTaChartLimit(option.value)}
+                        className={`rounded-full border px-3 py-1 text-[10px] font-bold uppercase tracking-[0.12em] transition ${
+                          isActive
+                            ? "border-gray-900 bg-gray-900 text-white"
+                            : "border-gray-200 bg-white text-gray-500 hover:text-black"
+                        }`}
+                      >
+                        {option.label}
+                      </button>
+                    );
+                  })}
+                  <select
+                    value={taChartSort}
+                    onChange={(event) => setTaChartSort(event.target.value)}
+                    className="rounded-full border border-gray-200 bg-white px-3 py-1 text-[10px] font-bold uppercase tracking-[0.12em] text-gray-600"
+                  >
+                    <option value="beneficiaries_desc">Highest beneficiaries</option>
+                    <option value="beneficiaries_asc">Lowest beneficiaries</option>
+                    <option value="flood_desc">Most flood affected</option>
+                    <option value="health_desc">Highest health access</option>
+                    <option value="name_asc">Name A-Z</option>
+                  </select>
+                  <input
+                    type="search"
+                    value={taChartSearch}
+                    onChange={(event) => setTaChartSearch(event.target.value)}
+                    placeholder="Search TA..."
+                    className="min-w-[170px] flex-1 rounded-full border border-gray-200 px-3 py-1.5 text-xs font-semibold text-gray-700 outline-none focus:border-gray-900"
+                  />
+                </div>
+                <p className="mt-2 text-[11px] font-semibold text-gray-500">
+                  Showing {formatWholeNumber(taChartData.length)} of{" "}
+                  {formatWholeNumber(allTaChartRows.length)} TAs.
+                </p>
+              </div>
+              <div className="min-h-0 flex-1">
                 {baseIntegration.loading ? (
                   <div className="h-full w-full animate-pulse rounded bg-gray-50" />
                 ) : !taChartData.length ? (
                   <div className="h-full flex items-center justify-center text-center text-sm text-gray-500 px-6">
-                    No TA-level welfare records are available for this filter yet.
+                    No TA-level welfare rows match the current filters.
                   </div>
                 ) : (
                   <ResponsiveContainer width="100%" height="100%">

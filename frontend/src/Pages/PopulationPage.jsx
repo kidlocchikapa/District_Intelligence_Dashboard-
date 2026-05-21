@@ -215,24 +215,24 @@ function PopulationPage() {
       ref={contentRef}
       className="min-h-screen bg-white text-black font-sans pb-10"
     >
-      <div className="flex items-center gap-4 border-b border-gray-200 px-8 py-8">
+      <div className="flex items-center gap-3 border-b border-gray-200 px-4 py-5 sm:gap-4 sm:px-6 sm:py-6 lg:px-8 lg:py-8">
         <Users2 className="h-8 w-8 text-black" />
-        <h1 className="text-[28px] font-extrabold tracking-tight">
+        <h1 className="text-2xl font-extrabold tracking-tight sm:text-[28px]">
           POPULATION
         </h1>
       </div>
 
-      <div className="mt-8 px-8">
+      <div className="mt-6 px-4 sm:mt-8 sm:px-6 lg:px-8">
         <p className="mb-6 text-[14px] font-semibold text-gray-500">
           {selectedDistrict
             ? `Population surface focused on ${selectedTa || selectedDistrict}`
             : "Zomba population surface from the WorldPop raster"}
         </p>
 
-        <div className="mb-8 flex gap-4">
+        <div className="mb-8 flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center sm:gap-4">
           <button
             onClick={handleDownloadReport}
-            className="flex items-center gap-2 rounded border border-gray-300 px-3 py-1.5 text-[13px] font-bold transition-all hover:bg-gray-50 active:scale-95 shadow-sm"
+            className="flex w-full items-center justify-center gap-2 rounded border border-gray-300 px-3 py-2 text-[13px] font-bold shadow-sm transition-all hover:bg-gray-50 active:scale-95 sm:w-auto sm:justify-start sm:py-1.5"
           >
             <Download className="h-4 w-4" />
             Download Area Analysis
@@ -242,12 +242,12 @@ function PopulationPage() {
         </div>
 
         <div className="mb-8 grid grid-cols-1 gap-6 lg:grid-cols-[minmax(0,1.5fr)_minmax(280px,0.75fr)]">
-          <div className="rounded border border-gray-100 bg-white p-8 shadow-sm">
+          <div className="rounded border border-gray-100 bg-white p-4 shadow-sm sm:p-6 lg:p-8">
               <PopulationRasterPanel
                 geojson={districtBoundaries.data}
                 title="WorldPop Population Surface"
               subtitle="Rendered directly from the Zomba 2020 GeoTIFF so the map keeps the fine-grained heatmap pattern instead of district-wide color blocks."
-              heightClass="h-[620px]"
+              heightClass="h-[380px] sm:h-[500px] lg:h-[620px]"
                 loading={districtBoundaries.loading}
                 metadataUrl="/worldpop/zomba_ppp_2020.preview.json"
                 selectedFeatureName={selectedTa}
@@ -257,7 +257,7 @@ function PopulationPage() {
               />
           </div>
 
-          <div className="rounded border border-gray-100 bg-white p-8 shadow-sm">
+          <div className="rounded border border-gray-100 bg-white p-4 shadow-sm sm:p-6 lg:p-8">
             <p className="text-[12px] font-bold uppercase tracking-[0.2em] text-gray-400">
               Coverage
             </p>
@@ -342,7 +342,7 @@ function PopulationPage() {
           />
         </div>
 
-        <div className="rounded border border-gray-100 bg-white p-8 shadow-sm">
+        <div className="rounded border border-gray-100 bg-white p-4 shadow-sm sm:p-6 lg:p-8">
           <h3 className="mb-6 text-[16px] font-extrabold">
             {selectedDistrict
               ? `Population by TA in ${selectedTa || selectedDistrict}`
@@ -389,89 +389,91 @@ function PopulationPage() {
             Showing {filteredChartData.length} of {chartData.length}{" "}
             {selectedDistrict ? "TAs" : "districts"}.
           </p>
-          <div className="h-[420px]">
+          <div className="h-[420px] overflow-x-auto">
             {filteredChartData.length ? (
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart
-                  data={filteredChartData}
-                  margin={{ top: 20, right: 20, left: 12, bottom: 92 }}
-                >
-                  <CartesianGrid
-                    stroke="#f1f5f9"
-                    strokeDasharray="3 3"
-                    vertical={false}
-                  />
-                  <XAxis
-                    dataKey="label"
-                    axisLine={false}
-                    tick={{ fill: "#64748b", fontSize: 9, fontWeight: 700 }}
-                    tickFormatter={
-                      selectedDistrict ? formatTaAxisLabel : formatDistrictAxisLabel
-                    }
-                    tickLine={false}
-                    angle={-90}
-                    textAnchor="end"
-                    interval={0}
-                    height={112}
-                  />
-                  <YAxis
-                    axisLine={false}
-                    tick={{ fill: "#64748b", fontSize: 11, fontWeight: 700 }}
-                    tickLine={false}
-                    tickFormatter={(value) =>
-                      Number(value) >= 1000000
-                        ? `${(value / 1000000).toFixed(1)}M`
-                        : value
-                    }
-                  />
-                  <Tooltip
-                    formatter={(value) => Number(value).toLocaleString()}
-                    labelFormatter={(label) => label}
-                    contentStyle={{
-                      borderRadius: "4px",
-                      border: "none",
-                      boxShadow: "0 4px 6px -1px rgb(0 0 0 / 0.1)",
-                      fontSize: "12px",
-                    }}
-                    cursor={{ fill: "#f8fafc" }}
-                  />
-                  <Bar
-                    dataKey="population"
-                    radius={[2, 2, 0, 0]}
-                    barSize={14}
-                    activeBar={<Rectangle fill="#7e22ce" />}
-                    onClick={(entry) => {
-                      if (selectedDistrict && entry?.label) {
-                        setSelectedTa(entry.label);
-                      }
-                    }}
+              <div className="h-full min-w-[620px] sm:min-w-0">
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart
+                    data={filteredChartData}
+                    margin={{ top: 20, right: 20, left: 12, bottom: 92 }}
                   >
-                    {filteredChartData.map((entry) => {
-                      const isSelected =
-                        selectedTa &&
-                        entry.label.toLowerCase() === selectedTa.toLowerCase();
+                    <CartesianGrid
+                      stroke="#f1f5f9"
+                      strokeDasharray="3 3"
+                      vertical={false}
+                    />
+                    <XAxis
+                      dataKey="label"
+                      axisLine={false}
+                      tick={{ fill: "#64748b", fontSize: 9, fontWeight: 700 }}
+                      tickFormatter={
+                        selectedDistrict ? formatTaAxisLabel : formatDistrictAxisLabel
+                      }
+                      tickLine={false}
+                      angle={-90}
+                      textAnchor="end"
+                      interval={0}
+                      height={112}
+                    />
+                    <YAxis
+                      axisLine={false}
+                      tick={{ fill: "#64748b", fontSize: 11, fontWeight: 700 }}
+                      tickLine={false}
+                      tickFormatter={(value) =>
+                        Number(value) >= 1000000
+                          ? `${(value / 1000000).toFixed(1)}M`
+                          : value
+                      }
+                    />
+                    <Tooltip
+                      formatter={(value) => Number(value).toLocaleString()}
+                      labelFormatter={(label) => label}
+                      contentStyle={{
+                        borderRadius: "4px",
+                        border: "none",
+                        boxShadow: "0 4px 6px -1px rgb(0 0 0 / 0.1)",
+                        fontSize: "12px",
+                      }}
+                      cursor={{ fill: "#f8fafc" }}
+                    />
+                    <Bar
+                      dataKey="population"
+                      radius={[2, 2, 0, 0]}
+                      barSize={14}
+                      activeBar={<Rectangle fill="#7e22ce" />}
+                      onClick={(entry) => {
+                        if (selectedDistrict && entry?.label) {
+                          setSelectedTa(entry.label);
+                        }
+                      }}
+                    >
+                      {filteredChartData.map((entry) => {
+                        const isSelected =
+                          selectedTa &&
+                          entry.label.toLowerCase() === selectedTa.toLowerCase();
 
-                      return (
-                        <Cell
-                          key={`population-bar-${entry.label}`}
-                          cursor={selectedDistrict ? "pointer" : "default"}
-                          fill={
-                            isSelected
-                              ? "#7e22ce"
-                              : getPopulationBarColor(
-                                  Number(entry.population),
-                                  maxPopulation,
-                                )
-                          }
-                          stroke={isSelected ? "#111827" : "transparent"}
-                          strokeWidth={isSelected ? 2 : 0}
-                          fillOpacity={selectedTa && !isSelected ? 0.28 : 1}
-                        />
-                      );
-                    })}
-                  </Bar>
-                </BarChart>
-              </ResponsiveContainer>
+                        return (
+                          <Cell
+                            key={`population-bar-${entry.label}`}
+                            cursor={selectedDistrict ? "pointer" : "default"}
+                            fill={
+                              isSelected
+                                ? "#7e22ce"
+                                : getPopulationBarColor(
+                                    Number(entry.population),
+                                    maxPopulation,
+                                  )
+                            }
+                            stroke={isSelected ? "#111827" : "transparent"}
+                            strokeWidth={isSelected ? 2 : 0}
+                            fillOpacity={selectedTa && !isSelected ? 0.28 : 1}
+                          />
+                        );
+                      })}
+                    </Bar>
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
             ) : (
               <div className="flex h-full items-center justify-center rounded border border-dashed border-gray-200 bg-gray-50 text-sm font-semibold text-gray-400">
                 No rows match the current chart filters.

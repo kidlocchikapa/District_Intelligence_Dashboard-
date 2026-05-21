@@ -11,10 +11,10 @@ export default function SuperAdminLayout({ children }) {
   }
 
   return (
-    <div className="flex h-screen w-full bg-slate-50 overflow-hidden font-sans">
+    <div className="flex min-h-screen w-full flex-col bg-slate-50 font-sans lg:h-screen lg:flex-row lg:overflow-hidden">
       {/* Dedicated Super Admin Sidebar */}
-      <aside className="w-72 bg-[#F9FAFB] text-black flex flex-col flex-shrink-0 border-r border-gray-200 z-50">
-        <div className="p-8 pb-4">
+      <aside className="z-50 flex w-full flex-col border-b border-gray-200 bg-[#F9FAFB] text-black lg:w-72 lg:flex-shrink-0 lg:border-b-0 lg:border-r">
+        <div className="p-5 pb-4 sm:p-8 sm:pb-4">
           <div className="flex items-center gap-3 mb-2">
             <div className="h-10 w-10 bg-black rounded flex items-center justify-center shadow-lg">
               <Database className="text-white" size={20} />
@@ -26,7 +26,7 @@ export default function SuperAdminLayout({ children }) {
           </div>
         </div>
 
-        <div className="flex-1 px-4 py-6 space-y-8 overflow-y-auto">
+        <div className="flex-1 space-y-6 overflow-y-auto px-4 py-5 sm:space-y-8 sm:py-6">
           <div>
             <h2 className="px-4 text-xs font-extrabold text-black uppercase tracking-wider mb-4">Core Management</h2>
             <nav className="space-y-1.5">
@@ -56,7 +56,7 @@ export default function SuperAdminLayout({ children }) {
 
         </div>
 
-        <div className="p-4 mt-auto">
+        <div className="mt-auto p-4">
           <button 
             onClick={handleLogout}
             className="flex w-full items-center justify-center gap-3 rounded bg-black px-4 py-3 text-sm font-bold text-white shadow-lg transition-all duration-200 hover:bg-gray-800 active:scale-[0.98]"
@@ -68,7 +68,7 @@ export default function SuperAdminLayout({ children }) {
       </aside>
 
       {/* Main Content Area */}
-      <main className="flex-1 overflow-y-auto relative">
+      <main className="relative min-h-0 flex-1 overflow-y-auto">
         <div className="absolute inset-0 bg-grid-slate-100 [mask-image:linear-gradient(0deg,white,rgba(255,255,255,0.6))] -z-10" />
         {children}
       </main>
