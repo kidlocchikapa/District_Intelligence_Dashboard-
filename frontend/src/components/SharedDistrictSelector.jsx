@@ -7,10 +7,10 @@ function SharedDistrictSelector() {
   const districts = useDistrictOptions();
 
   return (
-    <div className="flex items-center gap-3">
+    <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:items-center sm:gap-3">
       <div className="relative">
         <select
-          className="min-w-[220px] cursor-pointer appearance-none rounded bg-black px-6 py-2 text-[14px] font-bold text-white"
+          className="w-full cursor-pointer appearance-none rounded bg-black px-6 py-2 text-[14px] font-bold text-white sm:min-w-[220px]"
           value={selectedDistrict}
           onChange={(event) => setSelectedDistrict(event.target.value)}
         >
@@ -26,7 +26,7 @@ function SharedDistrictSelector() {
         <button
           type="button"
           onClick={() => setSelectedTa("")}
-          className="rounded border border-gray-200 bg-gray-50 px-3 py-2 text-[12px] font-bold text-gray-700 transition-all hover:bg-white"
+          className="w-full rounded border border-gray-200 bg-gray-50 px-3 py-2 text-left text-[12px] font-bold text-gray-700 transition-all hover:bg-white sm:w-auto sm:text-center"
         >
           Clear: {selectedTa}
         </button>
