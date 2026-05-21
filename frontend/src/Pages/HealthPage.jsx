@@ -11,6 +11,7 @@ import GlobalHospitalRegistry from "../components/GlobalHospitalRegistry";
 import IntegrationSummaryPanel from "../components/IntegrationSummaryPanel";
 import SharedDistrictSelector from "../components/SharedDistrictSelector";
 import PlanningPriorityPanel from "../components/PlanningPriorityPanel";
+import MetricPreviewModal from "../components/MetricPreviewModal";
 import FacilityBurdenScatter from "../components/Charts/FacilityBurdenScatter.jsx";
 import TAAnalyticsTable from "../components/Tables/TAAnalyticsTable.jsx";
 import InteractiveRecommendations from "../components/InteractiveRecommendations";
@@ -107,7 +108,7 @@ function HealthPage() {
   const [facilityChartSearch, setFacilityChartSearch] = useState("");
   const [facilityChartLimit, setFacilityChartLimit] = useState(20);
   const [facilityChartSort, setFacilityChartSort] = useState("facilities_desc");
-  const { contentRef, exportPdf } = usePdfExport("Health_Report.pdf");
+  const { contentRef, exportPdf, exportDataPdf } = usePdfExport("Health_Report.pdf");
   const districtScope = selectedDistrict || "Zomba";
   const activeTaPreview = selectedTa || hoveredTa;
   const activeHealthRasterLayer =
@@ -1561,6 +1562,7 @@ function HealthRecommendations({
   govFacilities, privateFacilities,
   planningPriorities,
 }) {
+  const [metricPreview, setMetricPreview] = useState(null);
   const loading = healthSummary.loading || servedPopulationSummary.loading || healthDrilldown.loading || planningPriorities.loading;
   const rankedPriorities = planningPriorities?.data?.priorities || [];
 
