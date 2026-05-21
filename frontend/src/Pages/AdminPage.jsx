@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import EmptyState from "../components/EmptyState";
 import Panel from "../components/Panel";
 import AdminDataStewardship from "../components/AdminDataStewardship";
@@ -214,7 +214,7 @@ function AdminPage() {
     } else if (!["stewardship", "operations", "logs"].includes(activeTab)) {
       setActiveTab("stewardship");
     }
-  }, [authProfile, isGlobalAdmin]);
+  }, [activeTab, authProfile, isGlobalAdmin]);
 
   useEffect(() => {
     function syncAuthState(event) {
@@ -225,7 +225,7 @@ function AdminPage() {
     return () => window.removeEventListener(AUTH_EVENT_NAME, syncAuthState);
   }, []);
 
-  async function loadJobs() {
+  const loadJobs = useCallback(async () => {
     if (!isAuthenticated) return;
     try {
       setIsRefreshingJobs(true);
@@ -240,7 +240,7 @@ function AdminPage() {
     } finally {
       setIsRefreshingJobs(false);
     }
-  }
+  }, [isAuthenticated]);
 
   async function loadAuthProfile() {
     try {
@@ -266,7 +266,7 @@ function AdminPage() {
     loadAuthProfile();
     const intervalId = window.setInterval(loadJobs, 5000);
     return () => window.clearInterval(intervalId);
-  }, [isAuthenticated]);
+  }, [isAuthenticated, loadJobs]);
 
   useEffect(() => {
     if (!authProfile) {
