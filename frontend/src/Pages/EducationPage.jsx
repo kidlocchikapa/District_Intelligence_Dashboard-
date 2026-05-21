@@ -327,14 +327,10 @@ function EducationPage() {
   const [selectedPressureCategories, setSelectedPressureCategories] = useState(
     PRESSURE_FILTER_CATEGORIES,
   );
-  const [selectedSchoolRiskCategories, setSelectedSchoolRiskCategories] = useState(
-    SCHOOL_RISK_CATEGORIES,
-  );
   const [activeEducationRasterKey, setActiveEducationRasterKey] = useState(
     EDUCATION_RASTER_LAYERS[0].key,
   );
   const [riskTableSort, setRiskTableSort] = useState({ key: "teacher_ratio", dir: "desc" });
-  const [schoolRiskPreview, setSchoolRiskPreview] = useState(null);
   const { contentRef, exportPdf } = usePdfExport("Education_Report.pdf");
   const activeEducationRasterLayer =
     EDUCATION_RASTER_LAYERS.find(
@@ -371,10 +367,8 @@ function EducationPage() {
     }),
   );
   const educationCoverageTaGeojson = useDashboardData(
-    buildDashboardPath("/dashboard/analysis/geojson", {
-      analysis_type: "education_summary",
+    buildDashboardPath("/dashboard/education/service-coverage/geojson", {
       admin_type: "TA",
-      metric_name: "school_age_population_total",
       district: coverageFocusDistrict,
     }),
   );
@@ -568,75 +562,6 @@ function EducationPage() {
     });
   }, [atRiskSchools, riskTableSort]);
 
-  const openSchoolRiskPreview = (category) => {
-    const matchingSchools = atRiskSchools.filter(
-      (school) => school.risk_category === category,
-    );
-    const rows = matchingSchools
-      .sort((left, right) => {
-        const leftTeacherRatio = left.teacher_ratio ?? 0;
-        const rightTeacherRatio = right.teacher_ratio ?? 0;
-        const leftClassRatio = left.classroom_ratio ?? 0;
-        const rightClassRatio = right.classroom_ratio ?? 0;
-
-        return (
-          rightTeacherRatio + rightClassRatio -
-          (leftTeacherRatio + leftClassRatio)
-        );
-      })
-      .map((school, index) => ({
-        id: school.school_id || `${category}-${index}`,
-        schoolName: school.school_name,
-        riskCategory: school.risk_category,
-        enrollment: formatNumber(school.enrollment, 0),
-        pupilsPerTeacher:
-          school.teacher_ratio != null ? `1:${school.teacher_ratio}` : "-",
-        pupilsPerClass:
-          school.classroom_ratio != null ? `1:${school.classroom_ratio}` : "-",
-        operator: school.operator,
-      }));
-
-    setSchoolRiskPreview({
-      title: `${category} Schools (${formatNumber(matchingSchools.length, 0)})`,
-      columns: [
-        { key: "schoolName", label: "School" },
-        { key: "riskCategory", label: "Shortage Type" },
-        { key: "enrollment", label: "Enrollment" },
-        { key: "pupilsPerTeacher", label: "Pupils / Teacher" },
-        { key: "pupilsPerClass", label: "Pupils / Class" },
-        { key: "operator", label: "Operator" },
-      ],
-      rows,
-    });
-  };
-
-  const openSingleSchoolPreview = (school) => {
-    setSchoolRiskPreview({
-      title: school.school_name,
-      columns: [
-        { key: "schoolName", label: "School" },
-        { key: "riskCategory", label: "Shortage Type" },
-        { key: "enrollment", label: "Enrollment" },
-        { key: "pupilsPerTeacher", label: "Pupils / Teacher" },
-        { key: "pupilsPerClass", label: "Pupils / Class" },
-        { key: "operator", label: "Operator" },
-      ],
-      rows: [
-        {
-          id: school.school_id || school.school_name,
-          schoolName: school.school_name,
-          riskCategory: school.risk_category,
-          enrollment: formatNumber(school.enrollment, 0),
-          pupilsPerTeacher:
-            school.teacher_ratio != null ? `1:${school.teacher_ratio}` : "-",
-          pupilsPerClass:
-            school.classroom_ratio != null ? `1:${school.classroom_ratio}` : "-",
-          operator: school.operator,
-        },
-      ],
-    });
-  };
-
   const schoolRiskCounts = useMemo(() => {
     const counts = Object.fromEntries(SCHOOL_RISK_CATEGORIES.map(c => [c, 0]));
     schoolFeaturesWithPressure.forEach(f => {
@@ -663,30 +588,13 @@ function EducationPage() {
     return counts;
   }, [schoolFeaturesWithPressure]);
 
-  const filteredSchoolFeatures = useMemo(() => {
-    const selectedCategories = new Set(selectedSchoolRiskCategories);
-    return schoolFeaturesWithPressure.filter((feature) =>
-      selectedCategories.has(feature?.properties?.risk_category || "OK"),
-    );
-  }, [schoolFeaturesWithPressure, selectedSchoolRiskCategories]);
-
   const schoolLocationsForMap = useMemo(() => {
     if (!schoolLocations.data) return schoolLocations.data;
     return {
       ...schoolLocations.data,
-      features: filteredSchoolFeatures.length
-        ? filteredSchoolFeatures
-        : schoolFeaturesWithPressure,
+      features: schoolFeaturesWithPressure,
     };
-  }, [schoolLocations.data, filteredSchoolFeatures, schoolFeaturesWithPressure]);
-
-  const toggleSchoolRiskCategory = (category) => {
-    setSelectedSchoolRiskCategories((current) =>
-      current.includes(category)
-        ? current.filter((item) => item !== category)
-        : [...current, category],
-    );
-  };
+  }, [schoolLocations.data, schoolFeaturesWithPressure]);
 
   const handleRiskTableSort = (key) => {
     setRiskTableSort(prev =>
@@ -1251,34 +1159,21 @@ function EducationPage() {
 
             {/* Risk filter chips */}
             <div className="mt-4 mb-4 flex flex-wrap gap-2">
-              {SCHOOL_RISK_CATEGORIES.map((category) => {
-                const isSelected = selectedSchoolRiskCategories.includes(category);
-                return (
-                  <label
-                    key={`risk-filter-${category}`}
-                    className={`inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-bold transition-all cursor-pointer ${
-                      isSelected
-                        ? "border-gray-900 bg-gray-900 text-white"
-                        : "border-gray-200 bg-white text-gray-600"
-                    }`}
+              {SCHOOL_RISK_CATEGORIES.map((category) => (
+                  <span
+                    key={`risk-legend-${category}`}
+                    className="inline-flex items-center gap-2 rounded-full border border-gray-200 bg-white px-3 py-1.5 text-xs font-bold text-gray-600"
                   >
-                    <input
-                      type="checkbox"
-                      checked={isSelected}
-                      onChange={() => toggleSchoolRiskCategory(category)}
-                      className="sr-only"
-                    />
                     <span
                       className="h-2.5 w-2.5 rounded-full flex-shrink-0"
                       style={{ backgroundColor: getSchoolRiskColor(category) }}
                     />
                     <span>{category}</span>
-                    <span className={`rounded-full px-1.5 py-0.5 text-[10px] ${isSelected ? "bg-white/20" : "bg-gray-100 text-gray-500"}`}>
+                    <span className="rounded-full bg-gray-100 px-1.5 py-0.5 text-[10px] text-gray-500">
                       {schoolRiskCounts[category] || 0}
                     </span>
-                  </label>
-                );
-              })}
+                  </span>
+              ))}
             </div>
 
             <div className="flex-1 rounded overflow-hidden relative border border-gray-50 bg-gray-50">
@@ -1335,16 +1230,13 @@ function EducationPage() {
             {/* Summary badges */}
             <div className="mt-3 mb-4 flex flex-wrap gap-2">
               {SCHOOL_RISK_CATEGORIES.filter(c => c !== "OK").map(cat => (
-                <button
+                <span
                   key={cat}
-                  type="button"
-                  onClick={() => openSchoolRiskPreview(cat)}
-                  className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-bold transition hover:-translate-y-0.5 hover:shadow-sm focus:outline-none focus:ring-2 focus:ring-black/10 ${getSchoolRiskBadgeClasses(cat)}`}
-                  title={`Preview ${cat.toLowerCase()} schools`}
+                  className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-bold ${getSchoolRiskBadgeClasses(cat)}`}
                 >
                   <span className="h-2 w-2 rounded-full" style={{ backgroundColor: getSchoolRiskColor(cat) }} />
                   {cat}: {schoolRiskCounts[cat] || 0}
-                </button>
+                </span>
               ))}
             </div>
 
@@ -1390,9 +1282,7 @@ function EducationPage() {
                     {sortedAtRiskSchools.map((school, i) => (
                       <tr
                         key={school.school_id ?? i}
-                        onClick={() => openSingleSchoolPreview(school)}
-                        className="cursor-pointer border-b border-gray-50 transition-colors hover:bg-gray-50"
-                        title="Click to preview this school"
+                        className="border-b border-gray-50 transition-colors hover:bg-gray-50"
                       >
                         <td className="py-2 px-2 font-semibold text-black max-w-[140px] truncate" title={school.school_name}>
                           {school.school_name}
@@ -1511,14 +1401,6 @@ function EducationPage() {
           floodImpact={floodImpact}
           floodImpactGeojson={floodImpactGeojson}
           coverageFocusDistrict={coverageFocusDistrict}
-        />
-
-        <MetricPreviewModal
-          metricPreview={schoolRiskPreview}
-          onClose={() => setSchoolRiskPreview(null)}
-          description="Previewing schools behind this shortage category."
-          emptyMessage="No schools are currently in this shortage category."
-          emphasisKeys={["schoolName", "riskCategory"]}
         />
       </div>
     </div>
