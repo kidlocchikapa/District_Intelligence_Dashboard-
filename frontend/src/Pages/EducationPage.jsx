@@ -26,6 +26,8 @@ import IntegrationSummaryPanel from "../components/IntegrationSummaryPanel";
 import SharedDistrictSelector from "../components/SharedDistrictSelector";
 import PopulationRasterPanel from "../components/PopulationRasterPanel";
 import PlanningPriorityPanel from "../components/PlanningPriorityPanel";
+import InteractiveRecommendations from "../components/InteractiveRecommendations";
+import MetricPreviewModal from "../components/MetricPreviewModal";
 import {
   Bar,
   BarChart,
@@ -334,7 +336,7 @@ function EducationPage() {
   );
   const [riskTableSort, setRiskTableSort] = useState({ key: "teacher_ratio", dir: "desc" });
   const [schoolRiskPreview, setSchoolRiskPreview] = useState(null);
-  const { contentRef, exportPdf } = usePdfExport("Education_Report.pdf");
+  const { contentRef, exportPdf, exportDataPdf } = usePdfExport("Education_Report.pdf");
   const activeEducationRasterLayer =
     EDUCATION_RASTER_LAYERS.find(
       (layer) => layer.key === activeEducationRasterKey,
@@ -1565,6 +1567,7 @@ function EducationPage() {
 
 /* ─── Planning Recommendations ────────────────────────────────────────── */
 function PlanningRecommendations({ districtInsights, floodImpact, educationSummary, selectedDistrict, planningPriorities }) {
+  const [metricPreview, setMetricPreview] = useState(null);
   const summary      = districtInsights.data?.summary || {};
   const thresholds   = districtInsights.data?.thresholds || {};
   const allRows      = districtInsights.data?.all_districts || districtInsights.data?.districts || [];
@@ -1580,10 +1583,122 @@ function PlanningRecommendations({ districtInsights, floodImpact, educationSumma
   const underutilizedTAs = allRows.filter(r => r.insight === "underutilized schools");
   const worstInfra       = [...infraGapTAs].sort((a,b) => a.schools_per_10k - b.schools_per_10k)[0];
   const worstCrowd       = [...overcrowdingTAs].sort((a,b) => b.students_per_school - a.students_per_school)[0];
+  const teacherTotal     = Number(eduSummary.teacher_count_total || 0);
+  const schoolAgeTotal   = Number(eduSummary.school_age_population_total || 0);
+  const outOfSchoolTotal = Number(eduSummary.not_in_school_total || 0);
   const teacherRatio     = eduSummary.teacher_count_total > 0
     ? Math.round(eduSummary.student_enrollment_total / eduSummary.teacher_count_total)
     : null;
   const classroomRatio   = null; // not in summary endpoint, derived from school-level
+  const floodTaRows = useMemo(() => {
+    return (floodImpact.data?.ta_breakdown || [])
+      .map((row, index) => ({
+        id: `flood-ta-${row.ta_id || row.ta_name || index}`,
+        ta: row.ta_name || "Unknown TA",
+        district: row.district_name || selectedDistrict || "Unknown District",
+        exposedSchools: Number(row.exposed_schools || 0),
+        highRiskStudents: Number(row.high_risk_students || 0),
+        mediumRiskStudents: Number(row.medium_risk_students || 0),
+        lowRiskStudents: Number(row.low_risk_students || 0),
+        studentsAtRisk: Number(row.students_at_risk || 0),
+      }))
+      .sort((left, right) => right.studentsAtRisk - left.studentsAtRisk);
+  }, [floodImpact.data, selectedDistrict]);
+
+  const taRowColumns = [
+    { key: "ta", label: "TA" },
+    { key: "district", label: "District" },
+    { key: "schoolsPer10k", label: "Schools/10k" },
+    { key: "studentsPerSchool", label: "Students/School" },
+    { key: "schoolCount", label: "Schools" },
+    { key: "population", label: "Population" },
+  ];
+  const floodRowColumns = [
+    { key: "ta", label: "TA" },
+    { key: "district", label: "District" },
+    { key: "studentsAtRisk", label: "Students at Risk" },
+    { key: "exposedSchools", label: "Exposed Schools" },
+    { key: "highRiskStudents", label: "High Risk" },
+    { key: "mediumRiskStudents", label: "Medium Risk" },
+    { key: "lowRiskStudents", label: "Low Risk" },
+  ];
+  const summaryColumns = [
+    { key: "metric", label: "Metric" },
+    { key: "value", label: "Value" },
+  ];
+
+  const infraGapPreviewRows = useMemo(() => {
+    return infraGapTAs.map((row, index) => ({
+      id: `infra-${row.admin_unit_id || row.admin_unit_name || index}`,
+      ta: row.admin_unit_name || "Unknown TA",
+      district: row.district || selectedDistrict || "Unknown District",
+      schoolsPer10k: Number(row.schools_per_10k || 0),
+      studentsPerSchool: Number(row.students_per_school || 0),
+      schoolCount: Number(row.school_count || 0),
+      population: Number(row.population_total || 0),
+    }));
+  }, [infraGapTAs, selectedDistrict]);
+  const overcrowdingPreviewRows = useMemo(() => {
+    return overcrowdingTAs.map((row, index) => ({
+      id: `crowd-${row.admin_unit_id || row.admin_unit_name || index}`,
+      ta: row.admin_unit_name || "Unknown TA",
+      district: row.district || selectedDistrict || "Unknown District",
+      schoolsPer10k: Number(row.schools_per_10k || 0),
+      studentsPerSchool: Number(row.students_per_school || 0),
+      schoolCount: Number(row.school_count || 0),
+      population: Number(row.population_total || 0),
+    }));
+  }, [overcrowdingTAs, selectedDistrict]);
+  const underutilizedPreviewRows = useMemo(() => {
+    return underutilizedTAs.map((row, index) => ({
+      id: `under-${row.admin_unit_id || row.admin_unit_name || index}`,
+      ta: row.admin_unit_name || "Unknown TA",
+      district: row.district || selectedDistrict || "Unknown District",
+      schoolsPer10k: Number(row.schools_per_10k || 0),
+      studentsPerSchool: Number(row.students_per_school || 0),
+      schoolCount: Number(row.school_count || 0),
+      population: Number(row.population_total || 0),
+    }));
+  }, [selectedDistrict, underutilizedTAs]);
+  const underutilizedSchoolCount = underutilizedPreviewRows.reduce(
+    (sum, row) => sum + Number(row.schoolCount || 0),
+    0,
+  );
+  const outOfSchoolRows = useMemo(() => {
+    return allRows
+      .map((row, index) => ({
+        id: `oos-${row.admin_unit_id || row.admin_unit_name || index}`,
+        ta: row.admin_unit_name || "Unknown TA",
+        district: row.district || selectedDistrict || "Unknown District",
+        outOfSchool: Number(row.not_in_school_total || 0),
+        schoolAgePopulation: Number(row.school_age_population_total || 0),
+        schoolsPer10k: Number(row.schools_per_10k || 0),
+        studentsPerSchool: Number(row.students_per_school || 0),
+      }))
+      .filter((row) => row.outOfSchool > 0)
+      .sort((left, right) => right.outOfSchool - left.outOfSchool);
+  }, [allRows, selectedDistrict]);
+  const summaryRows = [
+    { metric: "Total schools", value: formatNumber(eduSummary.school_count || 0, 0) },
+    { metric: "Total teachers", value: formatNumber(teacherTotal, 0) },
+    { metric: "Student enrollment", value: formatNumber(eduSummary.student_enrollment_total || 0, 0) },
+    { metric: "School-age population", value: formatNumber(schoolAgeTotal, 0) },
+    { metric: "Out-of-school population", value: formatNumber(outOfSchoolTotal, 0) },
+    { metric: "Teacher ratio", value: teacherRatio ? `1:${formatNumber(teacherRatio, 0)}` : "N/A" },
+    { metric: "Infra-gap TAs", value: formatNumber(infraGapTAs.length, 0) },
+    { metric: "Overcrowding TAs", value: formatNumber(overcrowdingTAs.length, 0) },
+    { metric: "Underutilized TAs", value: formatNumber(underutilizedTAs.length, 0) },
+    { metric: "Flood-exposed schools", value: formatNumber(floodSummary.exposed_schools || 0, 0) },
+    { metric: "Students at flood risk", value: formatNumber(floodSummary.students_at_risk || 0, 0) },
+  ];
+
+  function openMetricPreview({ title, rows, columns }) {
+    setMetricPreview({
+      title,
+      rows: rows || [],
+      columns: columns || summaryColumns,
+    });
+  }
 
   const priorityLedRecommendations = rankedPriorities.slice(0, 2).map((row, index) => ({
     priority: index === 0 ? "high" : row.priority_band === "Critical" || row.priority_band === "High" ? "high" : "medium",
