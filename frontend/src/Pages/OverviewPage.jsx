@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import {
   Download,
   Map as MapIcon,
@@ -41,6 +41,11 @@ const PRIORITY_BAND_CLASSES = {
 };
 const COMPARISON_COLORS = ["#c2410c", "#2563eb", "#7c3aed", "#0f766e"];
 const OVERVIEW_CHART_SKELETON_HEIGHTS = [24, 36, 41, 58, 49, 65, 33, 45];
+const OVERVIEW_POPULATION_CHART_LIMITS = [
+  { value: 8, label: "Top 8" },
+  { value: 12, label: "Top 12" },
+  { value: 0, label: "All" },
+];
 
 function getPopulationBarColor(value, maxPopulation) {
   if (!Number.isFinite(value) || maxPopulation <= 0) {
@@ -119,6 +124,9 @@ function getPriorityBandClass(band) {
 
 function OverviewPage() {
   const { selectedDistrict, selectedTa, setSelectedTa } = useDistrict();
+  const [populationChartSearch, setPopulationChartSearch] = useState("");
+  const [populationChartLimit, setPopulationChartLimit] = useState(12);
+  const [populationChartSort, setPopulationChartSort] = useState("population_desc");
   const districtScope = selectedDistrict || "";
   const scopeLabel = selectedTa
     ? selectedTa
@@ -205,11 +213,46 @@ function OverviewPage() {
     population: item.population,
   }));
   const filteredChartData = useMemo(() => {
-    return [...chartData].sort(
-      (left, right) =>
-        Number(right.population || 0) - Number(left.population || 0),
-    );
-  }, [chartData]);
+    const searchTerm = populationChartSearch.trim().toLowerCase();
+    let rows = [...chartData];
+
+    if (searchTerm) {
+      rows = rows.filter((row) => {
+        const taName = String(row.admin3 || "").toLowerCase();
+        const districtName = String(row.district || "").toLowerCase();
+        return taName.includes(searchTerm) || districtName.includes(searchTerm);
+      });
+    }
+
+    rows.sort((left, right) => {
+      if (populationChartSort === "population_asc") {
+        return Number(left.population || 0) - Number(right.population || 0);
+      }
+
+      if (populationChartSort === "name_asc") {
+        return String(left.admin3 || "").localeCompare(String(right.admin3 || ""));
+      }
+
+      if (populationChartSort === "district_asc") {
+        const districtCompare = String(left.district || "").localeCompare(
+          String(right.district || ""),
+        );
+        if (districtCompare !== 0) {
+          return districtCompare;
+        }
+
+        return String(left.admin3 || "").localeCompare(String(right.admin3 || ""));
+      }
+
+      return Number(right.population || 0) - Number(left.population || 0);
+    });
+
+    if (populationChartLimit > 0) {
+      rows = rows.slice(0, populationChartLimit);
+    }
+
+    return rows;
+  }, [chartData, populationChartLimit, populationChartSearch, populationChartSort]);
 
   const selectedTaChartRow = chartData.find(
     (item) => normalizeName(item.admin3) === normalizeName(selectedTa),
@@ -1066,9 +1109,59 @@ function OverviewPage() {
             <h3 className="text-[16px] font-extrabold mb-2">
               {selectedTa ? `Population for ${selectedTa}` : "Population by TA"}
             </h3>
-            <p className="text-[13px] font-medium text-gray-500 mb-4">
+            <p className="text-[13px] font-medium text-gray-500 mb-3">
               Click a bar to sync the selected TA across the overview.
             </p>
+            <div className="mb-4 rounded border border-gray-100 bg-white p-3">
+              <div className="flex flex-wrap items-center gap-2">
+                {OVERVIEW_POPULATION_CHART_LIMITS.map((option) => {
+                  const isActive = option.value === populationChartLimit;
+                  return (
+                    <button
+                      key={`overview-pop-limit-${option.label}`}
+                      type="button"
+                      onClick={() => setPopulationChartLimit(option.value)}
+                      className={`rounded-full border px-3 py-1 text-[10px] font-bold uppercase tracking-[0.12em] transition ${
+                        isActive
+                          ? "border-gray-900 bg-gray-900 text-white"
+                          : "border-gray-200 bg-white text-gray-500 hover:text-black"
+                      }`}
+                    >
+                      {option.label}
+                    </button>
+                  );
+                })}
+                <select
+                  value={populationChartSort}
+                  onChange={(event) => setPopulationChartSort(event.target.value)}
+                  className="rounded-full border border-gray-200 bg-white px-3 py-1 text-[10px] font-bold uppercase tracking-[0.12em] text-gray-600"
+                >
+                  <option value="population_desc">Highest population</option>
+                  <option value="population_asc">Lowest population</option>
+                  <option value="name_asc">Name A-Z</option>
+                  <option value="district_asc">District A-Z</option>
+                </select>
+                <input
+                  type="search"
+                  value={populationChartSearch}
+                  onChange={(event) => setPopulationChartSearch(event.target.value)}
+                  placeholder="Search TA or district..."
+                  className="min-w-[180px] flex-1 rounded-full border border-gray-200 px-3 py-1.5 text-xs font-semibold text-gray-700 outline-none focus:border-gray-900"
+                />
+                {selectedTa ? (
+                  <button
+                    type="button"
+                    onClick={() => selectTa("")}
+                    className="rounded-full border border-gray-300 px-3 py-1 text-[10px] font-bold uppercase tracking-[0.12em] text-gray-600 transition hover:text-black"
+                  >
+                    Clear TA
+                  </button>
+                ) : null}
+              </div>
+              <p className="mt-2 text-[11px] font-semibold text-gray-500">
+                Showing {filteredChartData.length} of {chartData.length} TAs.
+              </p>
+            </div>
             <div className="flex-1">
               {populationDistribution.loading ? (
                 <div className="h-full w-full flex flex-col gap-4 animate-pulse">
