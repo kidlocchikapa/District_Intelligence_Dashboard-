@@ -26,6 +26,10 @@ function PopulationRasterPanel({
   metadataUrl = DEFAULT_METADATA_URL,
   heightClass = "h-[460px]",
   loading = false,
+  pointLayerLabel,
+  showPointLayerToggle = true,
+  legendPositionClass = "right-2 top-2 sm:right-4 sm:top-4",
+  baseTooltipMetrics,
   onFeatureClick,
   onFeatureHover,
   selectedFeatureName,
@@ -272,6 +276,18 @@ function PopulationRasterPanel({
     selectedFeatureName ||
     null;
   const focusLabel = hoveredFeature ? "Hovering Area" : "Selected Area";
+  const visibleBaseTooltipMetrics = (
+    baseTooltipMetrics || [
+      { key: "population_total", label: "Population" },
+      { key: "school_age_population_total", label: "School-age Pop." },
+      { key: "health_population_served_total", label: "Served Pop." },
+      { key: "health_population_unserved_total", label: "Unserved Pop." },
+    ]
+  ).filter(
+    (metric) =>
+      focusProperties[metric.key] !== undefined &&
+      !tooltipMetrics.some((tooltipMetric) => tooltipMetric.key === metric.key),
+  );
 
   function legendBackground(colors = []) {
     if (!Array.isArray(colors) || !colors.length) {
