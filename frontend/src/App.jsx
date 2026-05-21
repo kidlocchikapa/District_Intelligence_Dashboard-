@@ -96,7 +96,7 @@ function App() {
   const isCompactSidebar = isCollapsed && !isMobileMenuOpen;
 
   return (
-    <div className="min-h-screen overflow-hidden bg-[#F9FAFB] font-sans lg:h-screen">
+    <div className="h-screen overflow-hidden bg-[#F9FAFB] font-sans">
       <Toaster position="top-right" />
       
       <Routes>

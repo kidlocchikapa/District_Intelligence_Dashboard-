@@ -108,24 +108,24 @@ const CLASSROOM_RATIO_THRESHOLD = 40;
 
 // Per-school risk categories (distinct from TA-level pressure categories)
 const SCHOOL_RISK_CATEGORIES = [
-  "Overcrowding Risk",   // teacher ratio exceeded
-  "Infrastructure Gap",  // classroom ratio exceeded
-  "Both Risks",          // both exceeded
+  "Teacher Shortage",              // teacher ratio exceeded
+  "Classroom Shortage",            // classroom ratio exceeded
+  "Teacher & Classroom Shortage",  // both exceeded
   "OK",
 ];
 
 const SCHOOL_RISK_COLORS = {
-  "Overcrowding Risk":  "#f59e0b",  // amber
-  "Infrastructure Gap": "#dc2626",  // red
-  "Both Risks":         "#7c3aed",  // purple
-  "OK":                 "#22c55e",  // green
+  "Teacher Shortage":             "#f59e0b",  // amber
+  "Classroom Shortage":           "#dc2626",  // red
+  "Teacher & Classroom Shortage": "#7c3aed",  // purple
+  "OK":                           "#22c55e",  // green
 };
 
 const SCHOOL_RISK_PRIORITY = {
   "OK": 0,
-  "Overcrowding Risk": 1,
-  "Infrastructure Gap": 2,
-  "Both Risks": 3,
+  "Teacher Shortage": 1,
+  "Classroom Shortage": 2,
+  "Teacher & Classroom Shortage": 3,
 };
 
 function classifySchoolRisk(properties) {
@@ -141,9 +141,9 @@ function classifySchoolRisk(properties) {
   const teacherRisk   = teacherRatio   > TEACHER_RATIO_THRESHOLD;
   const classroomRisk = classroomRatio > CLASSROOM_RATIO_THRESHOLD;
 
-  if (teacherRisk && classroomRisk) return "Both Risks";
-  if (classroomRisk)                return "Infrastructure Gap";
-  if (teacherRisk)                  return "Overcrowding Risk";
+  if (teacherRisk && classroomRisk) return "Teacher & Classroom Shortage";
+  if (classroomRisk)                return "Classroom Shortage";
+  if (teacherRisk)                  return "Teacher Shortage";
   return "OK";
 }
 
@@ -153,10 +153,10 @@ function getSchoolRiskColor(riskCategory) {
 
 function getSchoolRiskBadgeClasses(riskCategory) {
   const map = {
-    "Overcrowding Risk":  "border border-amber-200 bg-amber-50 text-amber-700",
-    "Infrastructure Gap": "border border-red-200 bg-red-50 text-red-700",
-    "Both Risks":         "border border-purple-200 bg-purple-50 text-purple-700",
-    "OK":                 "border border-emerald-200 bg-emerald-50 text-emerald-700",
+    "Teacher Shortage":             "border border-amber-200 bg-amber-50 text-amber-700",
+    "Classroom Shortage":           "border border-red-200 bg-red-50 text-red-700",
+    "Teacher & Classroom Shortage": "border border-purple-200 bg-purple-50 text-purple-700",
+    "OK":                           "border border-emerald-200 bg-emerald-50 text-emerald-700",
   };
   return map[riskCategory] || map["OK"];
 }
@@ -334,6 +334,7 @@ function EducationPage() {
     EDUCATION_RASTER_LAYERS[0].key,
   );
   const [riskTableSort, setRiskTableSort] = useState({ key: "teacher_ratio", dir: "desc" });
+  const [schoolRiskPreview, setSchoolRiskPreview] = useState(null);
   const { contentRef, exportPdf } = usePdfExport("Education_Report.pdf");
   const activeEducationRasterLayer =
     EDUCATION_RASTER_LAYERS.find(
@@ -566,6 +567,46 @@ function EducationPage() {
       return dir === "asc" ? av - bv : bv - av;
     });
   }, [atRiskSchools, riskTableSort]);
+
+  const openSchoolRiskPreview = (category) => {
+    const rows = atRiskSchools
+      .filter((school) => school.risk_category === category)
+      .sort((left, right) => {
+        const leftTeacherRatio = left.teacher_ratio ?? 0;
+        const rightTeacherRatio = right.teacher_ratio ?? 0;
+        const leftClassRatio = left.classroom_ratio ?? 0;
+        const rightClassRatio = right.classroom_ratio ?? 0;
+
+        return (
+          rightTeacherRatio + rightClassRatio -
+          (leftTeacherRatio + leftClassRatio)
+        );
+      })
+      .map((school, index) => ({
+        id: school.school_id || `${category}-${index}`,
+        schoolName: school.school_name,
+        riskCategory: school.risk_category,
+        enrollment: formatNumber(school.enrollment, 0),
+        pupilsPerTeacher:
+          school.teacher_ratio != null ? `1:${school.teacher_ratio}` : "-",
+        pupilsPerClass:
+          school.classroom_ratio != null ? `1:${school.classroom_ratio}` : "-",
+        operator: school.operator,
+      }));
+
+    setSchoolRiskPreview({
+      title: `${category} Schools`,
+      columns: [
+        { key: "schoolName", label: "School" },
+        { key: "riskCategory", label: "Shortage Type" },
+        { key: "enrollment", label: "Enrollment" },
+        { key: "pupilsPerTeacher", label: "Pupils / Teacher" },
+        { key: "pupilsPerClass", label: "Pupils / Class" },
+        { key: "operator", label: "Operator" },
+      ],
+      rows,
+    });
+  };
 
   const schoolRiskCounts = useMemo(() => {
     const counts = Object.fromEntries(SCHOOL_RISK_CATEGORIES.map(c => [c, 0]));
@@ -1176,7 +1217,7 @@ function EducationPage() {
               School Infrastructure Mapping
             </h3>
             <p className="mt-1 text-sm text-gray-500 font-semibold">
-              Coloured by per-school risk · teacher 1:60 · classroom 1:40
+              Coloured by school shortage type - teacher 1:60 - classroom 1:40
             </p>
 
             {/* Risk filter chips */}
@@ -1254,7 +1295,7 @@ function EducationPage() {
                   At-Risk Schools
                 </h3>
                 <p className="mt-1 text-sm text-gray-500 font-semibold">
-                  Schools exceeding national teacher or classroom thresholds
+                  Schools exceeding teacher or classroom shortage thresholds
                 </p>
               </div>
               <span className="flex-shrink-0 rounded-full bg-red-50 border border-red-200 px-3 py-1 text-xs font-bold text-red-700">
@@ -1265,13 +1306,16 @@ function EducationPage() {
             {/* Summary badges */}
             <div className="mt-3 mb-4 flex flex-wrap gap-2">
               {SCHOOL_RISK_CATEGORIES.filter(c => c !== "OK").map(cat => (
-                <span
+                <button
                   key={cat}
-                  className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-bold ${getSchoolRiskBadgeClasses(cat)}`}
+                  type="button"
+                  onClick={() => openSchoolRiskPreview(cat)}
+                  className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-bold transition hover:-translate-y-0.5 hover:shadow-sm focus:outline-none focus:ring-2 focus:ring-black/10 ${getSchoolRiskBadgeClasses(cat)}`}
+                  title={`Preview ${cat.toLowerCase()} schools`}
                 >
                   <span className="h-2 w-2 rounded-full" style={{ backgroundColor: getSchoolRiskColor(cat) }} />
                   {cat}: {schoolRiskCounts[cat] || 0}
-                </span>
+                </button>
               ))}
             </div>
 
@@ -1345,8 +1389,8 @@ function EducationPage() {
 
             {/* Threshold legend */}
             <div className="mt-3 pt-3 border-t border-gray-100 flex gap-4 text-[10px] font-bold text-gray-400 uppercase tracking-wide">
-              <span className="text-amber-600">Pupils/Teacher &gt; {TEACHER_RATIO_THRESHOLD} = Overcrowding</span>
-              <span className="text-red-600">Pupils/Class &gt; {CLASSROOM_RATIO_THRESHOLD} = Infra Gap</span>
+              <span className="text-amber-600">Pupils/Teacher &gt; {TEACHER_RATIO_THRESHOLD} = Teacher Shortage</span>
+              <span className="text-red-600">Pupils/Class &gt; {CLASSROOM_RATIO_THRESHOLD} = Classroom Shortage</span>
             </div>
           </div>
         </div>
@@ -1436,6 +1480,14 @@ function EducationPage() {
           floodImpact={floodImpact}
           floodImpactGeojson={floodImpactGeojson}
           coverageFocusDistrict={coverageFocusDistrict}
+        />
+
+        <MetricPreviewModal
+          metricPreview={schoolRiskPreview}
+          onClose={() => setSchoolRiskPreview(null)}
+          description="Previewing schools behind this shortage category."
+          emptyMessage="No schools are currently in this shortage category."
+          emphasisKeys={["schoolName", "riskCategory"]}
         />
       </div>
     </div>
@@ -2219,3 +2271,4 @@ function FloodImpactSection({ floodImpact, floodImpactGeojson, coverageFocusDist
 }
 
 export default EducationPage;
+
