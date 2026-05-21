@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useMemo } from "react";
 import "leaflet/dist/leaflet.css";
 import L from "leaflet";
 import { GeoJSON, MapContainer, TileLayer, useMap } from "react-leaflet";
@@ -12,8 +12,6 @@ import {
 } from "../lib/geo";
 import { formatNumber, titleizeMetric } from "../lib/format";
 import EmptyState from "./EmptyState";
-
-import { useEffect } from "react";
 import { useDistrict } from "../context/DistrictContext";
 
 const RISK_BAND_COLORS = {
@@ -105,7 +103,6 @@ function MapPanel({
   palette = "default",
   showLegend = false,
   legendTitle,
-  showLabels = false,
   showZoomControls = true,
   heightClass = "h-[380px]",
   loading = false,
@@ -114,21 +111,11 @@ function MapPanel({
   featureNameResolver,
 }) {
   const { setSelectedDistrict } = useDistrict();
-  const [activeGeojson, setActiveGeojson] = useState(geojson);
-  const [activeBounds, setActiveBounds] = useState(
-    getGeoBounds(geojson?.features || []),
-  );
   const hasHeader = Boolean(title || subtitle);
   const useStackedLayout = hasHeader || showLegend;
-
-  useEffect(() => {
-    if (!loading && geojson) {
-      setActiveGeojson(geojson);
-      setActiveBounds(getGeoBounds(geojson.features || []));
-    }
-  }, [geojson, loading]);
-
-  const features = activeGeojson?.features || [];
+  const activeGeojson = geojson;
+  const features = useMemo(() => activeGeojson?.features ?? [], [activeGeojson]);
+  const bounds = useMemo(() => getGeoBounds(features), [features]);
 
   if (!loading && !features.length) {
     return (
@@ -150,8 +137,6 @@ function MapPanel({
   const colorStops =
     CHOROPLETH_PALETTES[palette] || CHOROPLETH_PALETTES.default;
   const legendStops = getLegendStops(range.min, range.max, colorStops);
-  const bounds = activeBounds;
-
   function popupContent(feature) {
     const properties = feature?.properties || {};
     const titleValue =
