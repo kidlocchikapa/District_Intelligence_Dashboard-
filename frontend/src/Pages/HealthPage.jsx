@@ -99,7 +99,7 @@ const HEALTH_CHART_LIMITS = [
 function HealthPage() {
   const { selectedDistrict, selectedTa, setSelectedTa } = useDistrict();
   const [hoveredTa, setHoveredTa] = useState("");
-  const [activeHealthRasterKey, setActiveHealthRasterKey] = useState(
+  const [activeHealthRasterKey] = useState(
     HEALTH_RASTER_LAYERS[0].key,
   );
   const [coverageChartSearch, setCoverageChartSearch] = useState("");
@@ -108,7 +108,7 @@ function HealthPage() {
   const [facilityChartSearch, setFacilityChartSearch] = useState("");
   const [facilityChartLimit, setFacilityChartLimit] = useState(20);
   const [facilityChartSort, setFacilityChartSort] = useState("facilities_desc");
-  const { contentRef, exportPdf, exportDataPdf } = usePdfExport("Health_Report.pdf");
+  const { contentRef, exportDataPdf } = usePdfExport("Health_Report.pdf");
   const districtScope = selectedDistrict || "Zomba";
   const activeTaPreview = selectedTa || hoveredTa;
   const activeHealthRasterLayer =
@@ -1539,11 +1539,9 @@ function HealthPage() {
           healthLocations={healthLocations}
           healthIntegration={healthIntegration}
           districtScope={districtScope}
-          accessTotal={accessTotal}
           noAccessTotal={noAccessTotal}
           accessShare={accessShare}
           totalFacilities={totalFacilities}
-          functionalFacilities={functionalFacilities}
           nonFunctionalFacilities={nonFunctionalFacilities}
           govFacilities={govFacilities}
           privateFacilities={privateFacilities}
@@ -1557,8 +1555,8 @@ function HealthPage() {
 /* ─── Health Recommendations ───────────────────────────────────────────── */
 function HealthRecommendations({
   healthSummary, servedPopulationSummary, healthDrilldown, healthLocations,
-  healthIntegration, districtScope, accessTotal, noAccessTotal, accessShare,
-  totalFacilities, functionalFacilities, nonFunctionalFacilities,
+  healthIntegration, districtScope, noAccessTotal, accessShare,
+  totalFacilities, nonFunctionalFacilities,
   govFacilities, privateFacilities,
   planningPriorities,
 }) {
@@ -1567,8 +1565,14 @@ function HealthRecommendations({
   const rankedPriorities = planningPriorities?.data?.priorities || [];
 
   const drillSummary  = healthDrilldown.data?.summary || {};
-  const taBreakdown   = healthDrilldown.data?.ta_breakdown || [];
-  const facilities    = healthLocations.data?.features || [];
+  const taBreakdown = useMemo(
+    () => healthDrilldown.data?.ta_breakdown ?? [],
+    [healthDrilldown.data],
+  );
+  const facilities = useMemo(
+    () => healthLocations.data?.features ?? [],
+    [healthLocations.data],
+  );
 
   const facilityPreviewRows = useMemo(() => {
     return facilities.map((feature, index) => {
