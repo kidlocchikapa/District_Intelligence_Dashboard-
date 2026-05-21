@@ -60,9 +60,18 @@ function getExposureBarColor(value, maxValue) {
   return "#22c55e";
 }
 
+const DISASTER_EXPOSURE_CHART_LIMITS = [
+  { value: 8, label: "Top 8" },
+  { value: 12, label: "Top 12" },
+  { value: 0, label: "All" },
+];
+
 function DisasterPage() {
   const { selectedDistrict, selectedTa, setSelectedTa } = useDistrict();
   const { contentRef, exportDataPdf } = usePdfExport("DisasterRisk_Report.pdf");
+  const [exposureChartSearch, setExposureChartSearch] = useState("");
+  const [exposureChartLimit, setExposureChartLimit] = useState(12);
+  const [exposureChartSort, setExposureChartSort] = useState("exposed_desc");
 
   useEffect(() => {
     setSelectedTa("");
@@ -163,6 +172,12 @@ function DisasterPage() {
       ta: selectedTa,
     }),
   );
+  const taFloodExposureChart = useDashboardData(
+    buildDashboardPath("/dashboard/disaster/flood/population", {
+      district: disasterDistrictFilter,
+      admin_type: "TA",
+    }),
+  );
   const disasterIntegration = useDashboardData(
     buildDashboardPath("/dashboard/welfare/integration", {
       district: selectedDistrict,
@@ -213,9 +228,9 @@ function DisasterPage() {
     healthFacilityExposureSummaryTA.data,
   ]);
 
-  const exposedTaChartData = useMemo(
+  const allExposedTaChartRows = useMemo(
     () =>
-      (taFloodExposure.data || [])
+      (taFloodExposureChart.data || [])
         .map((row) => ({
           ta: row.admin_unit_name,
           exposedPopulation: Number(row.exposed_population || 0),
@@ -223,12 +238,46 @@ function DisasterPage() {
           exposedPercent: Number(row.exposed_population_pct || 0),
           riskLevel: row.risk_level,
         }))
-        .filter((row) => row.exposedPopulation > 0)
-        .sort(
-          (left, right) => right.exposedPopulation - left.exposedPopulation,
-        ),
-    [taFloodExposure.data],
+        .filter((row) => row.exposedPopulation > 0),
+    [taFloodExposureChart.data],
   );
+  const exposedTaChartData = useMemo(() => {
+    const searchTerm = exposureChartSearch.trim().toLowerCase();
+    let rows = [...allExposedTaChartRows];
+
+    if (searchTerm) {
+      rows = rows.filter((row) =>
+        String(row.ta || "").toLowerCase().includes(searchTerm),
+      );
+    }
+
+    rows.sort((left, right) => {
+      if (exposureChartSort === "exposed_asc") {
+        return Number(left.exposedPopulation || 0) - Number(right.exposedPopulation || 0);
+      }
+
+      if (exposureChartSort === "percent_desc") {
+        return Number(right.exposedPercent || 0) - Number(left.exposedPercent || 0);
+      }
+
+      if (exposureChartSort === "name_asc") {
+        return String(left.ta || "").localeCompare(String(right.ta || ""));
+      }
+
+      return Number(right.exposedPopulation || 0) - Number(left.exposedPopulation || 0);
+    });
+
+    if (exposureChartLimit > 0) {
+      return rows.slice(0, exposureChartLimit);
+    }
+
+    return rows;
+  }, [
+    allExposedTaChartRows,
+    exposureChartLimit,
+    exposureChartSearch,
+    exposureChartSort,
+  ]);
 
   const maxExposedPopulation = Math.max(
     ...exposedTaChartData.map((row) => row.exposedPopulation),
@@ -564,13 +613,54 @@ function DisasterPage() {
               Traditional Authorities with flood-exposed population in the
               latest analysis.
             </p>
-            <div className="flex-1">
-              {taFloodExposure.loading ? (
+            <div className="mb-4 rounded border border-gray-100 bg-white p-3">
+              <div className="flex flex-wrap items-center gap-2">
+                {DISASTER_EXPOSURE_CHART_LIMITS.map((option) => {
+                  const isActive = option.value === exposureChartLimit;
+                  return (
+                    <button
+                      key={`disaster-exposure-limit-${option.label}`}
+                      type="button"
+                      onClick={() => setExposureChartLimit(option.value)}
+                      className={`rounded-full border px-3 py-1 text-[10px] font-bold uppercase tracking-[0.12em] transition ${
+                        isActive
+                          ? "border-gray-900 bg-gray-900 text-white"
+                          : "border-gray-200 bg-white text-gray-500 hover:text-black"
+                      }`}
+                    >
+                      {option.label}
+                    </button>
+                  );
+                })}
+                <select
+                  value={exposureChartSort}
+                  onChange={(event) => setExposureChartSort(event.target.value)}
+                  className="rounded-full border border-gray-200 bg-white px-3 py-1 text-[10px] font-bold uppercase tracking-[0.12em] text-gray-600"
+                >
+                  <option value="exposed_desc">Highest exposed</option>
+                  <option value="exposed_asc">Lowest exposed</option>
+                  <option value="percent_desc">Highest % exposed</option>
+                  <option value="name_asc">Name A-Z</option>
+                </select>
+                <input
+                  type="search"
+                  value={exposureChartSearch}
+                  onChange={(event) => setExposureChartSearch(event.target.value)}
+                  placeholder="Search TA..."
+                  className="min-w-[170px] flex-1 rounded-full border border-gray-200 px-3 py-1.5 text-xs font-semibold text-gray-700 outline-none focus:border-gray-900"
+                />
+              </div>
+              <p className="mt-2 text-[11px] font-semibold text-gray-500">
+                Showing {exposedTaChartData.length} of{" "}
+                {allExposedTaChartRows.length} exposed TAs.
+              </p>
+            </div>
+            <div className="min-h-0 flex-1">
+              {taFloodExposureChart.loading ? (
                 <ChartSkeleton />
               ) : exposedTaChartData.length === 0 ? (
                 <div className="h-full flex items-center justify-center text-center text-sm text-gray-500 px-6">
-                  No TA-level flood exposure records are available for this
-                  filter yet.
+                  No exposed TA rows match the current filters.
                 </div>
               ) : (
                 <ResponsiveContainer width="100%" height="100%">
