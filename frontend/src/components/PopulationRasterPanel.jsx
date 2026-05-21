@@ -509,7 +509,7 @@ function PopulationRasterPanel({
 
         {focusFeature ? (
           <div className="pointer-events-none absolute inset-x-2 bottom-2 z-[401] flex items-end justify-start gap-4 sm:inset-x-4 sm:bottom-4">
-            <div className="w-full max-w-[240px] rounded-xl border border-white/80 bg-white/92 px-3 py-3 shadow-md backdrop-blur-md sm:min-w-[240px] sm:max-w-none sm:rounded-2xl sm:px-5 sm:py-4">
+            <div className="min-w-[240px] max-w-[320px] rounded-xl border border-white/80 bg-white/92 px-3 py-3 shadow-md backdrop-blur-md sm:rounded-2xl sm:px-5 sm:py-4">
             <div>
               <p className="text-[10px] font-bold uppercase tracking-[0.15em] text-slate/50 leading-none mb-2.5">
                 {focusLabel}
