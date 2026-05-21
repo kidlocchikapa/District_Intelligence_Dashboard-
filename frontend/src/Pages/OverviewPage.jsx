@@ -385,12 +385,7 @@ function OverviewPage() {
       return densityMap.data;
     }
 
-    const features = (densityMap.data.features || [])
-      .filter((feature) => {
-        const name = feature?.properties?.name || "";
-        return !selectedTa || normalizeName(name) === normalizeName(selectedTa);
-      })
-      .map((feature) => {
+    const features = (densityMap.data.features || []).map((feature) => {
         const name = feature?.properties?.name || "";
         const floodStats = taFloodLookup.get(normalizeName(name)) || {};
         const featureId = Number(feature?.id);
@@ -421,7 +416,7 @@ function OverviewPage() {
       ...densityMap.data,
       features,
     };
-  }, [densityMap.data, selectedTa, taFloodLookup, taServiceLookup]);
+  }, [densityMap.data, taFloodLookup, taServiceLookup]);
 
   const exposedPopulation = Math.max(
     Math.round(Number(floodSummary.data?.exposed_population || 0)),
@@ -1085,6 +1080,7 @@ function OverviewPage() {
                 heightClass="h-full min-h-[360px] sm:min-h-[520px] w-full"
                 loading={densityMap.loading}
                 metadataUrl="/worldpop/zomba_ppp_2020.preview.json"
+                legendPositionClass="right-2 top-2 sm:right-4 sm:top-auto sm:bottom-4"
                 selectedFeatureName={selectedTa}
                 customTooltipMetrics={[
                   { key: "schools_count", label: "Schools" },
