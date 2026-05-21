@@ -2015,13 +2015,14 @@ function HealthRecommendations({
         isOpen={Boolean(metricPreview)}
         onClose={() => setMetricPreview(null)}
         title={metricPreview?.title || "Metric Preview"}
+        size="xl"
       >
         <p className="mb-4 text-sm font-semibold text-slate-600">
           Previewing records referenced by this recommendation.
         </p>
-        <div className="max-h-[55vh] overflow-auto rounded-lg border border-slate-200">
-          <table className="min-w-full divide-y divide-slate-200 text-sm">
-            <thead className="sticky top-0 bg-slate-50">
+        <div className="max-h-[68vh] overflow-auto rounded-lg border border-slate-200">
+          <table className="min-w-[900px] w-full divide-y divide-slate-200 text-sm">
+            <thead className="sticky top-0 z-10 bg-slate-50">
               <tr>
                 {(metricPreview?.columns || []).map((column) => (
                   <th
