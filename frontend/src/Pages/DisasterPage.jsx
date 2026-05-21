@@ -973,9 +973,11 @@ function DisasterPage() {
 /* ─── Disaster Recommendations ────────────────────────────────────────── */
 function DisasterRecommendations({
   disasterSummary, educationFacilityExposureSummary, healthFacilityExposureSummary,
+  educationFacilityExposureDetails, healthFacilityExposureDetails, taFloodExposure,
   educationFloodImpact, schoolsExposed, schoolsTotal, healthFacilitiesExposed,
   healthFacilitiesTotal, scopeLabel, planningPriorities,
 }) {
+  const [metricPreview, setMetricPreview] = useState(null);
   const loading = disasterSummary.loading || educationFacilityExposureSummary.loading ||
     healthFacilityExposureSummary.loading || educationFloodImpact.loading || planningPriorities.loading;
   const rankedPriorities = planningPriorities?.data?.priorities || [];
