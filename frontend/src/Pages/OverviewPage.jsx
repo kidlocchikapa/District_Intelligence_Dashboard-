@@ -40,6 +40,7 @@ const PRIORITY_BAND_CLASSES = {
   Watch: "border-slate-200 bg-slate-50 text-slate-700",
 };
 const COMPARISON_COLORS = ["#c2410c", "#2563eb", "#7c3aed", "#0f766e"];
+const OVERVIEW_CHART_SKELETON_HEIGHTS = [24, 36, 41, 58, 49, 65, 33, 45];
 
 function getPopulationBarColor(value, maxPopulation) {
   if (!Number.isFinite(value) || maxPopulation <= 0) {
@@ -249,10 +250,13 @@ function OverviewPage() {
     return lookup;
   }, [taServiceStats.data]);
 
-  const priorityRows =
-    planningPriorities.data?.all_priorities ||
-    planningPriorities.data?.priorities ||
-    [];
+  const priorityRows = useMemo(
+    () =>
+      planningPriorities.data?.all_priorities ??
+      planningPriorities.data?.priorities ??
+      [],
+    [planningPriorities.data],
+  );
 
   const priorityLookup = useMemo(() => {
     const lookup = new Map();
@@ -1070,11 +1074,11 @@ function OverviewPage() {
                 <div className="h-full w-full flex flex-col gap-4 animate-pulse">
                   <div className="flex-1 bg-gray-50 rounded-lg relative overflow-hidden">
                     <div className="absolute inset-0 flex items-end justify-around px-4 pb-4">
-                      {[...Array(8)].map((_, index) => (
+                      {OVERVIEW_CHART_SKELETON_HEIGHTS.map((height, index) => (
                         <div
                           key={index}
                           className="w-8 bg-gray-200 rounded-t"
-                          style={{ height: `${Math.random() * 60 + 20}%` }}
+                          style={{ height: `${height}%` }}
                         ></div>
                       ))}
                     </div>
