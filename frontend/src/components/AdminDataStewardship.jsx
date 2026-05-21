@@ -573,10 +573,6 @@ export default function AdminDataStewardship({ department, deptConfig }) {
   );
 
   const columns = selectedTable?.columns || deptConfig.columns || [];
-  const mobileColumns = useMemo(
-    () => columns.slice(0, Math.min(columns.length, 6)),
-    [columns],
-  );
 
   useEffect(() => {
     setSelectedTableId(tables[0]?.id || "");
