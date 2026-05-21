@@ -73,7 +73,7 @@ function PopulationRasterPanel({
 
   const defaultBounds = metadata?.bounds;
   const legend = metadata?.legend || null;
-  const features = geojson?.features || [];
+  const features = useMemo(() => geojson?.features || [], [geojson?.features]);
   const findFeatureByName = useCallback((featureName) => {
     if (!featureName) {
       return null;
@@ -251,18 +251,6 @@ function PopulationRasterPanel({
     );
   }
 
-  function resolveLegendLabel(rawLabel) {
-    if (!rawLabel) {
-      return "Raster surface";
-    }
-
-    if (/estimated people per grid cell/i.test(rawLabel)) {
-      return "People per grid cell";
-    }
-
-    return String(rawLabel);
-  }
-
   const tooltipMetrics = customTooltipMetrics && customTooltipMetrics.length
     ? customTooltipMetrics
     : [
@@ -284,6 +272,20 @@ function PopulationRasterPanel({
     hoveredFeatureName ||
     null;
   const focusLabel = hoveredFeature ? "Hovering Area" : "Selected Area";
+  const baseTooltipMetrics = [
+    {
+      key: "population_total",
+      label: "Population",
+      show: focusProperties.population_total !== undefined,
+    },
+    {
+      key: "population_density",
+      label: "Density",
+      digits: 1,
+      show: focusProperties.population_density !== undefined,
+    },
+  ];
+  const visibleBaseTooltipMetrics = baseTooltipMetrics.filter((metric) => metric.show);
 
   function legendBackground(colors = []) {
     if (!Array.isArray(colors) || !colors.length) {
@@ -513,22 +515,19 @@ function PopulationRasterPanel({
                     {focusName}
                   </p>
                   <div className="grid grid-cols-2 gap-3 text-[11px] font-semibold text-slate/65">
-                    <div>
-                      <p className="uppercase tracking-[0.12em] text-slate/40">
-                        Population
-                      </p>
-                      <p className="mt-1 text-[14px] font-black text-slate">
-                        {formatStat(focusProperties.population_total)}
-                      </p>
-                    </div>
-                    <div>
-                      <p className="uppercase tracking-[0.12em] text-slate/40">
-                        Density
-                      </p>
-                      <p className="mt-1 text-[14px] font-black text-slate">
-                        {formatStat(focusProperties.population_density, 1)}
-                      </p>
-                    </div>
+                    {visibleBaseTooltipMetrics.map((metric) => (
+                      <div key={metric.key}>
+                        <p className="uppercase tracking-[0.12em] text-slate/40">
+                          {metric.label}
+                        </p>
+                        <p className="mt-1 text-[14px] font-black text-slate">
+                          {formatStat(
+                            focusProperties[metric.key],
+                            metric.digits || 0,
+                          )}
+                        </p>
+                      </div>
+                    ))}
                     {tooltipMetrics.map((metric) =>
                       focusProperties[metric.key] !== undefined ? (
                         <div key={metric.key}>
