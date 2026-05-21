@@ -33,7 +33,7 @@ import SharedDistrictSelector from "../components/SharedDistrictSelector";
 import { buildDashboardPath } from "../lib/query";
 import PopulationRasterPanel from "../components/PopulationRasterPanel";
 import InteractiveRecommendations from "../components/InteractiveRecommendations";
-import Modal from "../components/Modal";
+import MetricPreviewModal from "../components/MetricPreviewModal";
 
 function formatTaAxisLabel(value) {
   if (!value) {
@@ -1425,63 +1425,10 @@ function DisasterRecommendations({
         sectionKey={`disaster:${scopeLabel}`}
       />
 
-      <Modal
-        isOpen={Boolean(metricPreview)}
+      <MetricPreviewModal
+        metricPreview={metricPreview}
         onClose={() => setMetricPreview(null)}
-        title={metricPreview?.title || "Metric Preview"}
-      >
-        <p className="mb-4 text-sm font-semibold text-slate-600">
-          Previewing records behind this recommendation metric.
-        </p>
-        <div className="max-h-[55vh] overflow-auto rounded-lg border border-slate-200">
-          <table className="min-w-full divide-y divide-slate-200 text-sm">
-            <thead className="sticky top-0 bg-slate-50">
-              <tr>
-                {(metricPreview?.columns || []).map((column) => (
-                  <th
-                    key={column.key}
-                    className="px-3 py-2 text-left text-[11px] font-bold uppercase tracking-wide text-slate-500"
-                  >
-                    {column.label || column.key}
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100 bg-white">
-              {(metricPreview?.rows || []).length ? (
-                (metricPreview?.rows || []).map((row, rowIndex) => (
-                  <tr key={row.id || `row-${rowIndex}`}>
-                    {(metricPreview?.columns || []).map((column) => (
-                      <td
-                        key={`${row.id || rowIndex}-${column.key}`}
-                        className={`px-3 py-2 ${
-                          column.key === "facilityName" ||
-                          column.key === "adminUnit" ||
-                          column.key === "ta" ||
-                          column.key === "metric"
-                            ? "font-semibold text-slate-900"
-                            : "text-slate-700"
-                        }`}
-                      >
-                        {row[column.key] ?? "-"}
-                      </td>
-                    ))}
-                  </tr>
-                ))
-              ) : (
-                <tr>
-                  <td
-                    colSpan={Math.max((metricPreview?.columns || []).length, 1)}
-                    className="px-3 py-8 text-center text-sm font-semibold text-slate-400"
-                  >
-                    No preview records available for this metric.
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-        </div>
-      </Modal>
+      />
     </div>
   );
 }
