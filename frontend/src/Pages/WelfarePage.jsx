@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { toast } from "react-hot-toast";
 import {
   UserCheck,
   Heart,
@@ -11,9 +12,25 @@ import { useDashboardData } from "../hooks/useDashboardData";
 import { useDistrict } from "../context/DistrictContext";
 import { usePdfExport } from "../hooks/usePdfExport";
 import { buildDashboardPath } from "../lib/query";
+import { formatNumber } from "../lib/format";
 import DataTable from "../components/DataTable";
 import MapPanel from "../components/MapPanel";
 import SharedDistrictSelector from "../components/SharedDistrictSelector";
+
+function formatMinutes(value) {
+  const mins = Number(value);
+  if (!Number.isFinite(mins) || mins <= 0) return "—";
+  if (mins < 60) return `${Math.round(mins)} min`;
+  const h = Math.floor(mins / 60);
+  const m = Math.round(mins % 60);
+  return m > 0 ? `${h}h ${m}min` : `${h}h`;
+}
+
+function formatDistanceKm(value) {
+  const km = Number(value);
+  if (!Number.isFinite(km) || km <= 0) return "—";
+  return km < 1 ? `${Math.round(km * 1000)} m` : `${formatNumber(km, 1)} km`;
+}
 import {
   Bar,
   BarChart,
@@ -38,23 +55,6 @@ function formatWholeNumber(value) {
 
 function formatPercent(value) {
   return `${Number(value || 0).toFixed(1)}%`;
-}
-
-function formatDistanceKm(value) {
-  return `${Number(value || 0).toFixed(1)} km`;
-}
-
-function formatMinutes(value) {
-  const minutes = Number(value || 0);
-  if (!Number.isFinite(minutes)) {
-    return "0 min";
-  }
-
-  if (minutes < 1) {
-    return "<1 min";
-  }
-
-  return `${minutes.toFixed(1)} min`;
 }
 
 function formatTaAxisLabel(value) {
@@ -147,7 +147,7 @@ function StatCard({ label, value, icon: Icon, helper }) {
 
 function WelfarePage() {
   const { selectedDistrict, selectedTa, setSelectedTa } = useDistrict();
-  const { contentRef, exportPdf } = usePdfExport("Welfare_Integration_Report.pdf");
+  const { contentRef, exportDataPdf } = usePdfExport("Welfare_Integration_Report.pdf");
   const [adminType, setAdminType] = useState("TA");
   const [areaSearch, setAreaSearch] = useState("");
   const [beneficiarySearch, setBeneficiarySearch] = useState("");
@@ -201,6 +201,35 @@ function WelfarePage() {
     : selectedDistrict
       ? selectedDistrict
       : "all TAs";
+
+  const handleDownloadReport = async () => {
+    const currentSummary = summary || {};
+    const rows = Object.entries(currentSummary).map(([key, value]) => ({
+      metric: key.replace(/_/g, " "),
+      value: formatNumber(value, 0),
+    }));
+
+    await exportDataPdf({
+      title: "Social Welfare Area Analysis",
+      selectedArea: selectedTa
+        ? `TA: ${selectedTa}`
+        : selectedDistrict
+          ? `District: ${selectedDistrict}`
+          : "National",
+      sections: [
+        {
+          title: "Welfare Summary",
+          columns: [
+            { key: "metric", label: "Metric", width: 260 },
+            { key: "value", label: "Value", width: 180 },
+          ],
+          rows: rows.length > 0 ? rows : [
+            { metric: "Welfare summary", value: "No data available" },
+          ],
+        },
+      ],
+    });
+  };
 
   const pieData = programBreakdown.map((item) => ({
     name: item.program_name,
@@ -538,11 +567,11 @@ function WelfarePage() {
 
         <div className="flex flex-wrap gap-4 mb-8">
           <button
-            onClick={exportPdf}
+            onClick={handleDownloadReport}
             className="flex items-center gap-2 border border-gray-300 rounded px-3 py-1.5 text-[13px] font-bold hover:bg-gray-50 transition-all shadow-sm active:scale-95"
           >
             <Download className="h-4 w-4" />
-            Download PDF
+            Download Area Analysis
           </button>
           <SharedDistrictSelector />
 
@@ -772,6 +801,10 @@ function WelfarePage() {
                     className="h-20 rounded border border-gray-100 bg-gray-50 animate-pulse"
                   />
                 ))
+              ) : decisionSignals.length === 0 ? (
+                <div className="rounded border border-dashed border-gray-200 bg-gray-50 px-4 py-5 text-sm font-semibold text-gray-500">
+                  No decision signals are available for the current filters.
+                </div>
               ) : (
                 decisionSignals.map((signal, index) => (
                   <div
@@ -977,11 +1010,17 @@ function WelfarePage() {
             Integration Notes
           </h3>
           <div className="space-y-3">
-            {notes.map((note, index) => (
-              <p key={index} className="text-[13px] leading-6 text-gray-600">
-                {note}
+            {notes.length ? (
+              notes.map((note, index) => (
+                <p key={index} className="text-[13px] leading-6 text-gray-600">
+                  {note}
+                </p>
+              ))
+            ) : (
+              <p className="rounded border border-dashed border-gray-200 bg-gray-50 px-4 py-4 text-sm font-semibold text-gray-500">
+                No integration notes are available for the current filters.
               </p>
-            ))}
+            )}
           </div>
         </div>
       </div>

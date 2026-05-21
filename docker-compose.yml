@@ -36,15 +36,18 @@ services:
       dockerfile: Dockerfile
       target: backend
     container_name: district_intelligent_backend
+    depends_on:
+      db:
+        condition: service_healthy
     ports:
       - "5000:5000"
     environment:
       PORT: ${PORT:-5000}
       ETL_PYTHON_PATH: python3
       NODE_ENV: development
-      DATABASE_URL: ${DATABASE_URL:-}
+      DATABASE_URL: postgresql://neondb_owner:npg_nu1XedysBE6t@ep-tiny-paper-a8teost8-pooler.eastus2.azure.neon.tech/District_Intelligence_dashboard?sslmode=require&channel_binding=require
       DB_HOST: db
-      DB_PORT: ${DB_PORT:-5432}
+      DB_PORT: 5432
       DB_NAME: ${DB_NAME:-district_intelligence}
       DB_USER: ${DB_USER:-district_user}
       DB_PASSWORD: ${DB_PASSWORD:-district_password}
@@ -56,7 +59,7 @@ services:
       - 8.8.8.8
     volumes:
       - ./uploads:/app/uploads
-    command: ["sh", "-c", "cd /app/backend && npm run dev"]
+    command: ["sh", "-c", "cd /app/backend && node init-db.js && npm run dev"]
     develop:
       watch:
         - action: sync
@@ -88,7 +91,10 @@ services:
     restart: unless-stopped
 
   db:
-    image: postgis/postgis:15-3.3
+    build:
+      context: .
+      dockerfile: database/Dockerfile
+    image: district_intelligence_postgis_pgrouting:15-3.3
     container_name: district_intelligent_db
     environment:
       POSTGRES_USER: ${DB_USER:-district_user}
@@ -96,6 +102,11 @@ services:
       POSTGRES_DB: ${DB_NAME:-district_intelligence}
     ports:
       - "5433:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-district_user} -d ${DB_NAME:-district_intelligence}"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
     volumes:
       - pgdata:/var/lib/postgresql/data
     restart: unless-stopped

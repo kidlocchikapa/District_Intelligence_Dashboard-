@@ -1,5 +1,6 @@
 import {
   useMemo,
+  useState,
 } from "react";
 import {
   Download,
@@ -9,6 +10,7 @@ import {
   HeartPulse,
   Accessibility,
 } from "lucide-react";
+import { toast } from "react-hot-toast";
 import { useDashboardData } from "../hooks/useDashboardData";
 import { useDistrict } from "../context/DistrictContext";
 import { buildDashboardPath } from "../lib/query";
@@ -31,6 +33,11 @@ import {
 } from "recharts";
 
 const COLORS = ["#4A72E4", "#F4B41A", "#3BB182", "#6974D6"];
+const OVERVIEW_CHART_LIMITS = [
+  { value: 12, label: "Top 12" },
+  { value: 24, label: "Top 24" },
+  { value: 0, label: "All" },
+];
 
 function getPopulationBarColor(value, maxPopulation) {
   if (!Number.isFinite(value) || maxPopulation <= 0) {
@@ -71,6 +78,9 @@ function formatTaAxisLabel(value) {
 
 function OverviewPage() {
   const { selectedDistrict, selectedTa, setSelectedTa } = useDistrict();
+  const [chartSearch, setChartSearch] = useState("");
+  const [chartLimit, setChartLimit] = useState(24);
+  const [chartSortMode, setChartSortMode] = useState("population_desc");
   const districtScope = selectedDistrict || "";
   const scopeLabel = selectedTa
     ? selectedTa
@@ -116,12 +126,65 @@ function OverviewPage() {
     }),
   );
 
+  const educationSummary = useDashboardData(
+    buildDashboardPath("/dashboard/education/summary", {
+      district: districtScope,
+      ta: selectedTa,
+      admin_type: selectedTa ? "TA" : "District",
+    }),
+  );
+
+  const healthSummary = useDashboardData(
+    buildDashboardPath("/dashboard/health/summary", {
+      district: districtScope,
+      ta: selectedTa,
+      admin_type: selectedTa ? "TA" : "District",
+    }),
+  );
+
+  const welfareIntegration = useDashboardData(
+    buildDashboardPath("/dashboard/welfare/integration", {
+      district: districtScope,
+      ta: selectedTa,
+      admin_type: selectedTa ? "TA" : "District",
+      preview_limit: 0,
+    }),
+  );
+
   const chartData = (populationDistribution.data || []).map((item) => ({
     admin3Id: item.admin3_id,
     admin3: item.admin3_name,
     district: item.district,
     population: item.population,
   }));
+  const filteredChartData = useMemo(() => {
+    const searchTerm = chartSearch.trim().toLowerCase();
+    let rows = [...chartData];
+
+    if (searchTerm) {
+      rows = rows.filter((item) =>
+        String(item.admin3 || "").toLowerCase().includes(searchTerm),
+      );
+    }
+
+    rows.sort((left, right) => {
+      if (chartSortMode === "population_asc") {
+        return Number(left.population || 0) - Number(right.population || 0);
+      }
+
+      if (chartSortMode === "label_asc") {
+        return String(left.admin3 || "").localeCompare(String(right.admin3 || ""));
+      }
+
+      return Number(right.population || 0) - Number(left.population || 0);
+    });
+
+    if (chartLimit > 0) {
+      return rows.slice(0, chartLimit);
+    }
+
+    return rows;
+  }, [chartData, chartLimit, chartSearch, chartSortMode]);
   const selectedTaChartRow = chartData.find(
     (item) =>
       selectedTa &&
@@ -168,10 +231,6 @@ function OverviewPage() {
     }
 
     const features = (densityMap.data.features || [])
-      .filter((feature) => {
-        const name = feature?.properties?.name || "";
-        return !selectedTa || name.toLowerCase() === selectedTa.toLowerCase();
-      })
       .map((feature) => {
         const name = feature?.properties?.name || "";
         const floodStats = taFloodLookup.get(name.toLowerCase()) || {};
@@ -203,7 +262,7 @@ function OverviewPage() {
       ...densityMap.data,
       features,
     };
-  }, [densityMap.data, selectedTa, taFloodLookup, taServiceLookup]);
+  }, [densityMap.data, taFloodLookup, taServiceLookup]);
 
   const selectTa = (taName) => {
     setSelectedTa(taName || "");
@@ -222,18 +281,124 @@ function OverviewPage() {
     { name: "Not Exposed", value: notExposedPopulation },
   ].filter((entry) => entry.value > 0);
   const maxPopulation = Math.max(
-    ...chartData.map((item) => Number(item.population) || 0),
+    ...filteredChartData.map((item) => Number(item.population) || 0),
     0,
   );
 
-  const { contentRef, exportPdf } = usePdfExport("Overview_Report.pdf");
+  const formatStat = (val) => {
+    if (!val && val !== 0) return "0";
+    return Number(val).toLocaleString(undefined, { maximumFractionDigits: 0 });
+  };
+
+  const { exportDataPdf } = usePdfExport("Overview_AreaAnalysis.pdf");
   const { targetRef: mapRef, downloadImage } = useImageDownload(
     "Zomba_Overview_Map.png",
   );
 
-  const formatStat = (val) => {
-    if (!val) return "0";
-    return Number(val).toLocaleString(undefined, { maximumFractionDigits: 0 });
+  const handleDownloadReport = async () => {
+    if (!selectedDistrict && !selectedTa) {
+      toast.error("Select a district or TA first to download area analysis.");
+      return;
+    }
+
+    const selectedAreaName = selectedTa
+      ? `TA: ${selectedTa}`
+      : `District: ${selectedDistrict}`;
+
+    const educationData = educationSummary.data || {};
+    const healthRows = Array.isArray(healthSummary.data)
+      ? healthSummary.data.map((row) => ({
+          metric: row.metric_name,
+          value: row.metric_value,
+        }))
+      : [];
+
+    const welfareSummary = welfareIntegration.data?.summary || {};
+    const welfareRows = Object.entries(welfareSummary).map(([key, value]) => ({
+      metric: key.replace(/_/g, " "),
+      value: formatStat(value),
+    }));
+
+    const disasterRows = [
+      { metric: "Flood Exposed Population", value: formatStat(exposedPopulation) },
+      { metric: "Not Exposed Population", value: formatStat(notExposedPopulation) },
+    ];
+
+    const sections = [
+      {
+        title: "Population",
+        columns: [
+          { key: "metric", label: "Metric", width: 260 },
+          { key: "value", label: "Value", width: 180 },
+        ],
+        rows: [
+          {
+            metric: "Estimated Population",
+            value: formatStat(summary.data?.total_estimated_population || 0),
+          },
+          {
+            metric: "Total Population Density",
+            value: formatStat(summary.data?.total_population_density || 0),
+          },
+          {
+            metric: "Flood Exposed Population",
+            value: formatStat(exposedPopulation),
+          },
+          {
+            metric: "Not Exposed Population",
+            value: formatStat(notExposedPopulation),
+          },
+        ],
+      },
+      {
+        title: "Education",
+        columns: [
+          { key: "metric", label: "Metric", width: 260 },
+          { key: "value", label: "Value", width: 180 },
+        ],
+        rows: [
+          { metric: "School Count", value: formatStat(educationData.school_count || 0) },
+          { metric: "Student Enrollment", value: formatStat(educationData.student_enrollment_total || 0) },
+          { metric: "Teacher Count", value: formatStat(educationData.teacher_count_total || 0) },
+          { metric: "School Age Population", value: formatStat(educationData.school_age_population_total || 0) },
+          { metric: "Out-of-School Population", value: formatStat(educationData.not_in_school_total || 0) },
+        ],
+      },
+      {
+        title: "Health",
+        columns: [
+          { key: "metric", label: "Metric", width: 260 },
+          { key: "value", label: "Value", width: 180 },
+        ],
+        rows: healthRows.length > 0 ? healthRows : [
+          { metric: "Health metrics", value: "No data available" },
+        ],
+      },
+      {
+        title: "Social Welfare",
+        columns: [
+          { key: "metric", label: "Metric", width: 260 },
+          { key: "value", label: "Value", width: 180 },
+        ],
+        rows: welfareRows.length > 0 ? welfareRows : [
+          { metric: "Welfare metrics", value: "No data available" },
+        ],
+      },
+      {
+        title: "Disaster Risk",
+        columns: [
+          { key: "metric", label: "Metric", width: 260 },
+          { key: "value", label: "Value", width: 180 },
+        ],
+        rows: disasterRows,
+      },
+    ];
+
+    await exportDataPdf({
+      title: "Selected Area Sector Analysis",
+      selectedArea: selectedAreaName,
+      sections,
+    });
   };
 
   const StatCardSkeleton = () => (
@@ -263,10 +428,7 @@ function OverviewPage() {
   );
 
   return (
-    <div
-      ref={contentRef}
-      className="min-h-screen bg-white text-black font-sans pb-10"
-    >
+    <div className="min-h-screen bg-white text-black font-sans pb-10">
       {/* Header Area */}
       <div className="flex items-center gap-4 px-8 py-8 border-b border-gray-200">
         <h1 className="text-[28px] font-extrabold tracking-tight">OVERVIEW</h1>
@@ -284,11 +446,13 @@ function OverviewPage() {
         {/* Actions Row */}
         <div className="flex gap-4 mb-8">
           <button
-            onClick={exportPdf}
-            className="flex items-center gap-2 border border-gray-300 rounded px-3 py-1.5 text-[13px] font-bold hover:bg-gray-50 transition-all shadow-sm active:scale-95"
+            onClick={handleDownloadReport}
+            disabled={(!selectedDistrict && !selectedTa) || summary.loading}
+            title={selectedDistrict || selectedTa ? "Download analysis for selected area" : "Select a district or TA first"}
+            className="flex items-center gap-2 border border-gray-300 rounded px-3 py-1.5 text-[13px] font-bold hover:bg-gray-50 transition-all shadow-sm active:scale-95 disabled:cursor-not-allowed disabled:opacity-50"
           >
             <Download className="h-4 w-4" />
-            Download PDF
+            Download Area Analysis
           </button>
           <button
             onClick={downloadImage}
@@ -356,7 +520,7 @@ function OverviewPage() {
 
         {/* Middle Row (Map + Bar Chart) */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-10">
-          <div className="border border-gray-100 rounded p-8 shadow-sm bg-white flex flex-col h-[640px]">
+          <div className="border border-gray-100 rounded p-8 shadow-sm bg-white flex flex-col h-160">
             <h3 className="text-[16px] font-extrabold mb-6">
               {selectedTa ? `${selectedTa} Map Overview` : "TA Map Overview"}
             </h3>
@@ -391,7 +555,7 @@ function OverviewPage() {
             </div>
           </div>
 
-          <div className="border border-gray-100 rounded p-8 shadow-sm bg-white flex flex-col min-h-[460px]">
+          <div className="border border-gray-100 rounded p-8 shadow-sm bg-white flex flex-col min-h-115">
             <h3 className="text-[16px] font-extrabold mb-6">
               {selectedTa ? `Population for ${selectedTa}` : "Population by TA"}
             </h3>
@@ -400,13 +564,53 @@ function OverviewPage() {
                 ? `${selectedTa} is highlighted; click another bar to sync the map and overview metrics.`
                 : "Showing TA-level population totals. Click a bar to sync the map and overview metrics."}
             </p>
+            <div className="mb-4 flex flex-col gap-3">
+              <div className="flex flex-wrap gap-2">
+                {OVERVIEW_CHART_LIMITS.map((option) => {
+                  const isActive = option.value === chartLimit;
+                  return (
+                    <button
+                      key={`overview-limit-${option.label}`}
+                      type="button"
+                      onClick={() => setChartLimit(option.value)}
+                      className={`rounded-full border px-3 py-1.5 text-[11px] font-bold uppercase tracking-[0.12em] transition ${
+                        isActive
+                          ? "border-gray-900 bg-gray-900 text-white"
+                          : "border-gray-200 bg-white text-gray-500 hover:text-black"
+                      }`}
+                    >
+                      {option.label}
+                    </button>
+                  );
+                })}
+                <select
+                  value={chartSortMode}
+                  onChange={(event) => setChartSortMode(event.target.value)}
+                  className="rounded-full border border-gray-200 bg-white px-3 py-1.5 text-[11px] font-bold uppercase tracking-[0.12em] text-gray-600"
+                >
+                  <option value="population_desc">Highest first</option>
+                  <option value="population_asc">Lowest first</option>
+                  <option value="label_asc">Name A-Z</option>
+                </select>
+              </div>
+              <input
+                type="search"
+                value={chartSearch}
+                onChange={(event) => setChartSearch(event.target.value)}
+                placeholder="Search TA..."
+                className="w-full rounded-full border border-gray-200 px-4 py-2 text-sm font-semibold text-gray-700 outline-none focus:border-gray-900"
+              />
+              <p className="text-xs font-semibold text-gray-500">
+                Showing {filteredChartData.length} of {chartData.length} TAs.
+              </p>
+            </div>
             <div className="flex-1">
               {populationDistribution.loading ? (
                 <ChartSkeleton />
-              ) : (
+              ) : filteredChartData.length ? (
                 <ResponsiveContainer width="100%" height="100%">
                   <BarChart
-                    data={chartData}
+                    data={filteredChartData}
                     margin={{ top: 20, right: 20, left: 12, bottom: 92 }}
                   >
                     <CartesianGrid
@@ -459,7 +663,7 @@ function OverviewPage() {
                       activeBar={<Rectangle fill="#7e22ce" />}
                       onClick={(entry) => selectTa(entry?.admin3 || "")}
                     >
-                      {chartData.map((entry) => {
+                      {filteredChartData.map((entry) => {
                         const isSelected =
                           selectedTa &&
                           entry.admin3.toLowerCase() ===
@@ -486,6 +690,10 @@ function OverviewPage() {
                     </Bar>
                   </BarChart>
                 </ResponsiveContainer>
+              ) : (
+                <div className="flex h-full items-center justify-center rounded border border-dashed border-gray-200 bg-gray-50 text-sm font-semibold text-gray-400">
+                  No rows match the current chart filters.
+                </div>
               )}
             </div>
           </div>
@@ -497,7 +705,7 @@ function OverviewPage() {
             Flood Exposure Distribution for {scopeLabel}
           </h3>
           <div className="w-full flex flex-col md:flex-row items-center justify-start gap-16">
-            <div className="h-[280px] w-full md:w-[400px]">
+            <div className="h-70 w-full md:w-100">
               {floodSummary.loading ? (
                 <div className="flex items-center justify-center h-full text-gray-400">
                   Loading flood exposure data...

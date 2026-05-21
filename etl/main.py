@@ -1115,6 +1115,7 @@ def main():
                 raster_path=args.file,
                 api_url=args.api_url,
                 year=args.worldpop_year,
+                coverage_distance_km=args.coverage_distance_km,
                 grid_size_m=args.grid_size_m,
             )
         else:

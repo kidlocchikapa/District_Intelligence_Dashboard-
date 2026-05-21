@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import "leaflet/dist/leaflet.css";
-import { GeoJSON, ImageOverlay, MapContainer, ZoomControl, useMap } from "react-leaflet";
+import { CircleMarker, GeoJSON, ImageOverlay, MapContainer, Tooltip, ZoomControl, useMap } from "react-leaflet";
 import { useDistrict } from "../context/DistrictContext";
 import { getGeoBounds } from "../lib/geo";
 import EmptyState from "./EmptyState";
@@ -11,6 +11,7 @@ function MapFitter({ bounds }) {
   const map = useMap();
   useEffect(() => {
     if (bounds && bounds[0][0] !== Infinity) {
+      map.invalidateSize();
       map.fitBounds(bounds, { padding: [20, 20], maxZoom: 12 });
     }
   }, [bounds, map]);
@@ -19,6 +20,7 @@ function MapFitter({ bounds }) {
 
 function PopulationRasterPanel({
   geojson,
+  pointsGeojson,
   title,
   subtitle,
   metadataUrl = DEFAULT_METADATA_URL,
@@ -30,14 +32,19 @@ function PopulationRasterPanel({
   hoveredFeatureName,
   featureNameResolver,
   customTooltipMetrics,
+  pointLayerLabel,
+  showPointLayerToggle = true,
 }) {
   const { selectedDistrict, setSelectedDistrict } = useDistrict();
   const [metadata, setMetadata] = useState(null);
   const [hoveredDistrict, setHoveredDistrict] = useState(null);
+  const [showPointLayer, setShowPointLayer] = useState(true);
   const [error, setError] = useState(null);
 
   useEffect(() => {
     let ignore = false;
+    setMetadata(null);
+    setError(null);
 
     async function loadMetadata() {
       try {
@@ -66,7 +73,7 @@ function PopulationRasterPanel({
 
   const defaultBounds = metadata?.bounds;
   const legend = metadata?.legend || null;
-  const features = geojson?.features || [];
+  const features = useMemo(() => geojson?.features || [], [geojson?.features]);
   const findFeatureByName = useCallback((featureName) => {
     if (!featureName) {
       return null;
@@ -93,9 +100,8 @@ function PopulationRasterPanel({
     return findFeatureByName(selectedFeatureName);
   }, [findFeatureByName, selectedFeatureName]);
   const hoveredFeature = useMemo(() => {
-    return findFeatureByName(hoveredFeatureName);
-  }, [findFeatureByName, hoveredFeatureName]);
-  const detailFeature = selectedFeature || hoveredFeature;
+    return findFeatureByName(hoveredFeatureName || hoveredDistrict);
+  }, [findFeatureByName, hoveredDistrict, hoveredFeatureName]);
   const activeBounds = useMemo(() => {
     if (!metadata) {
       return null;
@@ -118,13 +124,45 @@ function PopulationRasterPanel({
       [bounds.maxLat, bounds.maxLon],
     ];
   }, [defaultBounds, features, metadata, selectedFeature]);
+  const pointFeatures = useMemo(() => {
+    return (pointsGeojson?.features || []).filter(
+      (feature) =>
+        feature?.geometry?.type === "Point" &&
+        Array.isArray(feature.geometry.coordinates) &&
+        feature.geometry.coordinates.length >= 2,
+    );
+  }, [pointsGeojson]);
+  const hasPointLayer = pointFeatures.length > 0;
+  const resolvedPointLayerLabel = useMemo(() => {
+    if (pointLayerLabel) {
+      return pointLayerLabel;
+    }
 
-  const selectedProperties = detailFeature?.properties || {};
-  const selectedName =
-    selectedProperties.admin_unit_name ||
-    selectedProperties.name ||
-    selectedFeatureName ||
-    hoveredFeatureName;
+    const hasSchoolPoints = pointFeatures.some((feature) => {
+      const properties = feature?.properties || {};
+      return properties.school_name || properties.school_id;
+    });
+
+    if (hasSchoolPoints) {
+      return "Schools";
+    }
+
+    const hasHospitalPoints = pointFeatures.some((feature) => {
+      const properties = feature?.properties || {};
+      return (
+        properties.facility_name ||
+        properties.hospital_name ||
+        properties.doctor_count !== undefined ||
+        properties.nurse_midwife_count !== undefined
+      );
+    });
+
+    if (hasHospitalPoints) {
+      return "Hospitals";
+    }
+
+    return "Points";
+  }, [pointFeatures, pointLayerLabel]);
 
   const hasHeader = Boolean(title || subtitle);
   const wrapperClassName = hasHeader
@@ -157,7 +195,7 @@ function PopulationRasterPanel({
           </div>
         ) : null}
         <div
-          className={`relative ${heightClass} min-h-0 overflow-hidden rounded-[1.5rem] border border-fog bg-[#f8f8f3]`}
+          className={`relative isolate ${heightClass} min-h-0 overflow-hidden rounded-[1.5rem] border border-fog bg-[#f8f8f3]`}
         >
           <div className="absolute inset-0 animate-pulse bg-gradient-to-br from-[#f7f7ef] via-white to-[#f0f8e9]" />
         </div>
@@ -165,9 +203,33 @@ function PopulationRasterPanel({
     );
   }
 
-  const imageUrl = metadata.image.startsWith("/")
-    ? metadata.image
-    : `${metadataUrl.slice(0, metadataUrl.lastIndexOf("/") + 1)}${metadata.image}`;
+  const hasValidBounds =
+    Array.isArray(defaultBounds) &&
+    defaultBounds.length === 2 &&
+    Array.isArray(defaultBounds[0]) &&
+    Array.isArray(defaultBounds[1]) &&
+    defaultBounds[0].length === 2 &&
+    defaultBounds[1].length === 2;
+
+  const metadataImage =
+    typeof metadata?.image === "string" && metadata.image.length
+      ? metadata.image
+      : null;
+
+  const imageUrl = metadataImage
+    ? metadataImage.startsWith("/")
+      ? metadataImage
+      : `${metadataUrl.slice(0, metadataUrl.lastIndexOf("/") + 1)}${metadataImage}`
+    : null;
+
+  if (!hasValidBounds) {
+    return (
+      <EmptyState
+        title={title}
+        description="Raster preview metadata is missing map bounds."
+      />
+    );
+  }
 
   function getFeatureName(feature) {
     if (typeof featureNameResolver === "function") {
@@ -189,18 +251,6 @@ function PopulationRasterPanel({
     );
   }
 
-  function resolveLegendLabel(rawLabel) {
-    if (!rawLabel) {
-      return "Raster surface";
-    }
-
-    if (/estimated people per grid cell/i.test(rawLabel)) {
-      return "People per grid cell";
-    }
-
-    return String(rawLabel);
-  }
-
   const tooltipMetrics = customTooltipMetrics && customTooltipMetrics.length
     ? customTooltipMetrics
     : [
@@ -215,31 +265,27 @@ function PopulationRasterPanel({
         },
       ];
 
-  const metricItems = [
+  const focusFeature = hoveredFeature || selectedFeature;
+  const focusProperties = focusFeature?.properties || {};
+  const focusName =
+    (focusFeature ? getFeatureName(focusFeature) : null) ||
+    hoveredFeatureName ||
+    null;
+  const focusLabel = hoveredFeature ? "Hovering Area" : "Selected Area";
+  const baseTooltipMetrics = [
     {
       key: "population_total",
       label: "Population",
-      value: formatStat(selectedProperties.population_total),
+      show: focusProperties.population_total !== undefined,
     },
     {
       key: "population_density",
       label: "Density",
-      value: formatStat(selectedProperties.population_density, 1),
+      digits: 1,
+      show: focusProperties.population_density !== undefined,
     },
-    ...tooltipMetrics
-      .filter((metric) => selectedProperties[metric.key] !== undefined)
-      .map((metric) => ({
-        key: metric.key,
-        label: metric.label,
-        value:
-          metric.format === "pct"
-            ? `${formatStat(
-                selectedProperties[metric.key],
-                metric.digits ?? 1,
-              )}%`
-            : formatStat(selectedProperties[metric.key], metric.digits || 0),
-      })),
   ];
+  const visibleBaseTooltipMetrics = baseTooltipMetrics.filter((metric) => metric.show);
 
   function legendBackground(colors = []) {
     if (!Array.isArray(colors) || !colors.length) {
@@ -261,8 +307,21 @@ function PopulationRasterPanel({
         </div>
       ) : null}
       <div
-        className={`relative ${heightClass} min-h-0 overflow-hidden rounded-[1.5rem] border border-fog bg-[#f8f8f3] group`}
+        className={`relative isolate ${heightClass} min-h-0 overflow-hidden rounded-[1.5rem] border border-fog bg-[#f8f8f3] group`}
       >
+        {showPointLayerToggle && hasPointLayer ? (
+          <div className="absolute top-4 left-4 z-[402]">
+            <button
+              type="button"
+              onClick={() => setShowPointLayer((current) => !current)}
+              className="rounded-full border border-white/80 bg-white/92 px-3 py-1.5 text-[10px] font-bold uppercase tracking-[0.12em] text-slate/70 shadow-sm backdrop-blur-md transition hover:bg-white"
+            >
+              {showPointLayer
+                ? `Hide ${resolvedPointLayerLabel}`
+                : `Show ${resolvedPointLayerLabel}`}
+            </button>
+          </div>
+        ) : null}
         <MapContainer
           bounds={defaultBounds}
           boundsOptions={{ padding: [12, 12] }}
@@ -273,7 +332,14 @@ function PopulationRasterPanel({
         >
           <MapFitter bounds={activeBounds || defaultBounds} />
           <ZoomControl position="topright" />
-          <ImageOverlay bounds={defaultBounds} url={imageUrl} opacity={0.94} />
+          {imageUrl ? (
+            <ImageOverlay
+              key={imageUrl}
+              bounds={defaultBounds}
+              url={imageUrl}
+              opacity={0.94}
+            />
+          ) : null}
           {features.length ? (
             <GeoJSON
               key={`pop-raster-geojson-${features.map((feature) => feature.id || getFeatureName(feature)).join("|")}-${selectedDistrict}-${selectedFeatureName || "all"}-${hoveredFeatureName || "none"}`}
@@ -351,11 +417,48 @@ function PopulationRasterPanel({
               }}
             />
           ) : null}
+
+          {/* School point overlay */}
+          {hasPointLayer && showPointLayer
+            ? pointFeatures.map((f) => {
+                const [lng, lat] = f.geometry.coordinates;
+                const name =
+                  f.properties?.school_name ||
+                  f.properties?.facility_name ||
+                  f.properties?.name ||
+                  "Location";
+                return (
+                  <CircleMarker
+                    key={f.id ?? `${lat}-${lng}-${name}`}
+                    center={[lat, lng]}
+                    radius={3.5}
+                    pathOptions={{
+                      color: "#ffffff",
+                      weight: 1.2,
+                      fillColor: "#f59e0b",
+                      fillOpacity: 0.92,
+                      opacity: 1,
+                    }}
+                  >
+                    <Tooltip
+                      direction="top"
+                      offset={[0, -6]}
+                      opacity={0.96}
+                      className="health-ta-tooltip"
+                    >
+                      {name}
+                    </Tooltip>
+                  </CircleMarker>
+                );
+              })
+            : null}
         </MapContainer>
 
         {/* Subtle Background Loading Indicator */}
         {loading && (
-          <div className="absolute top-4 left-4 z-[400] animate-in fade-in duration-500">
+          <div
+            className={`absolute left-4 z-[400] animate-in fade-in duration-500 ${showPointLayerToggle && hasPointLayer ? "top-[3.2rem]" : "top-4"}`}
+          >
              <div className="flex items-center gap-3 bg-white/95 backdrop-blur-md px-4 py-2.5 rounded-2xl border border-white/50 shadow-lg shadow-blue-900/5">
                 <div className="h-4 w-4 border-2 border-blue-600/20 border-t-blue-600 rounded-full animate-spin"></div>
                 <span className="text-[10px] font-bold text-slate uppercase tracking-widest">District Data Refreshing...</span>
@@ -363,32 +466,90 @@ function PopulationRasterPanel({
           </div>
         )}
 
-        {legend || detailFeature ? (
-          <div className="pointer-events-none absolute inset-x-3 bottom-3 z-[401] flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
-            {detailFeature ? (
-              <div className="sm:min-w-0 sm:flex-1">
-                <div className="w-full rounded-2xl border border-white/80 bg-white/92 px-4 py-3 shadow-md backdrop-blur-md sm:max-w-[17.5rem]">
-                  <p className="mb-2 text-[9px] font-bold uppercase tracking-[0.14em] text-slate/50 leading-none">
-                    Selected Area
+        {legend ? (
+          <div className="pointer-events-none absolute right-4 bottom-4 z-[401] w-[190px] rounded-2xl border border-white/80 bg-white/92 px-4 py-3 shadow-md backdrop-blur-md">
+            <p className="text-[10px] font-bold uppercase tracking-[0.15em] text-slate/50">
+              Legend
+            </p>
+            <p className="mt-1 text-[12px] font-semibold leading-5 text-slate">
+              {legend.label || title || "Raster surface"}
+            </p>
+            <div
+              className="mt-3 h-3 w-full rounded-full border border-slate-200/80"
+              style={{ background: legendBackground(legend.colors) }}
+            />
+            <div className="mt-2 flex items-center justify-between text-[10px] font-bold uppercase tracking-[0.12em] text-slate/55">
+              <span>{legend.lowLabel || "Low"}</span>
+              <span>{legend.highLabel || "High"}</span>
+            </div>
+            {hasPointLayer ? (
+              <div className="mt-3 flex items-center gap-2 border-t border-slate-100 pt-2.5">
+                <span
+                  className="inline-block h-3 w-3 flex-shrink-0 rounded-full border-2 border-white shadow-sm"
+                  style={{
+                    background: "#f59e0b",
+                    opacity: showPointLayer ? 1 : 0.4,
+                  }}
+                />
+                <span className="text-[10px] font-bold uppercase tracking-[0.12em] text-slate/55">
+                  {resolvedPointLayerLabel}
+                </span>
+                <span className="text-[9px] font-bold uppercase tracking-[0.12em] text-slate/45">
+                  {showPointLayer ? "Shown" : "Hidden"}
+                </span>
+              </div>
+            ) : null}
+          </div>
+        ) : null}
+
+        {focusFeature ? (
+          <div className="pointer-events-none absolute inset-x-4 bottom-4 flex items-end justify-start gap-4 z-[401]">
+            <div className="rounded-2xl border border-white/80 bg-white/92 px-5 py-4 shadow-md backdrop-blur-md min-w-[240px]">
+            <div>
+              <p className="text-[10px] font-bold uppercase tracking-[0.15em] text-slate/50 leading-none mb-2.5">
+                {focusLabel}
+              </p>
+              {focusName ? (
+                <div className="space-y-3">
+                  <p className="text-[15px] font-black text-slate leading-none">
+                    {focusName}
                   </p>
-                  {selectedName ? (
-                    <div className="space-y-2.5">
-                      <p className="text-[18px] font-black text-slate leading-none">
-                        {selectedName}
-                      </p>
-                      <div className="grid grid-cols-2 gap-x-4 gap-y-2 text-[10px] text-slate/65">
-                        {metricItems.map((item) => (
-                          <div key={item.key} className="space-y-0.5">
-                            <p className="uppercase tracking-[0.11em] text-slate/45 font-semibold">
-                              {item.label}
-                            </p>
-                            <p className="text-[15px] leading-none font-black text-slate">
-                              {item.value}
-                            </p>
-                          </div>
-                        ))}
+                  <div className="grid grid-cols-2 gap-3 text-[11px] font-semibold text-slate/65">
+                    {visibleBaseTooltipMetrics.map((metric) => (
+                      <div key={metric.key}>
+                        <p className="uppercase tracking-[0.12em] text-slate/40">
+                          {metric.label}
+                        </p>
+                        <p className="mt-1 text-[14px] font-black text-slate">
+                          {formatStat(
+                            focusProperties[metric.key],
+                            metric.digits || 0,
+                          )}
+                        </p>
                       </div>
-                    </div>
+                    ))}
+                    {tooltipMetrics.map((metric) =>
+                      focusProperties[metric.key] !== undefined ? (
+                        <div key={metric.key}>
+                          <p className="uppercase tracking-[0.12em] text-slate/40">
+                            {metric.label}
+                          </p>
+                          <p className="mt-1 text-[14px] font-black text-slate">
+                            {metric.format === "pct"
+                              ? `${formatStat(
+                                  focusProperties[metric.key],
+                                  metric.digits ?? 1,
+                                )}%`
+                              : formatStat(
+                                  focusProperties[metric.key],
+                                  metric.digits || 0,
+                                )}
+                          </p>
+                        </div>
+                      ) : null
+                    )}
+                  </div>
+                </div>
                   ) : (
                     <p className="text-[12px] font-semibold text-slate/60">
                       Select a TA to view its local stats.
@@ -396,26 +557,6 @@ function PopulationRasterPanel({
                   )}
                 </div>
               </div>
-            ) : null}
-
-            {legend ? (
-              <div className="w-[148px] self-end rounded-xl border border-white/80 bg-white/92 px-3 py-2.5 shadow-md backdrop-blur-md sm:self-auto sm:shrink-0">
-                <p className="text-[9px] font-bold uppercase tracking-[0.14em] text-slate/50">
-                  Legend
-                </p>
-                <p className="mt-1 text-[11px] font-semibold leading-4 text-slate">
-                  {resolveLegendLabel(legend.label || title || "Raster surface")}
-                </p>
-                <div
-                  className="mt-2 h-2.5 w-full rounded-full border border-slate-200/80"
-                  style={{ background: legendBackground(legend.colors) }}
-                />
-                <div className="mt-1.5 flex items-center justify-between text-[9px] font-bold uppercase tracking-[0.12em] text-slate/55">
-                  <span>{legend.lowLabel || "Low"}</span>
-                  <span>{legend.highLabel || "High"}</span>
-                </div>
-              </div>
-            ) : null}
           </div>
         ) : null}
       </div>

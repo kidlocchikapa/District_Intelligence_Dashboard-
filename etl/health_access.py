@@ -1438,10 +1438,12 @@ def generate_education_access_previews(
     district_name=None,
     district_names=None,
     output_dir=DEFAULT_EDUCATION_PREVIEW_OUTPUT_DIR,
+    coverage_distance_km=5.0,
     grid_size_m=DEFAULT_HEALTH_ACCESS_GRID_SIZE_M,
 ):
     selected_districts = _normalize_district_names(district_name, district_names)
     union_gdf = fetch_district_union(session, district_names=selected_districts)
+    facilities = fetch_school_facility_scope(session, district_names=selected_districts)
     beneficiary_network = fetch_beneficiary_school_network_scope(
         session, district_names=selected_districts
     )
@@ -1453,6 +1455,18 @@ def generate_education_access_previews(
     district_mask = template["mask"]
     smoothing_sigma = max(1.0, 750.0 / template["resolution_m"]) * DEFAULT_HEALTH_ACCESS_GAUSSIAN_SIGMA_PX
 
+    # --- Buffer coverage surface (nearest-facility distance, clipped to coverage radius) ---
+    facilities_proj = facilities.to_crs("EPSG:3857") if not facilities.empty else _empty_geodataframe("EPSG:3857")
+    facility_xy = _point_coordinates(facilities_proj.geometry) if not facilities_proj.empty else np.empty((0, 2), dtype=np.float32)
+    if len(facility_xy):
+        facility_distance_m = _nearest_distance_surface(facility_xy, template)
+        buffer_surface = np.clip(1.0 - (facility_distance_m / (float(coverage_distance_km) * 1000.0)), 0.0, 1.0)
+        buffer_surface = _gaussian_smooth_masked(buffer_surface, district_mask, sigma_px=smoothing_sigma)
+        buffer_surface = _mask_array(np.clip(buffer_surface, 0.0, 1.0), district_mask)
+    else:
+        buffer_surface = np.full((template["height"], template["width"]), np.nan, dtype=np.float32)
+
+    # --- Network distance and travel time surfaces (IDW from beneficiary routing) ---
     network_surface = np.full((template["height"], template["width"]), np.nan, dtype=np.float32)
     travel_surface = np.full((template["height"], template["width"]), np.nan, dtype=np.float32)
     if not beneficiary_network.empty:
@@ -1478,6 +1492,22 @@ def generate_education_access_previews(
         travel_surface = _mask_array(travel_surface, district_mask)
 
     products = [
+        {
+            "surface": buffer_surface,
+            "name": f"{slug}.education_buffer_{int(coverage_distance_km)}km.preview",
+            "colors": ["#b91c1c", "#ef4444", "#f59e0b", "#84cc16", "#166534"],
+            "legend_label": f"School service coverage within {coverage_distance_km} km",
+            "low_label": "Lower access",
+            "high_label": "Higher access",
+            "render": {
+                "transform": "continuous",
+                "coverageDistanceKm": float(coverage_distance_km),
+                "surfaceMethod": "nearest-facility-distance",
+                "resolutionM": float(template["resolution_m"]),
+                "smoothed": True,
+                "maskedToDistrict": True,
+            },
+        },
         {
             "surface": network_surface,
             "name": f"{slug}.education_network_distance.preview",
@@ -1515,9 +1545,12 @@ def generate_education_access_previews(
     generated = []
     for product in products:
         surface = product["surface"]
-        normalized, upper = _clip_and_normalize(surface, district_mask)
-        if upper is not None:
-            product["render"]["clipMax"] = float(upper)
+        if product["render"]["transform"] == "continuous":
+            normalized = _mask_array(np.clip(surface, 0.0, 1.0), district_mask)
+        else:
+            normalized, upper = _clip_and_normalize(surface, district_mask)
+            if upper is not None:
+                product["render"]["clipMax"] = float(upper)
 
         normalized = _mask_array(normalized, district_mask)
         png_name = f"{product['name']}.png"
@@ -1640,6 +1673,7 @@ def process_education_access_visualizations(
     raster_path=None,
     api_url=None,
     year=DEFAULT_WORLDPOP_YEAR,
+    coverage_distance_km=5.0,
     grid_size_m=DEFAULT_HEALTH_ACCESS_GRID_SIZE_M,
 ):
     started_at = datetime.now(timezone.utc)
@@ -1678,11 +1712,13 @@ def process_education_access_visualizations(
         session=session,
         district_name=district_name,
         district_names=district_names,
+        coverage_distance_km=coverage_distance_km,
         grid_size_m=grid_size_m,
     )
 
     metadata = {
         "district_names": selected_districts,
+        "coverage_distance_km": float(coverage_distance_km),
         "grid_size_m": float(grid_size_m),
         "raster_path": raster_path,
         "worldpop_year": resolved_worldpop["year"] if resolved_worldpop else year,
