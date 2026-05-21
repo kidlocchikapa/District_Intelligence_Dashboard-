@@ -77,6 +77,7 @@ const healthRoutes = require("./routes/health");
 const disasterRoutes = require("./routes/disaster");
 const adminRoutes = require("./routes/admin");
 const adminDataRoutes = require("./routes/adminData");
+const globalAdminDataRoutes = require("./routes/globalAdminData");
 const welfareRoutes = require("./routes/welfare");
 
 // Register Routes
@@ -88,6 +89,7 @@ app.use("/api/v1/dashboard/health", healthRoutes);
 app.use("/api/v1/dashboard/disaster", disasterRoutes);
 app.use("/api/v1/admin", adminRoutes);
 app.use("/api/v1/admin-data", adminDataRoutes);
+app.use("/api/v1/admin-data/global", globalAdminDataRoutes);
 app.use("/api/v1/dashboard/welfare", welfareRoutes);
 
 // Basic Routes

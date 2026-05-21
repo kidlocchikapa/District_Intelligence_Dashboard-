@@ -39,12 +39,17 @@ def build_database_url():
 
 
 DB_URL = build_database_url()
+DB_POOL_RECYCLE_SECONDS = int(os.getenv('DB_POOL_RECYCLE_SECONDS', '300'))
 
 # Database utility functions
 def get_engine():
     if not DB_URL:
         raise ValueError('Database configuration missing. Set DATABASE_URL or DB_USER/DB_PASSWORD/DB_HOST/DB_PORT/DB_NAME.')
-    return create_engine(DB_URL)
+    return create_engine(
+        DB_URL,
+        pool_pre_ping=True,
+        pool_recycle=DB_POOL_RECYCLE_SECONDS,
+    )
 
 # Create a new SQLAlchemy session
 def get_session():
@@ -154,4 +159,3 @@ def log_etl_run(
     except Exception as exc:
         print(f'Failed to log ETL run: {exc}')
         session.rollback()
-

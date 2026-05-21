@@ -23,6 +23,14 @@ const RISK_BAND_COLORS = {
   unknown: "#94a3b8",
 };
 
+const PRIORITY_BAND_COLORS = {
+  critical: "#b91c1c",
+  high: "#f97316",
+  moderate: "#2563eb",
+  watch: "#16a34a",
+  unknown: "#94a3b8",
+};
+
 function normalizeRiskCategory(value) {
   const normalized = String(value || "")
     .trim()
@@ -30,6 +38,17 @@ function normalizeRiskCategory(value) {
   if (normalized === "low") return "low";
   if (normalized === "medium") return "medium";
   if (normalized === "high") return "high";
+  return "unknown";
+}
+
+function normalizePriorityBand(value) {
+  const normalized = String(value || "")
+    .trim()
+    .toLowerCase();
+  if (normalized === "critical") return "critical";
+  if (normalized === "high") return "high";
+  if (normalized === "moderate") return "moderate";
+  if (normalized === "watch") return "watch";
   return "unknown";
 }
 
@@ -99,6 +118,8 @@ function MapPanel({
   const [activeBounds, setActiveBounds] = useState(
     getGeoBounds(geojson?.features || []),
   );
+  const hasHeader = Boolean(title || subtitle);
+  const useStackedLayout = hasHeader || showLegend;
 
   useEffect(() => {
     if (!loading && geojson) {
@@ -124,6 +145,7 @@ function MapPanel({
     (feature) => feature?.geometry?.type === "Point",
   );
   const isRiskBandPalette = palette === "risk-bands";
+  const isPriorityBandPalette = palette === "priority-bands";
 
   const colorStops =
     CHOROPLETH_PALETTES[palette] || CHOROPLETH_PALETTES.default;
@@ -198,7 +220,13 @@ function MapPanel({
         String(selectedFeatureName).toLowerCase();
 
     let fillColor;
-    if (isRiskBandPalette) {
+    if (isPriorityBandPalette) {
+      const categoryKey = normalizePriorityBand(
+        feature?.properties?.[colorByField || metricName],
+      );
+      fillColor =
+        PRIORITY_BAND_COLORS[categoryKey] || PRIORITY_BAND_COLORS.unknown;
+    } else if (isRiskBandPalette) {
       const categoryKey = normalizeRiskCategory(
         feature?.properties?.[colorByField || metricName],
       );
@@ -269,8 +297,14 @@ function MapPanel({
   };
 
   return (
-    <div className={`${(title || subtitle) ? "space-y-4 h-full flex flex-col" : "h-full w-full"}`}>
-      {(title || subtitle) && (
+    <div
+      className={
+        useStackedLayout
+          ? "flex h-full w-full flex-col min-h-0 space-y-4"
+          : "h-full w-full"
+      }
+    >
+      {hasHeader && (
         <div className="shrink-0 mb-2">
           <h4 className="text-lg font-semibold text-slate">{title}</h4>
           {subtitle ? (
@@ -280,7 +314,7 @@ function MapPanel({
       )}
 
       <div
-        className={`relative isolate ${(title || subtitle) ? `flex-1 ${heightClass}` : heightClass} w-full overflow-hidden rounded-[1.5rem] border border-fog`}
+        className={`relative ${useStackedLayout ? "flex-1 min-h-0" : ""} ${heightClass} w-full overflow-hidden rounded-[1.5rem] border border-fog`}
       >
         <MapContainer
           center={firstCenter}
@@ -294,7 +328,9 @@ function MapPanel({
             attribution="&copy; OpenStreetMap contributors"
             url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
           />
-          {bounds && bounds.minLat !== Infinity && <MapFitter bounds={bounds} />}
+          {bounds && bounds.minLat !== Infinity && (
+            <MapFitter bounds={bounds} />
+          )}
 
           <GeoJSON
             key={`${metricName}-${features.length}-${selectedFeatureName || "all"}`}
@@ -337,7 +373,39 @@ function MapPanel({
 
       {!hasPointFeatures && showLegend ? (
         <div className="shrink-0 rounded-[1.25rem] border border-fog bg-cream/70 px-4 py-3 mt-4">
-          {isRiskBandPalette ? (
+          {isPriorityBandPalette ? (
+            <>
+              <div className="mb-2 flex items-center justify-between gap-3">
+                <p className="text-sm font-semibold text-slate">
+                  {legendTitle || "Priority Bands"}
+                </p>
+              </div>
+              <div className="grid gap-2 sm:grid-cols-5 flex-wrap">
+                {[
+                  { key: "critical", label: "Critical" },
+                  { key: "high", label: "High" },
+                  { key: "moderate", label: "Moderate" },
+                  { key: "watch", label: "Watch" },
+                  { key: "unknown", label: "Unknown" },
+                ].map((item) => (
+                  <div
+                    key={item.key}
+                    className="flex items-center gap-2 rounded-full bg-white/75 px-3 py-2"
+                  >
+                    <span
+                      className="h-3 w-3 rounded-full border border-slate/10"
+                      style={{
+                        backgroundColor: PRIORITY_BAND_COLORS[item.key],
+                      }}
+                    />
+                    <span className="text-xs text-slate/70 whitespace-nowrap">
+                      {item.label}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </>
+          ) : isRiskBandPalette ? (
             <>
               <div className="mb-2 flex items-center justify-between gap-3">
                 <p className="text-sm font-semibold text-slate">

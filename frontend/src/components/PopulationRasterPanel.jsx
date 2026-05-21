@@ -32,8 +32,7 @@ function PopulationRasterPanel({
   hoveredFeatureName,
   featureNameResolver,
   customTooltipMetrics,
-  pointLayerLabel,
-  showPointLayerToggle = true,
+  onPanelLeave,
 }) {
   const { selectedDistrict, setSelectedDistrict } = useDistrict();
   const [metadata, setMetadata] = useState(null);
@@ -265,30 +264,14 @@ function PopulationRasterPanel({
         },
       ];
 
-  const focusFeature = hoveredFeature || selectedFeature;
-  const focusProperties = focusFeature?.properties || {};
-  const legendPositionClass = focusFeature
-    ? "right-2 top-16 sm:right-4 sm:bottom-4 sm:top-auto"
-    : "bottom-2 right-2 sm:right-4 sm:bottom-4";
+  const activeFeature = hoveredFeature || selectedFeature || null;
+  const focusProperties = activeFeature?.properties || {};
   const focusName =
-    (focusFeature ? getFeatureName(focusFeature) : null) ||
+    (activeFeature ? getFeatureName(activeFeature) : null) ||
     hoveredFeatureName ||
+    selectedFeatureName ||
     null;
   const focusLabel = hoveredFeature ? "Hovering Area" : "Selected Area";
-  const baseTooltipMetrics = [
-    {
-      key: "population_total",
-      label: "Population",
-      show: focusProperties.population_total !== undefined,
-    },
-    {
-      key: "population_density",
-      label: "Density",
-      digits: 1,
-      show: focusProperties.population_density !== undefined,
-    },
-  ];
-  const visibleBaseTooltipMetrics = baseTooltipMetrics.filter((metric) => metric.show);
 
   function legendBackground(colors = []) {
     if (!Array.isArray(colors) || !colors.length) {
@@ -310,7 +293,12 @@ function PopulationRasterPanel({
         </div>
       ) : null}
       <div
-        className={`relative isolate ${heightClass} min-h-0 overflow-hidden rounded-[1.5rem] border border-fog bg-[#f8f8f3] group`}
+        className={`relative ${heightClass} min-h-0 overflow-hidden rounded-[1.5rem] border border-fog bg-[#f8f8f3] group`}
+        onMouseLeave={() => {
+          setHoveredDistrict(null);
+          onFeatureHover?.(null);
+          onPanelLeave?.();
+        }}
       >
         {showPointLayerToggle && hasPointLayer ? (
           <div className="absolute left-2 top-2 z-[402] sm:left-4 sm:top-4">
@@ -507,9 +495,9 @@ function PopulationRasterPanel({
           </div>
         ) : null}
 
-        {focusFeature ? (
-          <div className="pointer-events-none absolute inset-x-2 bottom-2 z-[401] flex items-end justify-start gap-4 sm:inset-x-4 sm:bottom-4">
-            <div className="min-w-[240px] max-w-[320px] rounded-xl border border-white/80 bg-white/92 px-3 py-3 shadow-md backdrop-blur-md sm:rounded-2xl sm:px-5 sm:py-4">
+        {activeFeature ? (
+          <div className="pointer-events-none absolute inset-x-4 bottom-4 flex items-end justify-start z-[401]">
+            <div className="rounded-2xl border border-white/80 bg-white/92 px-5 py-4 shadow-md backdrop-blur-md min-w-[240px]">
             <div>
               <p className="text-[10px] font-bold uppercase tracking-[0.15em] text-slate/50 leading-none mb-2.5">
                 {focusLabel}
@@ -570,4 +558,3 @@ function PopulationRasterPanel({
 }
 
 export default PopulationRasterPanel;
-

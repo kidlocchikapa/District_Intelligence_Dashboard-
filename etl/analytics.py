@@ -1,10 +1,11 @@
-#import necessary libraries for geospatial analysis and database interaction
 import logging
+import time
 
 import geopandas as gpd
 import pandas as pd
 from shapely.ops import unary_union
 from sqlalchemy import text
+from sqlalchemy.exc import OperationalError
 
 from worldpop import get_zonal_stats
 
@@ -59,6 +60,30 @@ ANALYSIS_TYPES = {
 }
 
 DEFAULT_HEALTH_2SFCA_CATCHMENT_MIN = 60.0
+BOUNDARY_FETCH_MAX_RETRIES = 3
+BOUNDARY_FETCH_RETRY_DELAY_SECONDS = 2
+
+
+def _read_postgis_with_retry(session, query, params=None, geom_col='geom'):
+    params = params or {}
+
+    for attempt in range(1, BOUNDARY_FETCH_MAX_RETRIES + 1):
+        try:
+            return gpd.read_postgis(text(query), session.bind, geom_col=geom_col, params=params)
+        except OperationalError as exc:
+            session.rollback()
+            if attempt == BOUNDARY_FETCH_MAX_RETRIES:
+                raise
+
+            log_step(
+                'read_postgis_with_retry',
+                (
+                    f'database connection dropped during boundary fetch; '
+                    f'retrying ({attempt}/{BOUNDARY_FETCH_MAX_RETRIES})'
+                ),
+                level='warning',
+            )
+            time.sleep(BOUNDARY_FETCH_RETRY_DELAY_SECONDS * attempt)
 
 # Fetch administrative units with optional filtering by admin level (e.g., 'ward', 'district')
 def fetch_admin_units_for_analysis(session, admin_level=None):
@@ -95,7 +120,7 @@ def fetch_admin_units_for_analysis(session, admin_level=None):
         query += " AND LOWER(type) = LOWER(:admin_level)"
         params['admin_level'] = admin_level
 
-    return gpd.read_postgis(text(query), session.bind, geom_col='geom', params=params)
+    return _read_postgis_with_retry(session, query, params=params, geom_col='geom')
 
 # Fetch facilities (education or health) with relevant attributes for analysis
 def fetch_facilities(session, table_name):
@@ -136,7 +161,7 @@ def fetch_facilities(session, table_name):
 
     return gpd.read_postgis(text(query), session.bind, geom_col='geom')
 
-# Fetch indicator values for a specific dataset type and indicator name, with optional filtering by geographic level
+# Fetch indicator values for a specific dataset type and indicator name, with optional filtering
 def fetch_indicator_lookup(session, dataset_type, indicator_name, geographic_level=None):
     query = """
         SELECT DISTINCT ON (COALESCE(geographic_code, geographic_name))
@@ -179,7 +204,7 @@ def ensure_analysis_geometries(admin_units_gdf):
     working['centroid'] = working.geometry.representative_point()
     return working
 
-
+# Check if the necessary routing prerequisites (PostGIS, pgRouting, and road network data) are available
 def _routing_prerequisites_available(session):
     extension_count = session.execute(
         text("SELECT COUNT(*) FROM pg_extension WHERE extname IN ('postgis', 'pgrouting')")
@@ -211,7 +236,7 @@ def _routing_prerequisites_available(session):
     return int(edge_count or 0) > 0
 
 
-# Helper function to extract geometry from a row, whether it's a Series or an object with a geometry attribute
+# Helper function to extract geometry from a row
 def get_row_geometry(row):
     if isinstance(row, pd.Series):
         if 'geometry' in row.index:
@@ -220,7 +245,7 @@ def get_row_geometry(row):
             return row['geom']
     return getattr(row, 'geometry', getattr(row, 'geom', None))
 
-
+# Calculate the 2SFCA access score for health facilities for each administrative unit
 def compute_health_2sfca_access(
     session,
     admin_units_gdf,
@@ -506,7 +531,6 @@ def compute_integrated_vulnerability(session, admin_units_gdf):
         norm_w = entry['w_density'] / w_max
         
         # Integrated Score: High Poverty AND Low Health Access = High Priority
-        # (1 - norm_h) makes Low Access a high number (vulnerability)
         vulnerability_score = (1.0 - norm_h) * norm_w * 100.0
         
         records.append(
@@ -538,7 +562,7 @@ def compute_flood_isolation_index(session, admin_units_gdf):
     # 2. Compute "Flooded" access (excluding segments in flood zones)
     df_flooded = compute_health_2sfca_access(session, admin_units_gdf, is_flooded=True)
     
-    # Create lookups for easy comparison
+    # Create lookups 
     normal_scores = {
         int(row['admin_unit_id']): float(row['metric_value']) 
         for _, row in df_normal.iterrows()
@@ -554,7 +578,7 @@ def compute_flood_isolation_index(session, admin_units_gdf):
         score_normal = normal_scores.get(admin_id, 0.0)
         score_flooded = flooded_scores.get(admin_id, 0.0)
         
-        # Isolation Score: How much of the normal access is LOST?
+        # Isolation Score
         loss = score_normal - score_flooded
         isolation_index = (loss / score_normal * 100.0) if score_normal > 0 else 0.0
         isolation_index = max(0.0, min(100.0, isolation_index))
@@ -577,7 +601,8 @@ def compute_flood_isolation_index(session, admin_units_gdf):
         
     return pd.DataFrame(records)
 
-# Identify schools that lack nearby healthcare facilities by calculating the distance to the nearest health center
+# Identify schools that lack nearby healthcare facilities by calculating the distance
+#  to the nearest health center
 def compute_school_health_gap(session, admin_units_gdf):
     if admin_units_gdf.empty:
         return pd.DataFrame()
@@ -772,7 +797,7 @@ def compute_health_summary(admin_units_gdf, health_gdf, admin_level=None):
 
     return pd.DataFrame(records)
 
-# Helper function to create a standardized analysis record for a given administrative unit and metric, including geometry and metadata
+# Helper function to create a standardized analysis record for a given administrative unit and metric
 def analysis_record(analysis_type, admin_row, metric_name, metric_value, metric_unit, metadata=None):
     return {
         'analysis_type': analysis_type,
@@ -788,7 +813,7 @@ def analysis_record(analysis_type, admin_row, metric_name, metric_value, metric_
     }
 
 # Calculate education-related metrics for each administrative unit, including school 
-# counts, enrollment, teacher counts, and population coverage, and return a DataFrame with the results
+# counts, enrollment, teacher counts, and population coverage
 def compute_education_summary(admin_units_gdf, schools_gdf, school_age_lookup=None, child_population_lookup=None, admin_level=None):
     if schools_gdf.empty:
         raise ValueError('No schools available for education_summary')
@@ -861,8 +886,7 @@ def compute_education_summary(admin_units_gdf, schools_gdf, school_age_lookup=No
 
     return pd.DataFrame(records)
 
-# Main function to run selected spatial analyses based on provided parameters, fetching necessary data and computing 
-# results for each analysis type, and returning a combined DataFrame with all results
+# Function to run selected spatial analyses based on provided parameters
 def get_school_thresholds(school_name):
     name_lower = str(school_name).lower()
     if 'sec' in name_lower or 'cdss' in name_lower:
@@ -870,6 +894,8 @@ def get_school_thresholds(school_name):
     else:
         return {'type': 'primary', 'max_dist_km': 3.0, 'ptr': 60.0, 'csr': 60.0}
 
+# Calculate compliance with education standards based on student-teacher ratios and
+# classroom space ratios for each administrative unit
 def compute_education_standards_compliance(admin_units_gdf, schools_gdf, admin_level=None):
     if schools_gdf.empty:
         return pd.DataFrame()
@@ -944,6 +970,9 @@ def compute_education_standards_compliance(admin_units_gdf, schools_gdf, admin_l
 
     return pd.DataFrame(records)
 
+
+# Calculate the percentage of each administrative unit's area that falls within 
+# the catchment areas of primary and secondary schools
 def compute_education_catchment_access(admin_units_gdf, schools_gdf):
     # Coverage calculation using specific thresholds
     admin_proj = admin_units_gdf.to_crs('EPSG:3857')
@@ -999,6 +1028,8 @@ def compute_education_catchment_access(admin_units_gdf, schools_gdf):
             
     return pd.DataFrame(records)
 
+# Calculate an isolation index for education facilities by comparing access under
+# normal conditions with access under a simulated flood scenario
 def compute_education_flood_isolation_index(session, admin_units_gdf):
     if admin_units_gdf.empty:
         return pd.DataFrame()
@@ -1066,6 +1097,8 @@ def compute_education_flood_isolation_index(session, admin_units_gdf):
         
     return pd.DataFrame(records)
 
+# Calculate a composite vulnerability index for education by 
+# combining welfare beneficiary density with access to schools
 def compute_education_welfare_vulnerability(session, admin_units_gdf):
     if admin_units_gdf.empty:
         return pd.DataFrame()
@@ -1080,7 +1113,6 @@ def compute_education_welfare_vulnerability(session, admin_units_gdf):
     welfare_counts = {int(row['ta_id']): int(row['beneficiary_count'] or 0) for row in session.execute(welfare_query).mappings()}
     
     # Education gaps (from standard compliance if exists, else compute basic gap)
-    # Since compliance metrics are computed at the same time, we might just use nearest distance to proxy for now
     edu_query = text("""
         SELECT admin_unit_id, AVG(metric_value) as avg_dist
         FROM analysis_results 
@@ -1123,6 +1155,7 @@ def compute_education_welfare_vulnerability(session, admin_units_gdf):
         
     return pd.DataFrame(records)
 
+# Calculate a risk index for school overcrowding 
 def compute_school_capacity_risk(admin_units_gdf, schools_gdf, raster_path):
     if schools_gdf.empty or not raster_path:
         return pd.DataFrame()
@@ -1189,7 +1222,7 @@ def compute_school_capacity_risk(admin_units_gdf, schools_gdf, raster_path):
         
     return pd.DataFrame(records)
 
-
+# Function to run selected spatial analyses based on provided parameters
 def run_spatial_analyses(session, analysis_types=None, admin_level=None, coverage_distance_km=5.0, raster_path=None):
     try:
         selected_types = set(analysis_types or ANALYSIS_TYPES)

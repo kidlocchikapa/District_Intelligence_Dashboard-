@@ -16,6 +16,7 @@ import { formatNumber } from "../lib/format";
 import DataTable from "../components/DataTable";
 import MapPanel from "../components/MapPanel";
 import SharedDistrictSelector from "../components/SharedDistrictSelector";
+import PlanningPriorityPanel from "../components/PlanningPriorityPanel";
 
 function formatMinutes(value) {
   const mins = Number(value);
@@ -194,13 +195,37 @@ function WelfarePage() {
       district: selectedDistrict,
     }),
   );
+  const planningPriorities = useDashboardData(
+    buildDashboardPath("/dashboard/planning-priorities", {
+      district: selectedDistrict,
+      ta: selectedTa,
+      admin_type: adminType,
+      department: "welfare",
+      limit: adminType === "TA" ? 5 : 3,
+    }),
+  );
 
   const summary = integration.data?.summary || {};
   const departmentSummary = integration.data?.department_summary || [];
   const programBreakdown = integration.data?.program_breakdown || [];
   const byArea = integration.data?.by_area || [];
   const beneficiaryPreview = integration.data?.beneficiary_preview || [];
-  const decisionSignals = integration.data?.decision_signals || [];
+  const planningPrioritySignals = (planningPriorities.data?.priorities || [])
+    .slice(0, 3)
+    .map((item) => ({
+      severity:
+        item.priority_band === "Critical"
+          ? "high"
+          : item.priority_band === "High"
+            ? "medium"
+            : "info",
+      title: `${item.admin_unit_name} is a ${item.priority_band.toLowerCase()} integrated priority`,
+      description: item.recommended_actions?.[0] || item.narrative,
+    }));
+  const decisionSignals = [
+    ...(integration.data?.decision_signals || []),
+    ...planningPrioritySignals,
+  ].slice(0, 6);
   const notes = integration.data?.notes || [];
   const baseByArea = baseIntegration.data?.by_area || [];
   const programOptions = baseProgramBreakdown;
@@ -215,6 +240,12 @@ function WelfarePage() {
     const rows = Object.entries(currentSummary).map(([key, value]) => ({
       metric: key.replace(/_/g, " "),
       value: formatNumber(value, 0),
+    }));
+    const planningRows = (planningPriorities.data?.priorities || []).map((row) => ({
+      area: row.admin_unit_name,
+      priority: row.priority_band,
+      score: formatNumber(row.planning_priority_score, 1),
+      action: row.recommended_actions?.[0] || "Monitor against district baseline",
     }));
 
     await exportDataPdf({
@@ -233,6 +264,23 @@ function WelfarePage() {
           ],
           rows: rows.length > 0 ? rows : [
             { metric: "Welfare summary", value: "No data available" },
+          ],
+        },
+        {
+          title: "Integrated Planning Priorities",
+          columns: [
+            { key: "area", label: "Area", width: 140 },
+            { key: "priority", label: "Priority", width: 90 },
+            { key: "score", label: "Score", width: 70 },
+            { key: "action", label: "Recommended Action", width: 280 },
+          ],
+          rows: planningRows.length > 0 ? planningRows : [
+            {
+              area: scopeLabel,
+              priority: "N/A",
+              score: "0.0",
+              action: "No integrated planning priorities are available for this scope yet.",
+            },
           ],
         },
       ],
@@ -662,6 +710,12 @@ function WelfarePage() {
                 },
               ].map((item) => <StatCard key={item.label} {...item} />)}
         </div>
+
+        <PlanningPriorityPanel
+          planningPriorities={planningPriorities}
+          scopeLabel={scopeLabel}
+          compact
+        />
 
         {adminType === "TA" ? (
           <div className="grid grid-cols-1 xl:grid-cols-2 gap-8 mb-10">

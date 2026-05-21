@@ -117,6 +117,15 @@ ALTER TABLE IF EXISTS health_facilities DROP CONSTRAINT IF EXISTS health_facilit
 ALTER TABLE IF EXISTS health_facilities DROP COLUMN IF EXISTS "operator:type";
 ALTER TABLE IF EXISTS health_facilities DROP COLUMN IF EXISTS osm_id;
 ALTER TABLE IF EXISTS health_facilities DROP COLUMN IF EXISTS osm_type;
+UPDATE health_facilities
+SET code = UPPER(BTRIM(code))
+WHERE code IS NOT NULL;
+UPDATE health_facilities
+SET code = NULL
+WHERE code = '';
+CREATE UNIQUE INDEX IF NOT EXISTS uq_health_facilities_code
+ON health_facilities(code)
+WHERE code IS NOT NULL;
 
 -- Welfare Beneficiaries (Aggregate)
 CREATE TABLE IF NOT EXISTS welfare_beneficiaries (

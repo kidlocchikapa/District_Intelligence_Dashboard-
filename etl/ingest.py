@@ -5,7 +5,10 @@ import os
 import shutil
 import tempfile
 import zipfile
+import gzip
+import zlib
 from urllib.parse import urlencode
+from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 
 import geopandas as gpd
@@ -25,7 +28,11 @@ SUPPORTED_FILE_EXTENSIONS = GEOSPATIAL_FILE_EXTENSIONS + TABULAR_FILE_EXTENSIONS
 LOGGER = logging.getLogger('etl.ingest')
 DEFAULT_OVERPASS_USER_AGENT = os.getenv(
     'OVERPASS_USER_AGENT',
-    'DistrictIntelligence/1.0 (+https://example.org)'
+    'DistrictIntelligence/1.0 (admin-dashboard; contact: admin@localhost)'
+)
+DEFAULT_OVERPASS_REFERER = os.getenv(
+    'OVERPASS_REFERER',
+    'http://localhost/'
 )
 
 # Error handler
@@ -81,15 +88,14 @@ def safe_run_step(step_name, user_message_on_error, fn, *args, **kwargs):
     log_step(step_name, 'completed')
     return result
 
-# normalize column names by converting to lowercase, replacing non-alphanumeric characters with underscores,
-# and collapsing multiple underscores
+# normalize column names
 def normalize_column_name(name):
     sanitized = ''.join(char if char.isalnum() else '_' for char in str(name).strip().lower())
     while '__' in sanitized:
         sanitized = sanitized.replace('__', '_')
     return sanitized.strip('_')
 
-# Normalize missing values by converting None, NaN, empty strings, and specific tokens to pd.NA
+# Normalize missing values 
 def normalize_missing_values(df):
     def normalize_cell(value):
         if value is None or pd.isna(value):
@@ -117,7 +123,7 @@ def normalize_missing_values(df):
 
     return working
 
-# Read a file based on its extension and return a prepared DataFrame or GeoDataFrame
+# Read a file based on its extension
 def read_file(file_path):
     ext = os.path.splitext(file_path)[1].lower()
 
@@ -136,8 +142,7 @@ def read_file(file_path):
 
     return prepare_dataframe(df)
 
-# Extract files from a zip archive while ensuring security by validating file paths 
-# and preventing directory traversal
+# Extract files from a zip archive
 def extract_zip_archive(zip_path, destination_dir):
     with zipfile.ZipFile(zip_path) as archive:
         members = [member for member in archive.infolist() if not member.is_dir()]
@@ -221,7 +226,7 @@ def read_archive(file_path):
 
         return read_file(selected_path)
 
-# Extract data from an API endpoint, handle different response formats, and return a prepared DataFrame
+# Extract data from an API endpoint
 def extract_from_api(api_url, headers=None, timeout=30):
     request = Request(api_url, headers=headers or {})
 
@@ -240,7 +245,7 @@ def extract_from_api(api_url, headers=None, timeout=30):
 
     return prepare_dataframe(df)
 
-
+# Normalize and enhance an Overpass API query to ensure it returns JSON with geometry included
 def normalize_overpass_query(query):
     if not query:
         return query
@@ -251,7 +256,59 @@ def normalize_overpass_query(query):
         normalized = f"{normalized}\nout geom;"
     return normalized
 
+def _decode_http_error_body(error):
+    try:
+        body = error.read()
+    except Exception:
+        return ""
 
+    if not body:
+        return ""
+
+    try:
+        return body.decode("utf-8", errors="replace").strip()
+    except Exception:
+        return ""
+
+def _read_response_text(response):
+    raw_body = response.read()
+    content_encoding = str(response.headers.get('Content-Encoding', '')).lower()
+
+    if 'gzip' in content_encoding:
+        raw_body = gzip.decompress(raw_body)
+    elif 'deflate' in content_encoding:
+        raw_body = zlib.decompress(raw_body)
+    elif len(raw_body) >= 2 and raw_body[:2] == b'\x1f\x8b':
+        raw_body = gzip.decompress(raw_body)
+
+    return raw_body.decode('utf-8')
+
+def _build_overpass_endpoint_candidates(api_url):
+    normalized = str(api_url or '').strip()
+    if not normalized:
+        return []
+
+    candidates = [normalized]
+    primary_hosts = (
+        'https://overpass-api.de/api/interpreter',
+        'http://overpass-api.de/api/interpreter',
+        'https://overpass-api.de/api/',
+        'http://overpass-api.de/api/',
+    )
+
+    if normalized in primary_hosts or 'overpass-api.de/api/interpreter' in normalized:
+        mirror_candidates = [
+            'https://overpass.kumi.systems/api/interpreter',
+            'https://z.overpass-api.de/api/interpreter',
+            'https://lz4.overpass-api.de/api/interpreter',
+        ]
+        for mirror in mirror_candidates:
+            if mirror not in candidates:
+                candidates.append(mirror)
+
+    return candidates
+
+# Extract road data from the Overpass API based on a provided query
 def extract_from_overpass(api_url, query, timeout=60, user_agent=None):
     if not api_url:
         raise ValueError('overpass_url is required for Overpass extraction')
@@ -259,19 +316,75 @@ def extract_from_overpass(api_url, query, timeout=60, user_agent=None):
         raise ValueError('overpass_query is required for Overpass extraction')
 
     normalized_query = normalize_overpass_query(query)
-    payload = urlencode({'data': normalized_query}).encode('utf-8')
-    request = Request(
-        api_url,
-        data=payload,
-        headers={
-            'Content-Type': 'application/x-www-form-urlencoded',
-            'Accept': 'application/json',
-            'User-Agent': user_agent or DEFAULT_OVERPASS_USER_AGENT,
-        },
-    )
+    endpoint_candidates = _build_overpass_endpoint_candidates(api_url)
+    base_headers = {
+        'User-Agent': user_agent or DEFAULT_OVERPASS_USER_AGENT,
+        'Referer': DEFAULT_OVERPASS_REFERER,
+        'Accept': 'application/json, */*;q=0.8',
+        'Accept-Language': 'en-US,en;q=0.9',
+        'Accept-Encoding': 'gzip, deflate',
+    }
 
-    with urlopen(request, timeout=timeout) as response:
-        payload = json.loads(response.read().decode('utf-8'))
+    request_attempts = []
+    for endpoint in endpoint_candidates:
+        request_attempts.extend([
+            {
+                'label': f'form_post::{endpoint}',
+                'url': endpoint,
+                'data': urlencode({'data': normalized_query}).encode('utf-8'),
+                'headers': {
+                    **base_headers,
+                    'Content-Type': 'application/x-www-form-urlencoded; charset=utf-8',
+                },
+            },
+            {
+                'label': f'raw_post::{endpoint}',
+                'url': endpoint,
+                'data': normalized_query.encode('utf-8'),
+                'headers': {
+                    **base_headers,
+                    'Content-Type': 'text/plain; charset=utf-8',
+                },
+            },
+            {
+                'label': f'get_query::{endpoint}',
+                'url': f"{endpoint}?{urlencode({'data': normalized_query})}",
+                'data': None,
+                'headers': base_headers,
+            },
+        ])
+
+    payload = None
+    last_error = None
+    for attempt in request_attempts:
+        try:
+            request = Request(
+                attempt['url'],
+                data=attempt['data'],
+                headers=attempt['headers'],
+            )
+            with urlopen(request, timeout=timeout) as response:
+                payload = json.loads(_read_response_text(response))
+                break
+        except HTTPError as exc:
+            details = _decode_http_error_body(exc)
+            log_step(
+                'extract_from_overpass',
+                (
+                    f"Overpass request '{attempt['label']}' failed with HTTP {exc.code}"
+                    + (f": {details[:500]}" if details else '')
+                ),
+                level='warning',
+            )
+            last_error = exc
+            continue
+
+    if payload is None:
+        if last_error is not None:
+            raise ValueError(
+                f"Overpass API rejected the request after trying multiple formats: {last_error}"
+            ) from last_error
+        raise ValueError('Overpass API request failed before any response was received.')
 
     elements = payload.get('elements', []) if isinstance(payload, dict) else []
     rows = []
@@ -305,7 +418,7 @@ def extract_from_overpass(api_url, query, timeout=60, user_agent=None):
     road_gdf = gpd.GeoDataFrame(rows, geometry='geometry', crs='EPSG:4326')
     return prepare_dataframe(road_gdf)
 
-# Main extraction function that determines the source type and calls the appropriate extraction method
+# Extraction function that determines the source type and calls the appropriate extraction method
 def extract_source(
     source_type,
     file_path=None,
@@ -348,8 +461,7 @@ def extract_source(
 
     raise ValueError(f'Unsupported source type for tabular extraction: {source_type}')
 
-# Prepare a DataFrame by normalizing column names, handling missing values, and ensuring geometry 
-# columns are properly set for GeoDataFrames
+# Prepare a DataFrame by normalizing column names, handling missing values
 def prepare_dataframe(df):
     if df is None:
         return pd.DataFrame()
@@ -373,7 +485,7 @@ def prepare_dataframe(df):
 
     return working
 
-# Load a reference gazetteer from a specified path or from the database, and return it as a prepared DataFrame
+# Load a reference gazetteer from a specified path or from the database
 def load_reference_gazetteer(session, gazetteer_path=None):
     try:
         if gazetteer_path and os.path.exists(gazetteer_path):

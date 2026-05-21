@@ -130,7 +130,8 @@ function App() {
             <Login onLogin={(token, role) => {
               setAuthToken(token);
               setIsAuthenticated(Boolean(token));
-              if (role === 'super_admin' || decodeJwtRole(token) === 'super_admin') {
+              const resolvedRole = role || decodeJwtRole(token);
+              if (resolvedRole === 'super_admin') {
                 navigate('/superadmin');
               } else {
                 navigate('/admin');
