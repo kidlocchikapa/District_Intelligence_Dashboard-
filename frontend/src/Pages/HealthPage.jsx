@@ -688,10 +688,10 @@ function HealthPage() {
             </h3>
             <p className="text-[13px] text-gray-500 font-semibold mt-1">
               {selectedTa
-                ? `Showing all health access maps focused on ${selectedTa}. Click another TA boundary to switch.`
+                ? `Showing the selected health access layer focused on ${selectedTa}. Click another TA boundary to switch the locked area.`
                 : activeTaPreview
                   ? `Previewing health details for ${activeTaPreview}. Click to lock this TA.`
-                  : "Hover any TA boundary to preview its details across all maps, or click to lock it."}
+                  : "Hover any TA boundary to preview its details on the active layer, or click to lock it."}
             </p>
           </div>
           <div className="border border-gray-100 rounded p-5 shadow-sm bg-white">
@@ -715,8 +715,8 @@ function HealthPage() {
               })}
             </div>
             <p className="mt-3 text-xs font-semibold text-gray-500">
-              Showing one layer at a time keeps the map readable while preserving
-              TA hover/click interactions.
+              Showing one layer at a time keeps the map readable. Use the layer
+              buttons to compare coverage, road distance, and access score.
             </p>
             <div className="mt-4 border border-gray-100 rounded p-3 bg-white">
               <PopulationRasterPanel
