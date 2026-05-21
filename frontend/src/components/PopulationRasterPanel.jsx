@@ -310,11 +310,11 @@ function PopulationRasterPanel({
         className={`relative isolate ${heightClass} min-h-0 overflow-hidden rounded-[1.5rem] border border-fog bg-[#f8f8f3] group`}
       >
         {showPointLayerToggle && hasPointLayer ? (
-          <div className="absolute top-4 left-4 z-[402]">
+          <div className="absolute left-2 top-2 z-[402] sm:left-4 sm:top-4">
             <button
               type="button"
               onClick={() => setShowPointLayer((current) => !current)}
-              className="rounded-full border border-white/80 bg-white/92 px-3 py-1.5 text-[10px] font-bold uppercase tracking-[0.12em] text-slate/70 shadow-sm backdrop-blur-md transition hover:bg-white"
+              className="rounded-full border border-white/80 bg-white/92 px-2.5 py-1.5 text-[9px] font-bold uppercase tracking-[0.1em] text-slate/70 shadow-sm backdrop-blur-md transition hover:bg-white sm:px-3 sm:text-[10px] sm:tracking-[0.12em]"
             >
               {showPointLayer
                 ? `Hide ${resolvedPointLayerLabel}`
@@ -457,17 +457,17 @@ function PopulationRasterPanel({
         {/* Subtle Background Loading Indicator */}
         {loading && (
           <div
-            className={`absolute left-4 z-[400] animate-in fade-in duration-500 ${showPointLayerToggle && hasPointLayer ? "top-[3.2rem]" : "top-4"}`}
+            className={`absolute left-2 z-[400] animate-in fade-in duration-500 sm:left-4 ${showPointLayerToggle && hasPointLayer ? "top-12 sm:top-[3.2rem]" : "top-2 sm:top-4"}`}
           >
-             <div className="flex items-center gap-3 bg-white/95 backdrop-blur-md px-4 py-2.5 rounded-2xl border border-white/50 shadow-lg shadow-blue-900/5">
+             <div className="flex items-center gap-2 rounded-xl border border-white/50 bg-white/95 px-3 py-2 shadow-lg shadow-blue-900/5 backdrop-blur-md sm:gap-3 sm:rounded-2xl sm:px-4 sm:py-2.5">
                 <div className="h-4 w-4 border-2 border-blue-600/20 border-t-blue-600 rounded-full animate-spin"></div>
-                <span className="text-[10px] font-bold text-slate uppercase tracking-widest">District Data Refreshing...</span>
+                <span className="text-[9px] font-bold uppercase tracking-wide text-slate sm:text-[10px] sm:tracking-widest">District Data Refreshing...</span>
              </div>
           </div>
         )}
 
         {legend ? (
-          <div className="pointer-events-none absolute right-4 bottom-4 z-[401] w-[190px] rounded-2xl border border-white/80 bg-white/92 px-4 py-3 shadow-md backdrop-blur-md">
+          <div className="pointer-events-none absolute bottom-2 right-2 z-[401] w-[160px] rounded-xl border border-white/80 bg-white/92 px-3 py-2 shadow-md backdrop-blur-md sm:bottom-4 sm:right-4 sm:w-[190px] sm:rounded-2xl sm:px-4 sm:py-3">
             <p className="text-[10px] font-bold uppercase tracking-[0.15em] text-slate/50">
               Legend
             </p>
@@ -503,24 +503,24 @@ function PopulationRasterPanel({
         ) : null}
 
         {focusFeature ? (
-          <div className="pointer-events-none absolute inset-x-4 bottom-4 flex items-end justify-start gap-4 z-[401]">
-            <div className="rounded-2xl border border-white/80 bg-white/92 px-5 py-4 shadow-md backdrop-blur-md min-w-[240px]">
+          <div className="pointer-events-none absolute inset-x-2 bottom-2 z-[401] flex items-end justify-start gap-4 sm:inset-x-4 sm:bottom-4">
+            <div className="w-full max-w-[240px] rounded-xl border border-white/80 bg-white/92 px-3 py-3 shadow-md backdrop-blur-md sm:min-w-[240px] sm:max-w-none sm:rounded-2xl sm:px-5 sm:py-4">
             <div>
               <p className="text-[10px] font-bold uppercase tracking-[0.15em] text-slate/50 leading-none mb-2.5">
                 {focusLabel}
               </p>
               {focusName ? (
                 <div className="space-y-3">
-                  <p className="text-[15px] font-black text-slate leading-none">
+                  <p className="text-[13px] font-black leading-none text-slate sm:text-[15px]">
                     {focusName}
                   </p>
-                  <div className="grid grid-cols-2 gap-3 text-[11px] font-semibold text-slate/65">
+                  <div className="grid grid-cols-2 gap-2 text-[10px] font-semibold text-slate/65 sm:gap-3 sm:text-[11px]">
                     {visibleBaseTooltipMetrics.map((metric) => (
                       <div key={metric.key}>
                         <p className="uppercase tracking-[0.12em] text-slate/40">
                           {metric.label}
                         </p>
-                        <p className="mt-1 text-[14px] font-black text-slate">
+                        <p className="mt-1 text-[12px] font-black text-slate sm:text-[14px]">
                           {formatStat(
                             focusProperties[metric.key],
                             metric.digits || 0,
@@ -534,7 +534,7 @@ function PopulationRasterPanel({
                           <p className="uppercase tracking-[0.12em] text-slate/40">
                             {metric.label}
                           </p>
-                          <p className="mt-1 text-[14px] font-black text-slate">
+                          <p className="mt-1 text-[12px] font-black text-slate sm:text-[14px]">
                             {metric.format === "pct"
                               ? `${formatStat(
                                   focusProperties[metric.key],

@@ -324,10 +324,10 @@ function MapPanel({
 
         {/* Subtle Background Loading Indicator */}
         {loading && (
-          <div className="absolute top-4 left-4 z-[400] animate-in fade-in duration-500">
-            <div className="flex items-center gap-3 bg-white/95 backdrop-blur-md px-4 py-2.5 rounded-2xl border border-white/50 shadow-lg shadow-blue-900/5">
+          <div className="absolute left-2 top-2 z-[400] animate-in fade-in duration-500 sm:left-4 sm:top-4">
+            <div className="flex items-center gap-2 rounded-xl border border-white/50 bg-white/95 px-3 py-2 shadow-lg shadow-blue-900/5 backdrop-blur-md sm:gap-3 sm:rounded-2xl sm:px-4 sm:py-2.5">
               <div className="h-4 w-4 border-2 border-blue-600/20 border-t-blue-600 rounded-full animate-spin"></div>
-              <span className="text-[10px] font-bold text-slate uppercase tracking-widest">
+              <span className="text-[9px] font-bold uppercase tracking-wide text-slate sm:text-[10px] sm:tracking-widest">
                 Updating Map Data...
               </span>
             </div>

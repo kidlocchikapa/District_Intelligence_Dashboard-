@@ -249,7 +249,7 @@ function CoverageShapePanel({
           </div>
         ) : null}
 
-        <div className="pointer-events-none absolute left-4 top-4 rounded-xl border border-white/80 bg-white/92 px-3 py-2 shadow-sm backdrop-blur-md">
+        <div className="pointer-events-none absolute left-2 top-2 rounded-xl border border-white/80 bg-white/92 px-3 py-2 shadow-sm backdrop-blur-md sm:left-4 sm:top-4">
           <p className="text-[10px] font-bold uppercase tracking-[0.14em] text-slate/50">
             {tooltipTitle}
           </p>
@@ -263,11 +263,11 @@ function CoverageShapePanel({
           ) : null}
         </div>
 
-        <div className="pointer-events-none absolute right-4 bottom-4 rounded-2xl border border-white/80 bg-white/92 px-4 py-3 shadow-md backdrop-blur-md min-w-[220px]">
+        <div className="pointer-events-none absolute bottom-2 right-2 rounded-xl border border-white/80 bg-white/92 px-3 py-2 shadow-md backdrop-blur-md sm:bottom-4 sm:right-4 sm:min-w-[220px] sm:rounded-2xl sm:px-4 sm:py-3">
           <p className="text-[10px] font-bold uppercase tracking-[0.15em] text-slate/50 leading-none mb-2.5">
             Access Zones
           </p>
-          <div className="grid grid-cols-2 gap-2">
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
             {[
               { key: "served", label: `Served (<=${renderedFeatures.coverageDistanceKm || 5}km)` },
               { key: "unserved", label: `No Access (>${renderedFeatures.coverageDistanceKm || 5}km)` },
