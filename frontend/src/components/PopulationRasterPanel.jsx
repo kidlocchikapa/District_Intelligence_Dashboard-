@@ -11,6 +11,7 @@ function MapFitter({ bounds }) {
   const map = useMap();
   useEffect(() => {
     if (bounds && bounds[0][0] !== Infinity) {
+      map.invalidateSize();
       map.fitBounds(bounds, { padding: [20, 20], maxZoom: 12 });
     }
   }, [bounds, map]);
@@ -42,6 +43,8 @@ function PopulationRasterPanel({
 
   useEffect(() => {
     let ignore = false;
+    setMetadata(null);
+    setError(null);
 
     async function loadMetadata() {
       try {
@@ -244,11 +247,13 @@ function PopulationRasterPanel({
         },
       ];
 
-  const focusProperties = hoveredFeature?.properties || {};
+  const focusFeature = selectedFeature || hoveredFeature;
+  const focusProperties = focusFeature?.properties || {};
   const focusName =
-    (hoveredFeature ? getFeatureName(hoveredFeature) : null) ||
+    (focusFeature ? getFeatureName(focusFeature) : null) ||
     hoveredFeatureName ||
     null;
+  const focusLabel = selectedFeature ? "Selected Area" : "Hovering Area";
 
   function legendBackground(colors = []) {
     if (!Array.isArray(colors) || !colors.length) {
@@ -294,7 +299,12 @@ function PopulationRasterPanel({
           <MapFitter bounds={activeBounds || defaultBounds} />
           <ZoomControl position="topright" />
           {imageUrl ? (
-            <ImageOverlay bounds={defaultBounds} url={imageUrl} opacity={0.94} />
+            <ImageOverlay
+              key={imageUrl}
+              bounds={defaultBounds}
+              url={imageUrl}
+              opacity={0.94}
+            />
           ) : null}
           {features.length ? (
             <GeoJSON
@@ -458,12 +468,12 @@ function PopulationRasterPanel({
           </div>
         ) : null}
 
-        {hoveredFeature ? (
+        {focusFeature ? (
           <div className="pointer-events-none absolute inset-x-4 bottom-4 flex items-end justify-start gap-4 z-[401]">
             <div className="rounded-2xl border border-white/80 bg-white/92 px-5 py-4 shadow-md backdrop-blur-md min-w-[240px]">
             <div>
               <p className="text-[10px] font-bold uppercase tracking-[0.15em] text-slate/50 leading-none mb-2.5">
-                Hovering Area
+                {focusLabel}
               </p>
               {focusName ? (
                 <div className="space-y-3">
