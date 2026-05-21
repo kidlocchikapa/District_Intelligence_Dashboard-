@@ -309,7 +309,7 @@ function EducationPage() {
       analysis_type: "education_summary",
       admin_type: "TA",
       metric_name: "school_age_population_total",
-      district: selectedDistrict,
+      district: coverageFocusDistrict,
     }),
   );
 

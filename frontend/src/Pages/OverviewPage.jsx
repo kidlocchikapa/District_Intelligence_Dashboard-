@@ -555,7 +555,7 @@ function OverviewPage() {
             </div>
           </div>
 
-          <div className="border border-gray-100 rounded bg-white p-4 shadow-sm sm:p-6 lg:p-8 flex flex-col min-h-115">
+          <div className="border border-gray-100 rounded bg-white p-4 shadow-sm sm:p-6 lg:p-8 flex flex-col min-h-[460px]">
             <h3 className="text-[16px] font-extrabold mb-6">
               {selectedTa ? `Population for ${selectedTa}` : "Population by TA"}
             </h3>
@@ -604,7 +604,7 @@ function OverviewPage() {
                 Showing {filteredChartData.length} of {chartData.length} TAs.
               </p>
             </div>
-            <div className="flex-1 overflow-x-auto">
+            <div className="h-[280px] overflow-x-auto sm:h-[320px] lg:h-full lg:min-h-[300px]">
               {populationDistribution.loading ? (
                 <ChartSkeleton />
               ) : filteredChartData.length ? (
@@ -661,6 +661,7 @@ function OverviewPage() {
                       dataKey="population"
                       radius={[2, 2, 0, 0]}
                       barSize={14}
+                      minPointSize={2}
                       activeBar={<Rectangle fill="#7e22ce" />}
                       onClick={(entry) => selectTa(entry?.admin3 || "")}
                     >
