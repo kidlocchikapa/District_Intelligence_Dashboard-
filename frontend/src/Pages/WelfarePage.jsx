@@ -1,5 +1,4 @@
 import { useMemo, useState } from "react";
-import { toast } from "react-hot-toast";
 import {
   UserCheck,
   Heart,
@@ -52,6 +51,7 @@ const WELFARE_TA_CHART_LIMITS = [
   { value: 12, label: "Top 12" },
   { value: 0, label: "All" },
 ];
+const EMPTY_ROWS = [];
 
 function formatWholeNumber(value) {
   return Number(value || 0).toLocaleString(undefined, {
@@ -132,14 +132,18 @@ function DepartmentCard({ item }) {
   );
 }
 
-function StatCard({ label, value, icon: Icon, helper }) {
+function StatCard({ label, value, icon, helper }) {
+  const IconComponent = icon;
+
   return (
     <div className="border border-gray-100 rounded p-6 shadow-md bg-white group hover:shadow-lg transition-all active:scale-95">
       <div className="flex justify-between items-start">
         <span className="text-[14px] text-gray-500 font-bold group-hover:text-black transition-colors">
           {label}
         </span>
-        <Icon className="h-5 w-5 text-gray-300 group-hover:text-black transition-colors" />
+        {IconComponent ? (
+          <IconComponent className="h-5 w-5 text-gray-300 group-hover:text-black transition-colors" />
+        ) : null}
       </div>
       <div className="mt-4 text-[32px] font-extrabold tracking-tight">
         {value}
@@ -207,9 +211,18 @@ function WelfarePage() {
 
   const summary = integration.data?.summary || {};
   const departmentSummary = integration.data?.department_summary || [];
-  const programBreakdown = integration.data?.program_breakdown || [];
-  const byArea = integration.data?.by_area || [];
-  const beneficiaryPreview = integration.data?.beneficiary_preview || [];
+  const programBreakdown = useMemo(
+    () => integration.data?.program_breakdown ?? EMPTY_ROWS,
+    [integration.data],
+  );
+  const byArea = useMemo(
+    () => integration.data?.by_area ?? EMPTY_ROWS,
+    [integration.data],
+  );
+  const beneficiaryPreview = useMemo(
+    () => integration.data?.beneficiary_preview ?? EMPTY_ROWS,
+    [integration.data],
+  );
   const planningPrioritySignals = (planningPriorities.data?.priorities || [])
     .slice(0, 3)
     .map((item) => ({
@@ -227,7 +240,10 @@ function WelfarePage() {
     ...planningPrioritySignals,
   ].slice(0, 6);
   const notes = integration.data?.notes || [];
-  const baseByArea = baseIntegration.data?.by_area || [];
+  const baseByArea = useMemo(
+    () => baseIntegration.data?.by_area ?? EMPTY_ROWS,
+    [baseIntegration.data],
+  );
   const programOptions = baseProgramBreakdown;
   const scopeLabel = selectedTa
     ? selectedTa
@@ -413,17 +429,13 @@ function WelfarePage() {
     setBeneficiarySearch("");
   };
 
-  const programNamesLabel = useMemo(() => {
-    const names = programBreakdown
-      .map((item) => item.program_name)
-      .filter(Boolean);
-
+  const programNamesLabel = (() => {
+    const names = programBreakdown.map((item) => item.program_name).filter(Boolean);
     if (!names.length) {
       return "No program names available";
     }
-
     return names.join(", ");
-  }, [programBreakdown]);
+  })();
 
   const filteredByArea = useMemo(() => {
     return byArea.filter((row) => {
@@ -455,7 +467,7 @@ function WelfarePage() {
 
       return matchesSearch && matchesTa && matchesRisk && matchesService;
     });
-  }, [adminType, areaSearch, byArea, riskFilter, selectedTa, serviceFilter]);
+  }, [areaSearch, byArea, riskFilter, selectedTa, serviceFilter]);
 
   const filteredBeneficiaryPreview = useMemo(() => {
     return beneficiaryPreview.filter((row) => {
@@ -478,14 +490,13 @@ function WelfarePage() {
         !selectedProgram || programName === selectedProgram.toLowerCase();
       const matchesRisk =
         riskFilter === "all" ||
-        (riskFilter === "flood_only" && Boolean(row.affected_by_flood)) ||
-        (riskFilter === "clear_only" && !Boolean(row.affected_by_flood));
+        (riskFilter === "flood_only" && row.affected_by_flood) ||
+        (riskFilter === "clear_only" && !row.affected_by_flood);
       const matchesService =
         serviceFilter === "all" ||
-        (serviceFilter === "school_limited" &&
-          !Boolean(row.has_school_access)) ||
+        (serviceFilter === "school_limited" && !row.has_school_access) ||
         (serviceFilter === "health_limited" &&
-          !Boolean(row.has_health_facility_access));
+          !row.has_health_facility_access);
 
       return (
         matchesSearch &&
