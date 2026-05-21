@@ -801,6 +801,10 @@ function WelfarePage() {
                     className="h-20 rounded border border-gray-100 bg-gray-50 animate-pulse"
                   />
                 ))
+              ) : decisionSignals.length === 0 ? (
+                <div className="rounded border border-dashed border-gray-200 bg-gray-50 px-4 py-5 text-sm font-semibold text-gray-500">
+                  No decision signals are available for the current filters.
+                </div>
               ) : (
                 decisionSignals.map((signal, index) => (
                   <div
@@ -1006,11 +1010,17 @@ function WelfarePage() {
             Integration Notes
           </h3>
           <div className="space-y-3">
-            {notes.map((note, index) => (
-              <p key={index} className="text-[13px] leading-6 text-gray-600">
-                {note}
+            {notes.length ? (
+              notes.map((note, index) => (
+                <p key={index} className="text-[13px] leading-6 text-gray-600">
+                  {note}
+                </p>
+              ))
+            ) : (
+              <p className="rounded border border-dashed border-gray-200 bg-gray-50 px-4 py-4 text-sm font-semibold text-gray-500">
+                No integration notes are available for the current filters.
               </p>
-            ))}
+            )}
           </div>
         </div>
       </div>
