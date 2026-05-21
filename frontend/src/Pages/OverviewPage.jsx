@@ -33,6 +33,11 @@ import {
 } from "recharts";
 
 const COLORS = ["#4A72E4", "#F4B41A", "#3BB182", "#6974D6"];
+const OVERVIEW_CHART_LIMITS = [
+  { value: 12, label: "Top 12" },
+  { value: 24, label: "Top 24" },
+  { value: 0, label: "All" },
+];
 
 function getPopulationBarColor(value, maxPopulation) {
   if (!Number.isFinite(value) || maxPopulation <= 0) {
@@ -73,6 +78,9 @@ function formatTaAxisLabel(value) {
 
 function OverviewPage() {
   const { selectedDistrict, selectedTa, setSelectedTa } = useDistrict();
+  const [chartSearch, setChartSearch] = useState("");
+  const [chartLimit, setChartLimit] = useState(24);
+  const [chartSortMode, setChartSortMode] = useState("population_desc");
   const districtScope = selectedDistrict || "";
   const scopeLabel = selectedTa
     ? selectedTa
@@ -149,6 +157,34 @@ function OverviewPage() {
     district: item.district,
     population: item.population,
   }));
+  const filteredChartData = useMemo(() => {
+    const searchTerm = chartSearch.trim().toLowerCase();
+    let rows = [...chartData];
+
+    if (searchTerm) {
+      rows = rows.filter((item) =>
+        String(item.admin3 || "").toLowerCase().includes(searchTerm),
+      );
+    }
+
+    rows.sort((left, right) => {
+      if (chartSortMode === "population_asc") {
+        return Number(left.population || 0) - Number(right.population || 0);
+      }
+
+      if (chartSortMode === "label_asc") {
+        return String(left.admin3 || "").localeCompare(String(right.admin3 || ""));
+      }
+
+      return Number(right.population || 0) - Number(left.population || 0);
+    });
+
+    if (chartLimit > 0) {
+      return rows.slice(0, chartLimit);
+    }
+
+    return rows;
+  }, [chartData, chartLimit, chartSearch, chartSortMode]);
   const selectedTaChartRow = chartData.find(
     (item) =>
       selectedTa &&
@@ -249,7 +285,7 @@ function OverviewPage() {
     { name: "Not Exposed", value: notExposedPopulation },
   ].filter((entry) => entry.value > 0);
   const maxPopulation = Math.max(
-    ...chartData.map((item) => Number(item.population) || 0),
+    ...filteredChartData.map((item) => Number(item.population) || 0),
     0,
   );
 
@@ -532,13 +568,53 @@ function OverviewPage() {
                 ? `${selectedTa} is highlighted; click another bar to sync the map and overview metrics.`
                 : "Showing TA-level population totals. Click a bar to sync the map and overview metrics."}
             </p>
+            <div className="mb-4 flex flex-col gap-3">
+              <div className="flex flex-wrap gap-2">
+                {OVERVIEW_CHART_LIMITS.map((option) => {
+                  const isActive = option.value === chartLimit;
+                  return (
+                    <button
+                      key={`overview-limit-${option.label}`}
+                      type="button"
+                      onClick={() => setChartLimit(option.value)}
+                      className={`rounded-full border px-3 py-1.5 text-[11px] font-bold uppercase tracking-[0.12em] transition ${
+                        isActive
+                          ? "border-gray-900 bg-gray-900 text-white"
+                          : "border-gray-200 bg-white text-gray-500 hover:text-black"
+                      }`}
+                    >
+                      {option.label}
+                    </button>
+                  );
+                })}
+                <select
+                  value={chartSortMode}
+                  onChange={(event) => setChartSortMode(event.target.value)}
+                  className="rounded-full border border-gray-200 bg-white px-3 py-1.5 text-[11px] font-bold uppercase tracking-[0.12em] text-gray-600"
+                >
+                  <option value="population_desc">Highest first</option>
+                  <option value="population_asc">Lowest first</option>
+                  <option value="label_asc">Name A-Z</option>
+                </select>
+              </div>
+              <input
+                type="search"
+                value={chartSearch}
+                onChange={(event) => setChartSearch(event.target.value)}
+                placeholder="Search TA..."
+                className="w-full rounded-full border border-gray-200 px-4 py-2 text-sm font-semibold text-gray-700 outline-none focus:border-gray-900"
+              />
+              <p className="text-xs font-semibold text-gray-500">
+                Showing {filteredChartData.length} of {chartData.length} TAs.
+              </p>
+            </div>
             <div className="flex-1">
               {populationDistribution.loading ? (
                 <ChartSkeleton />
-              ) : (
+              ) : filteredChartData.length ? (
                 <ResponsiveContainer width="100%" height="100%">
                   <BarChart
-                    data={chartData}
+                    data={filteredChartData}
                     margin={{ top: 20, right: 20, left: 12, bottom: 92 }}
                   >
                     <CartesianGrid
@@ -591,7 +667,7 @@ function OverviewPage() {
                       activeBar={<Rectangle fill="#7e22ce" />}
                       onClick={(entry) => selectTa(entry?.admin3 || "")}
                     >
-                      {chartData.map((entry) => {
+                      {filteredChartData.map((entry) => {
                         const isSelected =
                           selectedTa &&
                           entry.admin3.toLowerCase() ===
@@ -618,6 +694,10 @@ function OverviewPage() {
                     </Bar>
                   </BarChart>
                 </ResponsiveContainer>
+              ) : (
+                <div className="flex h-full items-center justify-center rounded border border-dashed border-gray-200 bg-gray-50 text-sm font-semibold text-gray-400">
+                  No rows match the current chart filters.
+                </div>
               )}
             </div>
           </div>
