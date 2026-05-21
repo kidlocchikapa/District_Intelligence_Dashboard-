@@ -1550,16 +1550,20 @@ function HealthRecommendations({
       .sort((left, right) => left.coveragePct - right.coveragePct);
   }, [taBreakdown]);
 
-  const underservedTaRows = useMemo(() => {
-    return taBreakdown
+  // Underserved TAs: top 3 by population per facility
+  const underservedTAs = useMemo(() => {
+    return [...taBreakdown]
       .filter((row) => Number(row.population_per_facility || 0) > 2000)
       .sort(
         (left, right) =>
           Number(right.population_per_facility || 0) -
           Number(left.population_per_facility || 0),
       )
-      .slice(0, 10)
-      .map((row) => ({
+      .slice(0, 3);
+  }, [taBreakdown]);
+
+  const underservedTaRows = useMemo(() => {
+    return underservedTAs.map((row) => ({
       id: `underserved-${row.ta_id || row.ta_name}`,
       ta: row.ta_name,
       district: row.district_name,
@@ -1567,21 +1571,12 @@ function HealthRecommendations({
       populationTotal: Number(row.population_total || 0),
       facilityCount: Number(row.facility_count || 0),
     }));
-  }, [taBreakdown]);
+  }, [underservedTAs]);
 
   // Derive key metrics
   const popPerFacility = Number(drillSummary.population_per_facility || 0);
   const totalPop = Number(drillSummary.population_total || 0);
 
-  // Underserved TAs: top 3 by population per facility
-  const underservedTAs = [...taBreakdown]
-    .filter((row) => Number(row.population_per_facility || 0) > 2000)
-    .sort(
-      (left, right) =>
-        Number(right.population_per_facility || 0) -
-        Number(left.population_per_facility || 0),
-    )
-    .slice(0, 3);
   const worstTA = underservedTAs[0];
 
   // Workforce
