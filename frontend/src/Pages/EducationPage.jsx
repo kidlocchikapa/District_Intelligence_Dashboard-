@@ -569,8 +569,10 @@ function EducationPage() {
   }, [atRiskSchools, riskTableSort]);
 
   const openSchoolRiskPreview = (category) => {
-    const rows = atRiskSchools
-      .filter((school) => school.risk_category === category)
+    const matchingSchools = atRiskSchools.filter(
+      (school) => school.risk_category === category,
+    );
+    const rows = matchingSchools
       .sort((left, right) => {
         const leftTeacherRatio = left.teacher_ratio ?? 0;
         const rightTeacherRatio = right.teacher_ratio ?? 0;
@@ -595,7 +597,7 @@ function EducationPage() {
       }));
 
     setSchoolRiskPreview({
-      title: `${category} Schools`,
+      title: `${category} Schools (${formatNumber(matchingSchools.length, 0)})`,
       columns: [
         { key: "schoolName", label: "School" },
         { key: "riskCategory", label: "Shortage Type" },
@@ -605,6 +607,33 @@ function EducationPage() {
         { key: "operator", label: "Operator" },
       ],
       rows,
+    });
+  };
+
+  const openSingleSchoolPreview = (school) => {
+    setSchoolRiskPreview({
+      title: school.school_name,
+      columns: [
+        { key: "schoolName", label: "School" },
+        { key: "riskCategory", label: "Shortage Type" },
+        { key: "enrollment", label: "Enrollment" },
+        { key: "pupilsPerTeacher", label: "Pupils / Teacher" },
+        { key: "pupilsPerClass", label: "Pupils / Class" },
+        { key: "operator", label: "Operator" },
+      ],
+      rows: [
+        {
+          id: school.school_id || school.school_name,
+          schoolName: school.school_name,
+          riskCategory: school.risk_category,
+          enrollment: formatNumber(school.enrollment, 0),
+          pupilsPerTeacher:
+            school.teacher_ratio != null ? `1:${school.teacher_ratio}` : "-",
+          pupilsPerClass:
+            school.classroom_ratio != null ? `1:${school.classroom_ratio}` : "-",
+          operator: school.operator,
+        },
+      ],
     });
   };
 
@@ -1361,7 +1390,9 @@ function EducationPage() {
                     {sortedAtRiskSchools.map((school, i) => (
                       <tr
                         key={school.school_id ?? i}
-                        className="border-b border-gray-50 hover:bg-gray-50 transition-colors"
+                        onClick={() => openSingleSchoolPreview(school)}
+                        className="cursor-pointer border-b border-gray-50 transition-colors hover:bg-gray-50"
+                        title="Click to preview this school"
                       >
                         <td className="py-2 px-2 font-semibold text-black max-w-[140px] truncate" title={school.school_name}>
                           {school.school_name}
