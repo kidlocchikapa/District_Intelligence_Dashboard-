@@ -1,5 +1,5 @@
 import { ArrowRight, ChevronDown, ChevronUp, Circle } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 
 const PRIORITY_ORDER = ["high", "medium", "low"];
 
@@ -61,24 +61,23 @@ function InteractiveRecommendations({
     );
   }, [activePriority, normalizedRecommendations]);
 
-  useEffect(() => {
-    const validIds = new Set(normalizedRecommendations.map((item) => item.id));
-    setExpandedIds((current) => current.filter((id) => validIds.has(id)));
-  }, [normalizedRecommendations]);
-
-  useEffect(() => {
+  const effectiveExpandedIds = useMemo(() => {
     if (!filteredRecommendations.length) {
-      setExpandedIds([]);
-      return;
+      return [];
     }
 
     const visibleIds = new Set(filteredRecommendations.map((item) => item.id));
-    const hasVisibleExpanded = expandedIds.some((id) => visibleIds.has(id));
+    const validIds = new Set(normalizedRecommendations.map((item) => item.id));
+    const visibleExpanded = expandedIds.filter(
+      (id) => validIds.has(id) && visibleIds.has(id),
+    );
 
-    if (!hasVisibleExpanded) {
-      setExpandedIds([filteredRecommendations[0].id]);
+    if (visibleExpanded.length) {
+      return visibleExpanded;
     }
-  }, [expandedIds, filteredRecommendations]);
+
+    return [filteredRecommendations[0].id];
+  }, [expandedIds, filteredRecommendations, normalizedRecommendations]);
 
   if (!normalizedRecommendations.length) {
     return (
@@ -126,7 +125,7 @@ function InteractiveRecommendations({
         {filteredRecommendations.map((rec) => {
           const cfg = priorityConfig[rec.priority] || {};
           const Icon = rec.icon || Circle;
-          const isExpanded = expandedIds.includes(rec.id);
+          const isExpanded = effectiveExpandedIds.includes(rec.id);
 
           return (
             <div
