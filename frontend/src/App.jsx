@@ -1,7 +1,7 @@
-import { BarChart3, HeartPulse, Home, School, ShieldAlert, UploadCloud, Users2, Menu, X, ChevronLeft, ChevronRight, LogIn, LogOut, GraduationCap, Activity, UserCheck, LayoutDashboard, Database, KeyRound } from 'lucide-react';
+import { ShieldAlert, Users2, Menu, X, ChevronLeft, ChevronRight, LogIn, LogOut, GraduationCap, Activity, UserCheck, LayoutDashboard, Database, KeyRound } from 'lucide-react';
 import { useState, useEffect } from 'react';
-import { NavLink, Route, Routes, useNavigate, useLocation } from 'react-router-dom';
-import { Toaster, toast } from 'react-hot-toast';
+import { NavLink, Route, Routes, useNavigate } from 'react-router-dom';
+import { Toaster } from 'react-hot-toast';
 import { setAuthToken, hydrateAuthToken, AUTH_EVENT_NAME } from './lib/api';
 import Login from './Login';
 import { useDistrict } from './context/DistrictContext';
@@ -44,7 +44,6 @@ function App() {
   const [userRole, setUserRole] = useState(() => decodeJwtRole(hydrateAuthToken()));
   const { selectedDistrict } = useDistrict();
   const navigate = useNavigate();
-  const location = useLocation();
 
   const isSuperAdmin = isAuthenticated && userRole === 'super_admin';
 
@@ -58,10 +57,6 @@ function App() {
     window.addEventListener(AUTH_EVENT_NAME, syncAuthState);
     return () => window.removeEventListener(AUTH_EVENT_NAME, syncAuthState);
   }, []);
-
-  useEffect(() => {
-    setIsMobileMenuOpen(false);
-  }, [location.pathname]);
 
   useEffect(() => {
     function handleResize() {
@@ -211,12 +206,12 @@ function App() {
               )}
 
               <nav className={`flex-1 space-y-1 ${isCompactSidebar ? 'flex flex-col items-center' : ''}`}>
-                {navItems.map(({ to, label, icon: Icon }) => (
+                {navItems.map((item) => (
                   <NavLink
-                    key={to}
-                    to={to}
+                    key={item.to}
+                    to={item.to}
                     onClick={() => setIsMobileMenuOpen(false)}
-                    title={isCompactSidebar ? label : ''}
+                    title={isCompactSidebar ? item.label : ''}
                     className={({ isActive }) =>
                       `flex items-center gap-3 rounded transition-all duration-200 ${isCompactSidebar ? 'p-3 justify-center' : 'px-3 py-2.5 text-[15px]'
                       } font-semibold ${isActive
@@ -225,8 +220,12 @@ function App() {
                       }`
                     }
                   >
-                    <Icon className={`opacity-70 ${isCompactSidebar ? 'h-6 w-6' : 'h-5 w-5'}`} />
-                    {!isCompactSidebar && <span>{label}</span>}
+                    {item.icon ? (
+                      <item.icon
+                        className={`opacity-70 ${isCompactSidebar ? 'h-6 w-6' : 'h-5 w-5'}`}
+                      />
+                    ) : null}
+                    {!isCompactSidebar && <span>{item.label}</span>}
                   </NavLink>
                 ))}
               </nav>
