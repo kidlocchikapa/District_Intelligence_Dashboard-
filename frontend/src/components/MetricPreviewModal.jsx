@@ -18,7 +18,6 @@ export default function MetricPreviewModal({
   const columns = metricPreview?.columns || [];
   const rows = metricPreview?.rows || [];
   const emphasized = emphasisKeys instanceof Set ? emphasisKeys : new Set(emphasisKeys);
-  const hasColumns = columns.length > 0;
 
   return (
     <Modal
@@ -30,47 +29,8 @@ export default function MetricPreviewModal({
       <p className="mb-4 text-sm font-semibold text-slate-600">
         {description}
       </p>
-      <div className="mb-3 rounded-lg border border-slate-100 bg-slate-50 px-3 py-2 text-xs font-bold uppercase tracking-wide text-slate-500">
-        Showing {rows.length.toLocaleString()} record{rows.length === 1 ? "" : "s"}
-      </div>
       <div className="max-h-[68vh] overflow-auto rounded-lg border border-slate-200">
-        {!hasColumns ? (
-          <div className="px-3 py-8 text-center text-sm font-semibold text-slate-400">
-            {emptyMessage}
-          </div>
-        ) : (
-          <>
-        <div className="divide-y divide-slate-100 bg-white sm:hidden">
-          {rows.length ? (
-            rows.map((row, rowIndex) => (
-              <div key={row.id || `card-${rowIndex}`} className="space-y-3 p-4">
-                {columns.map((column) => (
-                  <div key={`${row.id || rowIndex}-${column.key}`} className="grid grid-cols-[110px_1fr] gap-3">
-                    <div className="text-[10px] font-bold uppercase tracking-wide text-slate-400">
-                      {column.label || column.key}
-                    </div>
-                    <div
-                      className={`min-w-0 break-words text-sm ${
-                        emphasized.has(column.key)
-                          ? "font-semibold text-slate-900"
-                          : "text-slate-700"
-                      }`}
-                    >
-                      {row[column.key] ?? "-"}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            ))
-          ) : (
-            <div className="px-3 py-8 text-center text-sm font-semibold text-slate-400">
-              {emptyMessage}
-            </div>
-          )}
-        </div>
-
-        <div className="hidden overflow-auto sm:block">
-        <table className="min-w-[760px] w-full divide-y divide-slate-200 text-sm">
+        <table className="min-w-[900px] w-full divide-y divide-slate-200 text-sm">
           <thead className="sticky top-0 z-10 bg-slate-50">
             <tr>
               {columns.map((column) => (
@@ -113,9 +73,6 @@ export default function MetricPreviewModal({
             )}
           </tbody>
         </table>
-        </div>
-          </>
-        )}
       </div>
     </Modal>
   );
