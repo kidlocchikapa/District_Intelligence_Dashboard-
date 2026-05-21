@@ -181,6 +181,33 @@ function getEducationRasterAsset(assets, key) {
   return assets?.[key] || "/worldpop/zomba_ppp_2020.preview.json";
 }
 
+const EDUCATION_RASTER_LAYERS = [
+  {
+    key: "education_buffer_coverage",
+    shortLabel: "5 km Coverage",
+    title: "School Service Coverage (5 km)",
+    subtitle: "Population served within 5 km of the nearest school.",
+  },
+  {
+    key: "education_network_distance",
+    shortLabel: "Road Distance",
+    title: "Road Distance to Nearest School",
+    subtitle: "Average beneficiary road distance (km) by area.",
+  },
+  {
+    key: "education_travel_time",
+    shortLabel: "Travel Time",
+    title: "Travel Time to Nearest School",
+    subtitle: "Average beneficiary travel time (minutes) by area.",
+  },
+];
+
+const EDUCATION_CHART_LIMITS = [
+  { value: 8, label: "Top 8" },
+  { value: 12, label: "Top 12" },
+  { value: 0, label: "All" },
+];
+
 function EducationScatterTooltip({ active, payload }) {
   if (!active || !payload?.length) {
     return null;
@@ -238,8 +265,15 @@ function EducationPage() {
   const [selectedSchoolRiskCategories, setSelectedSchoolRiskCategories] = useState(
     SCHOOL_RISK_CATEGORIES,
   );
+  const [activeEducationRasterKey, setActiveEducationRasterKey] = useState(
+    EDUCATION_RASTER_LAYERS[0].key,
+  );
   const [riskTableSort, setRiskTableSort] = useState({ key: "teacher_ratio", dir: "desc" });
   const { contentRef, exportPdf } = usePdfExport("Education_Report.pdf");
+  const activeEducationRasterLayer =
+    EDUCATION_RASTER_LAYERS.find(
+      (layer) => layer.key === activeEducationRasterKey,
+    ) || EDUCATION_RASTER_LAYERS[0];
 
   const educationSummary = useDashboardData(
     buildDashboardPath("/dashboard/education/summary", {
@@ -1247,54 +1281,42 @@ function EducationPage() {
           <p className="mt-2 text-sm text-gray-500 font-semibold">
             High-resolution service coverage and travel-distance surfaces derived from school locations and beneficiary routing.
           </p>
-          <div className="mt-5 grid grid-cols-1 xl:grid-cols-3 gap-6">
-            <div className="border border-gray-100 rounded p-4 shadow-sm bg-white">
-              <PopulationRasterPanel
-                geojson={educationCoverageTaGeojson.data}
-                pointsGeojson={schoolLocations.data}
-                title="School Service Coverage (5 km)"
-                subtitle="Population served within 5 km of the nearest school."
-                metadataUrl={getEducationRasterAsset(
-                  educationRasterMetadata.data?.assets,
-                  "education_buffer_coverage",
-                )}
-                heightClass="h-[320px]"
-                loading={
-                  educationCoverageTaGeojson.loading ||
-                  educationRasterMetadata.loading
-                }
-                selectedFeatureName={selectedTa}
-              />
+          <div className="mt-5 border border-gray-100 rounded p-5 shadow-sm bg-white">
+            <div className="flex flex-wrap gap-2">
+              {EDUCATION_RASTER_LAYERS.map((layer) => {
+                const isActive = layer.key === activeEducationRasterLayer.key;
+                return (
+                  <button
+                    key={layer.key}
+                    type="button"
+                    onClick={() => setActiveEducationRasterKey(layer.key)}
+                    className={`rounded-full border px-3 py-1.5 text-[11px] font-bold uppercase tracking-[0.12em] transition ${
+                      isActive
+                        ? "border-gray-900 bg-gray-900 text-white"
+                        : "border-gray-200 bg-white text-gray-500 hover:text-black"
+                    }`}
+                  >
+                    {layer.shortLabel}
+                  </button>
+                );
+              })}
             </div>
-            <div className="border border-gray-100 rounded p-4 shadow-sm bg-white">
+            <p className="mt-3 text-xs font-semibold text-gray-500">
+              Layer focus keeps the map clean while still letting users compare
+              coverage, distance, and travel-time patterns quickly.
+            </p>
+            <div className="mt-4 border border-gray-100 rounded p-3 bg-white">
               <PopulationRasterPanel
                 geojson={educationCoverageTaGeojson.data}
                 pointsGeojson={schoolLocations.data}
-                title="Road Distance to Nearest School"
-                subtitle="Average beneficiary road distance (km) by area."
+                pointLayerLabel="Schools"
+                title={activeEducationRasterLayer.title}
+                subtitle={activeEducationRasterLayer.subtitle}
                 metadataUrl={getEducationRasterAsset(
                   educationRasterMetadata.data?.assets,
-                  "education_network_distance",
+                  activeEducationRasterLayer.key,
                 )}
-                heightClass="h-[320px]"
-                loading={
-                  educationCoverageTaGeojson.loading ||
-                  educationRasterMetadata.loading
-                }
-                selectedFeatureName={selectedTa}
-              />
-            </div>
-            <div className="border border-gray-100 rounded p-4 shadow-sm bg-white">
-              <PopulationRasterPanel
-                geojson={educationCoverageTaGeojson.data}
-                pointsGeojson={schoolLocations.data}
-                title="Travel Time to Nearest School"
-                subtitle="Average beneficiary travel time (minutes) by area."
-                metadataUrl={getEducationRasterAsset(
-                  educationRasterMetadata.data?.assets,
-                  "education_travel_time",
-                )}
-                heightClass="h-[320px]"
+                heightClass="h-[430px]"
                 loading={
                   educationCoverageTaGeojson.loading ||
                   educationRasterMetadata.loading
@@ -1919,10 +1941,13 @@ function FloodImpactMap({ geojson, loading, coverageFocusDistrict }) {
 function FloodImpactSection({ floodImpact, floodImpactGeojson, coverageFocusDistrict }) {
   const summary = floodImpact.data?.summary || {};
   const taRows  = floodImpact.data?.ta_breakdown || [];
+  const [floodTaSearch, setFloodTaSearch] = useState("");
+  const [floodTaLimit, setFloodTaLimit] = useState(12);
+  const [floodTaSort, setFloodTaSort] = useState("students_desc");
 
-  // Top 12 TAs for the bar chart, stacked by risk class
-  const chartData = useMemo(() =>
-    taRows.slice(0, 12).map(r => ({
+  const floodTaRows = useMemo(
+    () =>
+      taRows.map((r) => ({
       ta_name:              r.ta_name,
       district_name:        r.district_name,
       students_at_risk:     Number(r.students_at_risk    || 0),
@@ -1930,8 +1955,42 @@ function FloodImpactSection({ floodImpact, floodImpactGeojson, coverageFocusDist
       medium_risk_students: Number(r.medium_risk_students|| 0),
       low_risk_students:    Number(r.low_risk_students   || 0),
       exposed_schools:      Number(r.exposed_schools     || 0),
+      high_risk_schools:    Number(r.high_risk_schools   || 0),
+      medium_risk_schools:  Number(r.medium_risk_schools || 0),
+      low_risk_schools:     Number(r.low_risk_schools    || 0),
+      ta_id: r.ta_id,
     })),
-  [taRows]);
+    [taRows],
+  );
+  const chartData = useMemo(() => {
+    const searchTerm = floodTaSearch.trim().toLowerCase();
+    let rows = [...floodTaRows];
+
+    if (searchTerm) {
+      rows = rows.filter((row) =>
+        String(row.ta_name || "").toLowerCase().includes(searchTerm),
+      );
+    }
+
+    rows.sort((left, right) => {
+      if (floodTaSort === "students_asc") {
+        return Number(left.students_at_risk || 0) - Number(right.students_at_risk || 0);
+      }
+
+      if (floodTaSort === "name_asc") {
+        return String(left.ta_name || "").localeCompare(String(right.ta_name || ""));
+      }
+
+      return Number(right.students_at_risk || 0) - Number(left.students_at_risk || 0);
+    });
+
+    if (floodTaLimit > 0) {
+      return rows.slice(0, floodTaLimit);
+    }
+
+    return rows;
+  }, [floodTaLimit, floodTaRows, floodTaSearch, floodTaSort]);
+  const topImpactRows = chartData.slice(0, 5);
 
   const kpis = [
     { label: "Number Exposed",         value: formatNumber(summary.exposed_schools  || 0, 0), color: "text-red-600"  },
@@ -2019,11 +2078,51 @@ function FloodImpactSection({ floodImpact, floodImpactGeojson, coverageFocusDist
         <div className="relative isolate border border-gray-100 rounded p-4 shadow-sm bg-white">
           <p className="text-[13px] font-extrabold mb-1">Top TAs by Students at Risk</p>
           <p className="text-[11px] text-gray-400 font-semibold mb-4">Stacked by flood risk class</p>
+          <div className="mb-4 rounded border border-gray-100 bg-white p-3">
+            <div className="flex flex-wrap items-center gap-2">
+              {EDUCATION_CHART_LIMITS.map((option) => {
+                const isActive = option.value === floodTaLimit;
+                return (
+                  <button
+                    key={`education-flood-limit-${option.label}`}
+                    type="button"
+                    onClick={() => setFloodTaLimit(option.value)}
+                    className={`rounded-full border px-3 py-1 text-[10px] font-bold uppercase tracking-[0.12em] transition ${
+                      isActive
+                        ? "border-gray-900 bg-gray-900 text-white"
+                        : "border-gray-200 bg-white text-gray-500 hover:text-black"
+                    }`}
+                  >
+                    {option.label}
+                  </button>
+                );
+              })}
+              <select
+                value={floodTaSort}
+                onChange={(event) => setFloodTaSort(event.target.value)}
+                className="rounded-full border border-gray-200 bg-white px-3 py-1 text-[10px] font-bold uppercase tracking-[0.12em] text-gray-600"
+              >
+                <option value="students_desc">Highest risk</option>
+                <option value="students_asc">Lowest risk</option>
+                <option value="name_asc">Name A-Z</option>
+              </select>
+              <input
+                type="search"
+                value={floodTaSearch}
+                onChange={(event) => setFloodTaSearch(event.target.value)}
+                placeholder="Search TA..."
+                className="min-w-[160px] flex-1 rounded-full border border-gray-200 px-3 py-1.5 text-xs font-semibold text-gray-700 outline-none focus:border-gray-900"
+              />
+            </div>
+            <p className="mt-2 text-[11px] font-semibold text-gray-500">
+              Showing {chartData.length} of {floodTaRows.length} TAs.
+            </p>
+          </div>
           {floodImpact.loading ? (
             <div className="h-[380px] animate-pulse rounded bg-gray-50" />
           ) : chartData.length === 0 ? (
             <div className="h-[380px] flex items-center justify-center text-sm text-gray-400 font-semibold">
-              No data available.
+              No flood-impact TA rows match the current filters.
             </div>
           ) : (
             <ResponsiveContainer width="100%" height={380}>
@@ -2061,11 +2160,11 @@ function FloodImpactSection({ floodImpact, floodImpactGeojson, coverageFocusDist
           )}
 
           {/* Top 5 table */}
-          {!floodImpact.loading && taRows.length > 0 && (
+          {!floodImpact.loading && topImpactRows.length > 0 && (
             <div className="mt-4 border-t border-gray-100 pt-4">
               <p className="text-[11px] font-bold uppercase tracking-wide text-gray-400 mb-3">Highest Impact TAs</p>
               <div className="space-y-2">
-                {taRows.slice(0, 5).map((r, i) => (
+                {topImpactRows.map((r, i) => (
                   <div key={r.ta_id || i} className="flex items-center justify-between gap-2 text-xs">
                     <div className="flex items-center gap-2 min-w-0">
                       <span className="text-[10px] font-extrabold text-gray-300 w-4 flex-shrink-0">{i + 1}</span>
