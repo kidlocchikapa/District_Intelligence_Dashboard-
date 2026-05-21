@@ -368,7 +368,7 @@ git commit -m "feat(area): short summary"
 
 Developed by **Group 18 — UNIMA Final Year Students (2025/2026)**:
 
-- Kidloc Chikapa
+- Kidloc Chikapa - Project Lead
 - Lucy Sabola
 - Sydney Mtima
 - Precious Pukulu
