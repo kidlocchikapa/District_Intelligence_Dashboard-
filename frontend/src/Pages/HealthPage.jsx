@@ -1397,10 +1397,6 @@ function HealthPage() {
                 Deep-Dive Analytics
               </h2>
             </div>
-            <p className="mt-2 text-sm font-semibold text-gray-500">
-              Facility pressure and TA-level vulnerability signals for targeted planning.
-            </p>
-            <div className="mt-4 h-px w-full bg-gradient-to-r from-[#1e3a8a]/45 via-[#1e3a8a]/20 to-transparent" />
           </div>
           <div className="grid grid-cols-1 xl:grid-cols-2 gap-8 xl:items-start">
             <div className="border border-gray-100 rounded-lg p-6 shadow-sm bg-white">
