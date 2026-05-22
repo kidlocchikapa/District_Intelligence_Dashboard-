@@ -1,3 +1,4 @@
+import { ChevronDown } from "lucide-react";
 import { useDistrict } from "../context/DistrictContext";
 import { useDistrictOptions } from "../hooks/useDistrictOptions";
 
@@ -9,8 +10,13 @@ function SharedDistrictSelector() {
   return (
     <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:items-center sm:gap-3">
       <div className="relative">
+        <label htmlFor="shared-district-selector" className="sr-only">
+          Select district
+        </label>
         <select
-          className="w-full cursor-pointer appearance-none rounded bg-black px-6 py-2 text-[14px] font-bold text-white sm:min-w-[220px]"
+          id="shared-district-selector"
+          aria-label="Select district"
+          className="w-full cursor-pointer appearance-none rounded border border-black bg-black py-2 pl-4 pr-10 text-[14px] font-bold text-white shadow-sm transition-all hover:bg-gray-900 focus:outline-none focus-visible:ring-2 focus-visible:ring-black/30 sm:min-w-[220px]"
           value={selectedDistrict}
           onChange={(event) => setSelectedDistrict(event.target.value)}
         >
@@ -21,6 +27,10 @@ function SharedDistrictSelector() {
             </option>
           ))}
         </select>
+        <ChevronDown
+          className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-white/90"
+          aria-hidden="true"
+        />
       </div>
       {selectedTa ? (
         <button
