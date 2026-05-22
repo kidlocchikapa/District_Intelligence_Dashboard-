@@ -5,6 +5,7 @@ import { useDistrict } from "../context/DistrictContext";
 import { buildDashboardPath } from "../lib/query";
 import { usePdfExport } from "../hooks/usePdfExport";
 import { formatNumber } from "../lib/format";
+import { classifyFacilityProperties } from "../lib/facilityClassification";
 import MapPanel from "../components/MapPanel";
 import PopulationRasterPanel from "../components/PopulationRasterPanel";
 import GlobalHospitalRegistry from "../components/GlobalHospitalRegistry";
@@ -506,12 +507,19 @@ function HealthPage() {
   );
 
   const selectedAreaFacilities = (healthLocations.data?.features || [])
-    .map((f) => ({
-      name: f.properties?.name || f.properties?.name_en || "Unnamed Facility",
-      type: f.properties?.type || "Facility",
-      beds: f.properties?.beds_count || 0,
-      visits: f.properties?.patient_visits_total || 0,
-    }));
+    .map((feature) => {
+      const properties = feature?.properties || {};
+      const classification = classifyFacilityProperties(properties);
+      return {
+        name: properties?.name || properties?.name_en || "Unnamed Facility",
+        type: classification.rawType,
+        normalizedType: classification.label,
+        isHospital: classification.isHospital,
+        beds: properties?.beds_count || 0,
+        visits: properties?.patient_visits_total || 0,
+      };
+    })
+    .sort((left, right) => Number(right.isHospital) - Number(left.isHospital));
 
   const getServedPopulationValue = (metricName) =>
     (servedPopulationSummary.data || [])
@@ -1046,7 +1054,7 @@ function HealthPage() {
             </h3>
             <p className="text-xs text-gray-500 font-semibold mb-4">
               {selectedTa
-                ? `TA boundary and facilities are focused on ${selectedTa}.`
+                ? `TA boundary and facilities are focused on ${selectedTa}. Hospitals are one provider type alongside clinics, dispensaries, and health centres.`
                 : "TA boundaries and facility markers are interactive. Click a boundary or marker to focus that TA."}
             </p>
             <div className="flex-1 rounded overflow-hidden relative border border-gray-50 bg-gray-50">
@@ -1293,6 +1301,11 @@ function HealthPage() {
                             <p className="text-[11px] font-medium text-gray-500 uppercase tracking-wider">
                               {facility.type}
                             </p>
+                            {facility.normalizedType !== facility.type ? (
+                              <p className="text-[10px] font-semibold text-gray-400 mt-0.5">
+                                Classified as {facility.normalizedType}
+                              </p>
+                            ) : null}
                           </div>
                           <div className="text-right shrink-0">
                             <p className="text-sm font-black text-blue-600">
