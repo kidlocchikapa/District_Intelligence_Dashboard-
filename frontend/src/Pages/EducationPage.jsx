@@ -307,13 +307,14 @@ function EducationCategoryPieTooltip({ active, payload }) {
 }
 
 function EducationPage() {
-  const { selectedDistrict, selectedTa } = useDistrict();
+  const { selectedDistrict, selectedTa, setSelectedTa } = useDistrict();
   const [selectedSchoolRiskCategories, setSelectedSchoolRiskCategories] = useState(
     SCHOOL_RISK_CATEGORIES,
   );
   const [activeEducationRasterKey, setActiveEducationRasterKey] = useState(
     EDUCATION_RASTER_LAYERS[0].key,
   );
+  const [hoveredEducationTa, setHoveredEducationTa] = useState("");
   const [riskTableSort, setRiskTableSort] = useState({ key: "teacher_ratio", dir: "desc" });
   const [schoolRiskPreview, setSchoolRiskPreview] = useState(null);
   const { contentRef, exportDataPdf } = usePdfExport("Education_Report.pdf");
@@ -321,6 +322,7 @@ function EducationPage() {
     EDUCATION_RASTER_LAYERS.find(
       (layer) => layer.key === activeEducationRasterKey,
     ) || EDUCATION_RASTER_LAYERS[0];
+  const activeEducationTaPreview = selectedTa || hoveredEducationTa;
 
   const educationSummary = useDashboardData(
     buildDashboardPath("/dashboard/education/summary", {
@@ -386,6 +388,25 @@ function EducationPage() {
     : selectedDistrict
       ? `District: ${selectedDistrict}`
       : "National";
+
+  const selectTa = (taName) => {
+    setSelectedTa(taName || "");
+    setHoveredEducationTa("");
+  };
+
+  const selectTaFromFeature = (feature) => {
+    const properties = feature?.properties || {};
+    selectTa(properties.admin_unit_name || properties.name || "");
+  };
+
+  const previewTaFromFeature = (feature) => {
+    if (selectedTa) {
+      return;
+    }
+
+    const properties = feature?.properties || {};
+    setHoveredEducationTa(properties.admin_unit_name || properties.name || "");
+  };
 
   const handleDownloadReport = async () => {
     const selectedInsightRow = selectedInsight || {};
@@ -1430,7 +1451,11 @@ function EducationPage() {
         <div className="mt-8">
           <h3 className="text-[16px] font-extrabold">Education Access Raster</h3>
           <p className="mt-2 text-sm text-gray-500 font-semibold">
-            High-resolution service coverage and travel-distance surfaces derived from school locations and beneficiary routing.
+            {selectedTa
+              ? `Showing the selected education access layer focused on ${selectedTa}. Click another TA boundary to switch the locked area.`
+              : activeEducationTaPreview
+                ? `Previewing education details for ${activeEducationTaPreview}. Click to lock this TA.`
+                : "Hover any TA boundary to preview its details on the active layer, or click to lock it."}
           </p>
           <div className="mt-5 border border-gray-100 rounded p-5 shadow-sm bg-white">
             <div className="flex flex-wrap gap-2">
@@ -1452,12 +1477,42 @@ function EducationPage() {
                 );
               })}
             </div>
+            <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-3">
+              {EDUCATION_RASTER_LAYERS.map((layer) => {
+                const isActive = layer.key === activeEducationRasterLayer.key;
+                return (
+                  <button
+                    key={`education-layer-card-${layer.key}`}
+                    type="button"
+                    onClick={() => setActiveEducationRasterKey(layer.key)}
+                    className={`rounded-xl border px-3 py-3 text-left transition ${
+                      isActive
+                        ? "border-gray-900 bg-gray-900 text-white"
+                        : "border-gray-100 bg-gray-50 text-gray-700 hover:border-gray-300"
+                    }`}
+                  >
+                    <p className="text-[10px] font-bold uppercase tracking-[0.12em]">
+                      {isActive ? "Active Layer" : "Layer"}
+                    </p>
+                    <p className="mt-1 text-sm font-extrabold">{layer.shortLabel}</p>
+                    <p
+                      className={`mt-1 text-xs font-semibold ${
+                        isActive ? "text-white/75" : "text-gray-500"
+                      }`}
+                    >
+                      {layer.subtitle}
+                    </p>
+                  </button>
+                );
+              })}
+            </div>
             <p className="mt-3 text-xs font-semibold text-gray-500">
               Layer focus keeps the map clean while still letting users compare
               coverage, distance, and travel-time patterns quickly.
             </p>
             <div className="mt-4 border border-gray-100 rounded p-3 bg-white">
               <PopulationRasterPanel
+                key={`education-raster-${activeEducationRasterLayer.key}`}
                 geojson={educationCoverageTaGeojson.data}
                 pointsGeojson={schoolLocations.data}
                 pointLayerLabel="Schools"
@@ -1473,6 +1528,9 @@ function EducationPage() {
                   educationRasterMetadata.loading
                 }
                 selectedFeatureName={selectedTa}
+                hoveredFeatureName={selectedTa ? "" : hoveredEducationTa}
+                onFeatureHover={previewTaFromFeature}
+                onFeatureClick={selectTaFromFeature}
               />
             </div>
           </div>
