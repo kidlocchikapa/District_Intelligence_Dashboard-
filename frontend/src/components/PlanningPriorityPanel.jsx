@@ -18,9 +18,119 @@ export default function PlanningPriorityPanel({
   planningPriorities,
   scopeLabel,
   compact = false,
+  variant = "full",
+  onSelectArea,
 }) {
   const priorities = planningPriorities?.data?.priorities || [];
   const loading = planningPriorities?.loading;
+  const isSummary = variant === "summary";
+  const visiblePriorities = priorities.slice(
+    0,
+    compact ? (isSummary ? 5 : 4) : isSummary ? 8 : 6,
+  );
+
+  if (isSummary) {
+    return (
+      <section className="mt-10 rounded-2xl border border-gray-100 bg-white p-6 shadow-sm">
+        <div className="mb-4 flex flex-wrap items-start justify-between gap-4">
+          <div>
+            <div className="flex items-center gap-2 text-[11px] font-bold uppercase tracking-[0.18em] text-gray-400">
+              <ShieldAlert className="h-4 w-4" />
+              Priority Summary
+            </div>
+            <h3 className="mt-2 text-[18px] font-extrabold tracking-tight text-black">
+              Priority Areas Action Queue
+            </h3>
+            <p className="mt-1 text-[13px] font-medium text-gray-500">
+              Ranked areas to review after completing insights and recommendations for{" "}
+              {scopeLabel}.
+            </p>
+          </div>
+          {planningPriorities?.data?.summary?.highest_priority_area ? (
+            <div className="rounded-xl border border-gray-100 bg-gray-50 px-3 py-2 text-right">
+              <div className="text-[10px] font-bold uppercase tracking-[0.16em] text-gray-400">
+                Highest Priority
+              </div>
+              <div className="mt-1 text-[14px] font-extrabold text-black">
+                {planningPriorities.data.summary.highest_priority_area}
+              </div>
+              <div className="text-[11px] font-semibold text-gray-500">
+                Score{" "}
+                {formatNumber(
+                  planningPriorities.data.summary.highest_priority_score,
+                  1,
+                )}
+              </div>
+            </div>
+          ) : null}
+        </div>
+
+        {loading ? (
+          <div className="rounded border border-dashed border-gray-200 px-4 py-8 text-sm font-medium text-gray-500">
+            Loading planning priorities...
+          </div>
+        ) : visiblePriorities.length === 0 ? (
+          <div className="rounded border border-dashed border-gray-200 px-4 py-8 text-sm font-medium text-gray-500">
+            No ranked planning priorities are available for this scope yet.
+          </div>
+        ) : (
+          <div className="space-y-3">
+            {visiblePriorities.map((item) => {
+              const clickable = typeof onSelectArea === "function";
+              const RowTag = clickable ? "button" : "div";
+
+              return (
+                <RowTag
+                  key={`${item.admin_unit_type}-${item.admin_unit_id}`}
+                  {...(clickable
+                    ? {
+                        type: "button",
+                        onClick: () => onSelectArea(item.admin_unit_name),
+                      }
+                    : {})}
+                  className={`w-full rounded-xl border border-gray-100 bg-gray-50 px-4 py-3 text-left transition ${
+                    clickable ? "hover:border-gray-300 hover:bg-white" : ""
+                  }`}
+                >
+                  <div className="flex flex-wrap items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="inline-flex h-6 w-6 items-center justify-center rounded-full bg-black text-[11px] font-extrabold text-white">
+                          {item.rank}
+                        </span>
+                        <span className="text-[14px] font-extrabold text-black">
+                          {item.admin_unit_name}
+                        </span>
+                        <span
+                          className={`inline-flex rounded-full border px-2 py-0.5 text-[10px] font-bold ${getPriorityClasses(
+                            item.priority_band,
+                          )}`}
+                        >
+                          {item.priority_band}
+                        </span>
+                      </div>
+                      <p className="mt-2 text-[12px] font-medium leading-5 text-gray-600">
+                        {(item.recommended_actions && item.recommended_actions[0]) ||
+                          item.narrative}
+                      </p>
+                    </div>
+                    <div className="text-right">
+                      <div className="text-[10px] font-bold uppercase tracking-[0.14em] text-gray-400">
+                        Score
+                      </div>
+                      <div className="mt-1 text-[20px] font-extrabold tracking-tight text-black">
+                        {formatNumber(item.planning_priority_score, 1)}
+                      </div>
+                    </div>
+                  </div>
+                </RowTag>
+              );
+            })}
+          </div>
+        )}
+      </section>
+    );
+  }
 
   return (
     <section className="border border-gray-100 rounded p-6 shadow-sm bg-white mb-10">
@@ -56,13 +166,13 @@ export default function PlanningPriorityPanel({
         <div className="rounded border border-dashed border-gray-200 px-4 py-8 text-sm font-medium text-gray-500">
           Loading planning priorities...
         </div>
-      ) : priorities.length === 0 ? (
-        <div className="rounded border border-dashed border-gray-200 px-4 py-8 text-sm font-medium text-gray-500">
-          No ranked planning priorities are available for this scope yet.
-        </div>
-      ) : (
-        <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
-          {priorities.slice(0, compact ? 4 : 6).map((item) => (
+        ) : priorities.length === 0 ? (
+          <div className="rounded border border-dashed border-gray-200 px-4 py-8 text-sm font-medium text-gray-500">
+            No ranked planning priorities are available for this scope yet.
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
+          {visiblePriorities.map((item) => (
             <article
               key={`${item.admin_unit_type}-${item.admin_unit_id}`}
               className="rounded-xl border border-gray-100 bg-gray-50/70 px-4 py-4"

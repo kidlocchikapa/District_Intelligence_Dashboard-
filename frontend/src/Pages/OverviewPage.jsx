@@ -18,6 +18,8 @@ import { useImageDownload } from "../hooks/useImageDownload";
 import SharedDistrictSelector from "../components/SharedDistrictSelector";
 import PopulationRasterPanel from "../components/PopulationRasterPanel";
 import MapPanel from "../components/MapPanel";
+import PlanningPriorityPanel from "../components/PlanningPriorityPanel";
+import IntegrationSummaryPanel from "../components/IntegrationSummaryPanel";
 import {
   BarChart,
   Bar,
@@ -33,12 +35,6 @@ import {
 } from "recharts";
 
 const PIE_COLORS = ["#e85d3f", "#f4c95d", "#2667ff", "#56ab91"];
-const PRIORITY_BAND_CLASSES = {
-  Critical: "border-red-200 bg-red-50 text-red-700",
-  High: "border-amber-200 bg-amber-50 text-amber-700",
-  Moderate: "border-blue-200 bg-blue-50 text-blue-700",
-  Watch: "border-slate-200 bg-slate-50 text-slate-700",
-};
 const COMPARISON_COLORS = ["#c2410c", "#2563eb", "#7c3aed", "#0f766e"];
 const OVERVIEW_CHART_SKELETON_HEIGHTS = [24, 36, 41, 58, 49, 65, 33, 45];
 const OVERVIEW_POPULATION_CHART_LIMITS = [
@@ -116,10 +112,6 @@ function metricFromRows(rows, keys) {
   }
 
   return 0;
-}
-
-function getPriorityBandClass(band) {
-  return PRIORITY_BAND_CLASSES[band] || PRIORITY_BAND_CLASSES.Watch;
 }
 
 function OverviewPage() {
@@ -821,7 +813,59 @@ function OverviewPage() {
               ))}
         </div>
 
-        <div className="grid grid-cols-1 xl:grid-cols-[1.2fr_0.8fr] gap-8 mb-10">
+        <div className="mb-10">
+          <IntegrationSummaryPanel
+            title="Integrated Overview Context"
+            subtitle="Cross-department context combining population, services, welfare pressure, and flood-priority signals for the selected scope."
+            loading={
+              summary.loading ||
+              welfareIntegration.loading ||
+              floodSummary.loading ||
+              educationSummary.loading ||
+              healthSummary.loading ||
+              planningPriorities.loading
+            }
+            items={[
+              {
+                label: "Population & Education",
+                metrics: {
+                  total_population:
+                    selectedTaChartRow?.population ||
+                    summary.data?.total_estimated_population ||
+                    0,
+                  schools: summary.data?.total_schools || 0,
+                  not_in_school: educationData.not_in_school_total || 0,
+                },
+              },
+              {
+                label: "Health & Welfare",
+                metrics: {
+                  health_facilities:
+                    healthFacilityCount ||
+                    summary.data?.total_health_facilities ||
+                    0,
+                  welfare_beneficiaries:
+                    welfareSummary.total_beneficiaries || 0,
+                  health_access_pct: welfareSummary.health_access_pct || 0,
+                },
+              },
+              {
+                label: "Flood & Priority",
+                metrics: {
+                  flood_exposed_population: exposedPopulation,
+                  flood_exposed_pct:
+                    floodSummary.data?.exposed_population_pct || 0,
+                  highest_priority_score:
+                    selectedPriorityRow?.planning_priority_score ||
+                    planningPriorities.data?.summary?.highest_priority_score ||
+                    0,
+                },
+              },
+            ]}
+          />
+        </div>
+
+        <div className="mb-10">
           <div className="min-w-0 border border-gray-100 rounded p-8 shadow-sm bg-white flex flex-col min-h-[640px]">
             <div className="mb-6">
               <div className="flex items-center gap-2 text-[11px] font-bold uppercase tracking-[0.2em] text-gray-400">
@@ -867,108 +911,6 @@ function OverviewPage() {
               ]}
             />
           </div>
-
-          <section className="min-w-0 border border-gray-100 rounded p-6 shadow-sm bg-white">
-            <div className="flex items-start justify-between gap-4 mb-5">
-              <div>
-                <div className="flex items-center gap-2 text-[11px] font-bold uppercase tracking-[0.2em] text-gray-400">
-                  <ShieldAlert className="h-4 w-4" />
-                  Ranked Actions
-                </div>
-                <h3 className="mt-2 text-[20px] font-extrabold tracking-tight text-black">
-                  Top Priority Areas
-                </h3>
-                <p className="mt-1 text-[13px] font-medium text-gray-500">
-                  Highest-need areas according to the current cross-sector
-                  score.
-                </p>
-              </div>
-              {planningPriorities.data?.summary?.highest_priority_area ? (
-                <div className="text-right">
-                  <div className="text-[11px] font-bold uppercase tracking-[0.18em] text-gray-400">
-                    Highest Priority
-                  </div>
-                  <div className="mt-1 text-[15px] font-extrabold text-black">
-                    {planningPriorities.data.summary.highest_priority_area}
-                  </div>
-                </div>
-              ) : null}
-            </div>
-
-            {planningPriorities.loading ? (
-              <div className="rounded border border-dashed border-gray-200 px-4 py-8 text-sm font-medium text-gray-500">
-                Loading planning priorities...
-              </div>
-            ) : (planningPriorities.data?.priorities || []).length === 0 ? (
-              <div className="rounded border border-dashed border-gray-200 px-4 py-8 text-sm font-medium text-gray-500">
-                No ranked planning priorities are available for this scope yet.
-              </div>
-            ) : (
-              <div className="space-y-4">
-                {(planningPriorities.data?.priorities || []).map((item) => {
-                  const selected =
-                    normalizeName(item.admin_unit_name) ===
-                    normalizeName(selectedTa);
-
-                  return (
-                    <button
-                      key={`${item.admin_unit_type}-${item.admin_unit_id}`}
-                      type="button"
-                      onClick={() => selectTa(item.admin_unit_name)}
-                      className={`w-full rounded-xl border px-4 py-4 text-left transition-all ${
-                        selected
-                          ? "border-black bg-black text-white shadow-lg"
-                          : "border-gray-100 bg-gray-50/70 hover:border-gray-200 hover:bg-white"
-                      }`}
-                    >
-                      <div className="flex items-start justify-between gap-4">
-                        <div className="min-w-0">
-                          <div className="flex flex-wrap items-center gap-2">
-                            <span
-                              className={`inline-flex h-7 w-7 items-center justify-center rounded-full text-[12px] font-extrabold ${
-                                selected
-                                  ? "bg-white text-black"
-                                  : "bg-black text-white"
-                              }`}
-                            >
-                              {item.rank}
-                            </span>
-                            <span className="text-[15px] font-extrabold">
-                              {item.admin_unit_name}
-                            </span>
-                            <span
-                              className={`inline-flex rounded-full border px-2.5 py-1 text-[11px] font-bold ${
-                                selected
-                                  ? "border-white/30 bg-white/10 text-white"
-                                  : getPriorityBandClass(item.priority_band)
-                              }`}
-                            >
-                              {item.priority_band}
-                            </span>
-                          </div>
-                          <p
-                            className={`mt-2 text-[13px] leading-6 ${selected ? "text-white/80" : "text-gray-600"}`}
-                          >
-                            {item.narrative}
-                          </p>
-                        </div>
-                        <div className="text-right min-w-[96px]">
-                          <div
-                            className={`text-[11px] font-bold uppercase tracking-[0.18em] ${selected ? "text-white/60" : "text-gray-400"}`}
-                          >
-                            Score
-                          </div>
-                          <div className="mt-1 text-[24px] font-extrabold tracking-tight">
-                            {formatStat(item.planning_priority_score, 1)}
-                          </div>
-                        </div>
-                      </div>
-                    </button>
-                  );
-                })}
-              </div>
-            )}
-          </section>
         </div>
 
         <div className="grid grid-cols-1 xl:grid-cols-[0.9fr_1.1fr] gap-8 mb-10">
@@ -1355,6 +1297,14 @@ function OverviewPage() {
             </div>
           </section>
         </div>
+
+        <PlanningPriorityPanel
+          planningPriorities={planningPriorities}
+          scopeLabel={scopeLabel}
+          compact
+          variant="summary"
+          onSelectArea={(areaName) => selectTa(areaName || "")}
+        />
       </div>
     </div>
   );

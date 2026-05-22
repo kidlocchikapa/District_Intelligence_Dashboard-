@@ -308,7 +308,7 @@ function EducationCategoryPieTooltip({ active, payload }) {
 }
 
 function EducationPage() {
-  const { selectedDistrict, selectedTa } = useDistrict();
+  const { selectedDistrict, selectedTa, setSelectedTa } = useDistrict();
   const [selectedSchoolRiskCategories, setSelectedSchoolRiskCategories] = useState(
     SCHOOL_RISK_CATEGORIES,
   );
@@ -892,12 +892,6 @@ function EducationPage() {
                 </div>
               ))}
         </div>
-
-        <PlanningPriorityPanel
-          planningPriorities={planningPriorities}
-          scopeLabel={selectedTa || selectedDistrict || "Education overview"}
-          compact
-        />
 
         <div className="mb-10">
           <IntegrationSummaryPanel
@@ -1506,6 +1500,13 @@ function EducationPage() {
           )}
         </div>
 
+        {/* ── Flood Impact on Schools ─────────────────────────────────── */}
+        <FloodImpactSection
+          floodImpact={floodImpact}
+          floodImpactGeojson={floodImpactGeojson}
+          coverageFocusDistrict={coverageFocusDistrict}
+        />
+
         {/* ── Planning Recommendations ─────────────────────────────── */}
         <PlanningRecommendations
           districtInsights={districtInsights}
@@ -1515,11 +1516,12 @@ function EducationPage() {
           planningPriorities={planningPriorities}
         />
 
-        {/* ── Flood Impact on Schools ─────────────────────────────────── */}
-        <FloodImpactSection
-          floodImpact={floodImpact}
-          floodImpactGeojson={floodImpactGeojson}
-          coverageFocusDistrict={coverageFocusDistrict}
+        <PlanningPriorityPanel
+          planningPriorities={planningPriorities}
+          scopeLabel={selectedTa || selectedDistrict || "Education overview"}
+          compact
+          variant="summary"
+          onSelectArea={(areaName) => setSelectedTa(areaName || "")}
         />
 
         <MetricPreviewModal
