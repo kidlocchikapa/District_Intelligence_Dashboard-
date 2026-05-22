@@ -744,15 +744,6 @@ function OverviewPage() {
       </div>
 
       <div className="px-8 mt-8">
-        <div className="flex flex-wrap items-center gap-3 mb-6">
-          <span className="inline-flex items-center rounded-full border border-gray-200 bg-gray-50 px-3 py-1 text-[12px] font-bold uppercase tracking-[0.18em] text-gray-500">
-            Scope
-          </span>
-          <span className="inline-flex items-center rounded-full bg-black px-4 py-1.5 text-[13px] font-bold text-white">
-            {scopeLabel}
-          </span>
-        </div>
-
         <div className="flex flex-wrap gap-4 mb-8">
           <button
             onClick={handleDownloadReport}
