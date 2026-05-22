@@ -544,12 +544,6 @@ function DisasterPage() {
               ))}
         </div>
 
-        <PlanningPriorityPanel
-          planningPriorities={planningPriorities}
-          scopeLabel={selectedTa || scopeLabel}
-          compact
-        />
-
         <div className="mb-10">
           <IntegrationSummaryPanel
             title="Integrated Disaster Context"
@@ -981,6 +975,14 @@ function DisasterPage() {
           healthFacilitiesTotal={healthFacilitiesTotal}
           scopeLabel={scopeLabel}
           planningPriorities={planningPriorities}
+        />
+
+        <PlanningPriorityPanel
+          planningPriorities={planningPriorities}
+          scopeLabel={selectedTa || scopeLabel}
+          compact
+          variant="summary"
+          onSelectArea={(areaName) => setSelectedTa(areaName || "")}
         />
 
       </div>
