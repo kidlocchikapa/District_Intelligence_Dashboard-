@@ -18,7 +18,6 @@ import { useImageDownload } from "../hooks/useImageDownload";
 import SharedDistrictSelector from "../components/SharedDistrictSelector";
 import PopulationRasterPanel from "../components/PopulationRasterPanel";
 import MapPanel from "../components/MapPanel";
-import PlanningPriorityPanel from "../components/PlanningPriorityPanel";
 import IntegrationSummaryPanel from "../components/IntegrationSummaryPanel";
 import {
   BarChart,
@@ -1298,13 +1297,6 @@ function OverviewPage() {
           </section>
         </div>
 
-        <PlanningPriorityPanel
-          planningPriorities={planningPriorities}
-          scopeLabel={scopeLabel}
-          compact
-          variant="summary"
-          onSelectArea={(areaName) => selectTa(areaName || "")}
-        />
       </div>
     </div>
   );
