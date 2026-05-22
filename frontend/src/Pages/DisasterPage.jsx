@@ -29,7 +29,6 @@ import { usePdfExport } from "../hooks/usePdfExport";
 import { formatNumber } from "../lib/format";
 import IntegrationSummaryPanel from "../components/IntegrationSummaryPanel";
 import SharedDistrictSelector from "../components/SharedDistrictSelector";
-import PlanningPriorityPanel from "../components/PlanningPriorityPanel";
 import { buildDashboardPath } from "../lib/query";
 import PopulationRasterPanel from "../components/PopulationRasterPanel";
 import InteractiveRecommendations from "../components/InteractiveRecommendations";
@@ -975,14 +974,6 @@ function DisasterPage() {
           healthFacilitiesTotal={healthFacilitiesTotal}
           scopeLabel={scopeLabel}
           planningPriorities={planningPriorities}
-        />
-
-        <PlanningPriorityPanel
-          planningPriorities={planningPriorities}
-          scopeLabel={selectedTa || scopeLabel}
-          compact
-          variant="summary"
-          onSelectArea={(areaName) => setSelectedTa(areaName || "")}
         />
 
       </div>

@@ -25,7 +25,6 @@ import MapPanel from "../components/MapPanel";
 import IntegrationSummaryPanel from "../components/IntegrationSummaryPanel";
 import SharedDistrictSelector from "../components/SharedDistrictSelector";
 import PopulationRasterPanel from "../components/PopulationRasterPanel";
-import PlanningPriorityPanel from "../components/PlanningPriorityPanel";
 import InteractiveRecommendations from "../components/InteractiveRecommendations";
 import MetricPreviewModal from "../components/MetricPreviewModal";
 import {
@@ -308,7 +307,7 @@ function EducationCategoryPieTooltip({ active, payload }) {
 }
 
 function EducationPage() {
-  const { selectedDistrict, selectedTa, setSelectedTa } = useDistrict();
+  const { selectedDistrict, selectedTa } = useDistrict();
   const [selectedSchoolRiskCategories, setSelectedSchoolRiskCategories] = useState(
     SCHOOL_RISK_CATEGORIES,
   );
@@ -1514,14 +1513,6 @@ function EducationPage() {
           educationSummary={educationSummary}
           selectedDistrict={selectedDistrict}
           planningPriorities={planningPriorities}
-        />
-
-        <PlanningPriorityPanel
-          planningPriorities={planningPriorities}
-          scopeLabel={selectedTa || selectedDistrict || "Education overview"}
-          compact
-          variant="summary"
-          onSelectArea={(areaName) => setSelectedTa(areaName || "")}
         />
 
         <MetricPreviewModal

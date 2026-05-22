@@ -10,7 +10,6 @@ import PopulationRasterPanel from "../components/PopulationRasterPanel";
 import GlobalHospitalRegistry from "../components/GlobalHospitalRegistry";
 import IntegrationSummaryPanel from "../components/IntegrationSummaryPanel";
 import SharedDistrictSelector from "../components/SharedDistrictSelector";
-import PlanningPriorityPanel from "../components/PlanningPriorityPanel";
 import MetricPreviewModal from "../components/MetricPreviewModal";
 import FacilityBurdenScatter from "../components/Charts/FacilityBurdenScatter.jsx";
 import TAAnalyticsTable from "../components/Tables/TAAnalyticsTable.jsx";
@@ -720,12 +719,6 @@ function HealthPage() {
                 </div>
               ))}
         </div>
-
-        <PlanningPriorityPanel
-          planningPriorities={planningPriorities}
-          scopeLabel={selectedTa || districtScope}
-          compact
-        />
 
         <div className="mb-10">
           <IntegrationSummaryPanel
