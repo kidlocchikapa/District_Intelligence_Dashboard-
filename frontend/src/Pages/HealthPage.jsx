@@ -505,14 +505,10 @@ function HealthPage() {
     0,
   );
 
-  const selectedAreaHospitals = (healthLocations.data?.features || [])
-    .filter((f) => {
-      const type = (f.properties?.type || "").toLowerCase();
-      return type.includes("hospital");
-    })
+  const selectedAreaFacilities = (healthLocations.data?.features || [])
     .map((f) => ({
-      name: f.properties?.name || f.properties?.name_en || "Unnamed Hospital",
-      type: f.properties?.type || "Hospital",
+      name: f.properties?.name || f.properties?.name_en || "Unnamed Facility",
+      type: f.properties?.type || "Facility",
       beds: f.properties?.beds_count || 0,
       visits: f.properties?.patient_visits_total || 0,
     }));
@@ -1259,9 +1255,9 @@ function HealthPage() {
           <div className="border border-gray-100 rounded p-6 shadow-sm bg-white h-[400px] flex flex-col">
             <h3 className="text-[16px] font-extrabold mb-4">
               {selectedTa
-                ? `Hospitals in ${selectedTa}`
+                ? `Health Facilities in ${selectedTa}`
                 : selectedDistrict
-                  ? `Hospitals in ${selectedDistrict}`
+                  ? `Health Facilities in ${selectedDistrict}`
                   : "Health Facilities Across Zomba"}
             </h3>
 
@@ -1283,24 +1279,24 @@ function HealthPage() {
                         </div>
                       ))}
                     </div>
-                  ) : selectedAreaHospitals.length > 0 ? (
+                  ) : selectedAreaFacilities.length > 0 ? (
                     <div className="space-y-3">
-                      {selectedAreaHospitals.map((hospital, idx) => (
+                      {selectedAreaFacilities.map((facility, idx) => (
                         <div
                           key={idx}
                           className="flex items-center justify-between p-3 rounded-xl border border-gray-50 bg-gray-50/50 hover:bg-gray-100 transition-colors"
                         >
                           <div className="min-w-0">
                             <p className="text-sm font-bold text-gray-900 truncate">
-                              {hospital.name}
+                              {facility.name}
                             </p>
                             <p className="text-[11px] font-medium text-gray-500 uppercase tracking-wider">
-                              {hospital.type}
+                              {facility.type}
                             </p>
                           </div>
                           <div className="text-right shrink-0">
                             <p className="text-sm font-black text-blue-600">
-                              {hospital.beds || "--"}
+                              {facility.beds || "--"}
                             </p>
                             <p className="text-[10px] font-bold text-gray-400 uppercase">
                               Beds
@@ -1314,8 +1310,8 @@ function HealthPage() {
                       <HeartPulse className="h-8 w-8 text-gray-200 mb-2" />
                       <p className="text-sm font-bold text-gray-400">
                         {selectedTa
-                          ? "No hospitals found in this TA"
-                          : "No hospitals found in this district"}
+                          ? "No health facilities found in this TA"
+                          : "No health facilities found in this district"}
                       </p>
                       <p className="text-[11px] text-gray-300 mt-1">
                         {selectedTa
