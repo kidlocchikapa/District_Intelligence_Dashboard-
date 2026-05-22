@@ -114,7 +114,8 @@ function metricFromRows(rows, keys) {
 }
 
 function OverviewPage() {
-  const { selectedDistrict, selectedTa, setSelectedTa } = useDistrict();
+  const { selectedDistrict, selectedTa, setSelectedDistrict, setSelectedTa } =
+    useDistrict();
   const [populationChartSearch, setPopulationChartSearch] = useState("");
   const [populationChartLimit, setPopulationChartLimit] = useState(12);
   const [populationChartSort, setPopulationChartSort] = useState("population_desc");
@@ -341,6 +342,7 @@ function OverviewPage() {
         properties: {
           ...properties,
           admin_unit_name: featureName,
+          district_name: priority?.district_name || properties.district_name || "",
           planning_priority_score: Number(
             priority?.planning_priority_score || 0,
           ),
@@ -377,31 +379,32 @@ function OverviewPage() {
     }
 
     const features = (densityMap.data.features || []).map((feature) => {
-        const name = feature?.properties?.name || "";
-        const floodStats = taFloodLookup.get(normalizeName(name)) || {};
-        const featureId = Number(feature?.id);
-        const serviceStats =
-          (Number.isFinite(featureId) && taServiceLookup.get(featureId)) ||
-          taServiceLookup.get(`name:${normalizeName(name)}`) ||
-          {};
+      const name = feature?.properties?.name || "";
+      const floodStats = taFloodLookup.get(normalizeName(name)) || {};
+      const featureId = Number(feature?.id);
+      const serviceStats =
+        (Number.isFinite(featureId) && taServiceLookup.get(featureId)) ||
+        taServiceLookup.get(`name:${normalizeName(name)}`) ||
+        {};
 
-        return {
-          ...feature,
-          properties: {
-            ...feature.properties,
-            admin_unit_name: name,
-            exposed_population: floodStats.exposedPopulation || 0,
-            exposed_population_pct: floodStats.exposedPopulationPct || 0,
-            risk_level: floodStats.riskLevel,
-            schools_count: Number(serviceStats.schools_count || 0),
-            hospitals_count: Number(serviceStats.hospitals_count || 0),
-            beneficiaries_count: Number(serviceStats.beneficiaries_count || 0),
-            health_facilities_count: Number(
-              serviceStats.health_facilities_count || 0,
-            ),
-          },
-        };
-      });
+      return {
+        ...feature,
+        properties: {
+          ...feature.properties,
+          admin_unit_name: name,
+          exposed_population: floodStats.exposedPopulation || 0,
+          exposed_population_pct: floodStats.exposedPopulationPct || 0,
+          risk_level: floodStats.riskLevel,
+          schools_count: Number(serviceStats.schools_count || 0),
+          hospitals_count: Number(serviceStats.hospitals_count || 0),
+          beneficiaries_count: Number(serviceStats.beneficiaries_count || 0),
+          district_name: serviceStats.district_name || "",
+          health_facilities_count: Number(
+            serviceStats.health_facilities_count || 0,
+          ),
+        },
+      };
+    });
 
     return {
       ...densityMap.data,
@@ -573,7 +576,10 @@ function OverviewPage() {
       .replace(/\b\w/g, (char) => char.toUpperCase()),
   }));
 
-  const selectTa = (taName) => {
+  const selectTa = (taName, districtName = "") => {
+    if (districtName && districtName !== selectedDistrict) {
+      setSelectedDistrict(districtName);
+    }
     setSelectedTa(taName || "");
   };
 
@@ -899,9 +905,11 @@ function OverviewPage() {
                   feature?.properties?.admin_unit_name ||
                     feature?.properties?.name ||
                     "",
+                  feature?.properties?.district_name || "",
                 )
               }
               tooltipFields={[
+                { key: "district_name", label: "District" },
                 { key: "priority_band", label: "Priority Band" },
                 { key: "beneficiaries_count", label: "Beneficiaries" },
                 { key: "schools_count", label: "Schools" },
@@ -1044,7 +1052,12 @@ function OverviewPage() {
                   },
                 ]}
                 onFeatureClick={(feature) =>
-                  selectTa(feature?.properties?.name || "")
+                  selectTa(
+                    feature?.properties?.admin_unit_name ||
+                      feature?.properties?.name ||
+                      "",
+                    feature?.properties?.district_name || "",
+                  )
                 }
               />
             </div>
@@ -1177,7 +1190,9 @@ function OverviewPage() {
                       barSize={14}
                       minPointSize={2}
                       activeBar={<Rectangle fill="#7e22ce" />}
-                      onClick={(entry) => selectTa(entry?.admin3 || "")}
+                      onClick={(entry) =>
+                        selectTa(entry?.admin3 || "", entry?.district || "")
+                      }
                     >
                       {filteredChartData.map((entry) => {
                         const isSelected =

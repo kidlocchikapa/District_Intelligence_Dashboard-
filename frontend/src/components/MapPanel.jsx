@@ -116,6 +116,34 @@ function MapPanel({
   const activeGeojson = geojson;
   const features = useMemo(() => activeGeojson?.features ?? [], [activeGeojson]);
   const bounds = useMemo(() => getGeoBounds(features), [features]);
+  const layerDataKey = useMemo(
+    () =>
+      features
+        .map((feature) => {
+          const properties = feature?.properties || {};
+          const featureName =
+            typeof featureNameResolver === "function"
+              ? featureNameResolver(feature)
+              : properties.admin_unit_name || properties.name || "";
+          const metricValue =
+            metricName && properties[metricName] !== undefined
+              ? properties[metricName]
+              : "";
+          const colorValue =
+            colorByField && properties[colorByField] !== undefined
+              ? properties[colorByField]
+              : "";
+
+          return [
+            feature?.id ?? "",
+            featureName,
+            metricValue,
+            colorValue,
+          ].join(":");
+        })
+        .join("|"),
+    [colorByField, featureNameResolver, features, metricName],
+  );
 
   if (!loading && !features.length) {
     return (
@@ -318,7 +346,7 @@ function MapPanel({
           )}
 
           <GeoJSON
-            key={`${metricName}-${features.length}-${selectedFeatureName || "all"}`}
+            key={`${metricName}-${colorByField || "metric"}-${selectedFeatureName || "all"}-${layerDataKey}`}
             data={activeGeojson}
             style={styleFeature}
             pointToLayer={
