@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { ShieldAlert } from "lucide-react";
+import { ChevronDown, ChevronUp, ShieldAlert } from "lucide-react";
 
 function formatNumber(value, digits = 0) {
   return Number(value || 0).toLocaleString(undefined, {
@@ -341,10 +341,19 @@ function PrioritySummaryCard({
   onToggleAnalysis,
 }) {
   const badge = getPriorityBadgeMeta(item.priority_band);
+  const actions = getRecommendedActions(item);
 
   return (
-    <article className="w-full rounded-xl border border-gray-200 bg-gray-50 px-4 py-3">
-      <div className="flex items-start justify-between gap-3">
+    <article
+      className={`rounded border bg-white shadow-sm transition-all ${
+        expanded ? "border-gray-300" : "border-gray-100"
+      }`}
+    >
+      <button
+        type="button"
+        onClick={onToggleAnalysis}
+        className="flex w-full items-start justify-between gap-3 px-4 py-3 text-left"
+      >
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2">
             <span
@@ -356,74 +365,86 @@ function PrioritySummaryCard({
               {item.rank}
             </span>
           </div>
-          <h4 className="mt-2 text-[16px] font-extrabold leading-tight text-black">
+          <h4 className="mt-2 text-[15px] font-extrabold leading-tight text-black">
             {item.admin_unit_name}
           </h4>
-          <p className="mt-1 text-[11px] font-semibold text-gray-500">
+          <p className="mt-1 text-[12px] font-semibold text-gray-500">
             {getDriverSubtitle(item)}
           </p>
         </div>
-        <div className="text-right">
-          <div className="text-[10px] font-bold uppercase tracking-[0.14em] text-gray-400">
-            Score
+        <div className="flex flex-shrink-0 items-start gap-2">
+          <div className="text-right">
+            <div className="text-[10px] font-bold uppercase tracking-[0.14em] text-gray-400">
+              Score
+            </div>
+            <div className="mt-1 text-[22px] font-extrabold leading-none text-black">
+              {formatNumber(item.planning_priority_score, 1)}
+            </div>
           </div>
-          <div className="mt-1 text-[22px] font-extrabold leading-none text-black">
-            {formatNumber(item.planning_priority_score, 1)}
+          <div className="mt-1 text-gray-400">
+            {expanded ? (
+              <ChevronUp className="h-4 w-4" />
+            ) : (
+              <ChevronDown className="h-4 w-4" />
+            )}
           </div>
         </div>
-      </div>
+      </button>
 
-      <div className="mt-3 grid grid-cols-3 gap-2">
-        <Metric label="Affected" value={formatNumber(item.beneficiary_count)} />
-        <Metric
-          label="Flood Exp"
-          value={`${formatNumber(item.flood_exposed_population_pct, 1)}%`}
-        />
-        <Metric
-          label="Health Risk"
-          value={formatNumber(item.health_vulnerability_score, 1)}
-        />
-      </div>
+      <div className="border-t border-gray-100 px-4 py-3">
+        <div className="flex flex-wrap gap-2">
+          <MetricChip label="Affected" value={formatNumber(item.beneficiary_count)} />
+          <MetricChip
+            label="Flood Exp"
+            value={`${formatNumber(item.flood_exposed_population_pct, 1)}%`}
+          />
+          <MetricChip
+            label="Health Risk"
+            value={formatNumber(item.health_vulnerability_score, 1)}
+          />
+        </div>
 
-      <div className="mt-3 flex flex-wrap items-center gap-2">
-        {typeof onSelectArea === "function" ? (
+        <div className="mt-3 flex flex-wrap items-center gap-2">
+          {typeof onSelectArea === "function" ? (
+            <button
+              type="button"
+              onClick={() => onSelectArea(item.admin_unit_name)}
+              className="rounded-full border border-blue-200 bg-blue-50 px-3 py-1.5 text-xs font-bold text-blue-700 transition-all hover:border-blue-300 hover:bg-blue-100"
+            >
+              Select Area
+            </button>
+          ) : null}
           <button
             type="button"
-            onClick={() => onSelectArea(item.admin_unit_name)}
-            className="rounded-full border border-gray-300 bg-white px-3 py-1 text-[10px] font-bold uppercase tracking-[0.12em] text-gray-600 transition hover:border-gray-900 hover:text-black"
+            onClick={onToggleAnalysis}
+            className="rounded-full border border-gray-900 bg-gray-900 px-3 py-1.5 text-xs font-bold text-white transition-all hover:opacity-90"
           >
-            Select Area
+            {expanded ? "Hide Full Analysis" : "View Full Analysis"}
           </button>
-        ) : null}
-        <button
-          type="button"
-          onClick={onToggleAnalysis}
-          className="rounded-full border border-gray-900 bg-gray-900 px-3 py-1 text-[10px] font-bold uppercase tracking-[0.12em] text-white transition hover:opacity-90"
-        >
-          {expanded ? "Hide Full Analysis" : "View Full Analysis"}
-        </button>
-      </div>
-
-      {expanded ? (
-        <div className="mt-3 rounded-lg border border-gray-200 bg-white px-3 py-3">
-          <div className="text-[10px] font-bold uppercase tracking-[0.14em] text-gray-500">
-            Top Insight
-          </div>
-          <p className="mt-1 text-[12px] font-semibold leading-5 text-gray-700">
-            {getTopInsight(item)}
-          </p>
-          <div className="mt-3 text-[10px] font-bold uppercase tracking-[0.14em] text-gray-500">
-            Recommended Actions
-          </div>
-          <div className="mt-1 space-y-1">
-            {getRecommendedActions(item).map((action) => (
-              <p key={action} className="text-[12px] font-semibold text-gray-700">
-                {"\u2192"} {action}
-              </p>
-            ))}
-          </div>
         </div>
-      ) : null}
+
+        {expanded ? (
+          <div className="mt-3 rounded bg-gray-50 px-3 py-3">
+            <div className="text-[10px] font-bold uppercase tracking-[0.12em] text-gray-500">
+              Top Insight
+            </div>
+            <p className="mt-1 text-[12px] leading-5 text-gray-700">
+              {getTopInsight(item)}
+            </p>
+
+            <div className="mt-3 text-[10px] font-bold uppercase tracking-[0.12em] text-gray-500">
+              Recommended Actions
+            </div>
+            <div className="mt-1 space-y-1">
+              {actions.map((action) => (
+                <p key={action} className="text-[12px] font-medium text-gray-700">
+                  {"\u2192"} {action}
+                </p>
+              ))}
+            </div>
+          </div>
+        ) : null}
+      </div>
     </article>
   );
 }
@@ -437,6 +458,19 @@ function Metric({ label, value }) {
       <div className="mt-1 text-[18px] font-extrabold leading-none text-black">
         {value}
       </div>
+    </div>
+  );
+}
+
+function MetricChip({ label, value }) {
+  return (
+    <div className="inline-flex items-center gap-2 rounded-full border border-gray-200 bg-white px-2.5 py-1">
+      <span className="text-[10px] font-bold uppercase tracking-[0.1em] text-gray-500">
+        {label}
+      </span>
+      <span className="text-[11px] font-extrabold text-black">
+        {value}
+      </span>
     </div>
   );
 }
