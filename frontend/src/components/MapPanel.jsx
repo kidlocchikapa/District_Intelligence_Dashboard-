@@ -1,4 +1,4 @@
-import { useEffect, useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import "leaflet/dist/leaflet.css";
 import L from "leaflet";
 import { GeoJSON, MapContainer, TileLayer, useMap } from "react-leaflet";
@@ -150,7 +150,20 @@ function MapPanel({
   const { setSelectedDistrict } = useDistrict();
   const hasHeader = Boolean(title || subtitle);
   const useStackedLayout = hasHeader || showLegend;
-  const activeGeojson = geojson;
+  const [activeGeojson, setActiveGeojson] = useState(geojson);
+
+  useEffect(() => {
+    if (loading || !geojson || geojson === activeGeojson) {
+      return undefined;
+    }
+
+    const frameId = window.requestAnimationFrame(() => {
+      setActiveGeojson(geojson);
+    });
+
+    return () => window.cancelAnimationFrame(frameId);
+  }, [activeGeojson, geojson, loading]);
+
   const features = useMemo(() => activeGeojson?.features ?? [], [activeGeojson]);
   const bounds = useMemo(() => getGeoBounds(features), [features]);
   const layerDataKey = useMemo(

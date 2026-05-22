@@ -601,7 +601,7 @@ function PopulationRasterPanel({
         ) : null}
 
         {activeFeature ? (
-          <div className="absolute inset-x-4 bottom-4 z-[401] flex items-end justify-start">
+          <div className="absolute inset-x-3 bottom-3 z-[401] flex max-h-[calc(100%-1.5rem)] items-end justify-start sm:inset-x-4 sm:bottom-4">
             <div className="max-h-[calc(100%-1rem)] min-w-[240px] overflow-y-auto rounded-2xl border border-white/80 bg-white/92 px-5 py-4 shadow-md backdrop-blur-md">
             <div>
               <div className="mb-2.5 flex flex-wrap items-start justify-between gap-2">

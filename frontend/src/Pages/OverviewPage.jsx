@@ -373,6 +373,22 @@ function OverviewPage() {
     return { ...densityMap.data, features };
   }, [densityMap.data, priorityLookup]);
 
+  const priorityMapKey = useMemo(() => {
+    const features = priorityMapGeojson?.features || [];
+
+    return features
+      .map((feature) => {
+        const properties = feature?.properties || {};
+        return [
+          feature?.id ?? "",
+          properties.admin_unit_name || properties.name || "",
+          properties.priority_band || "",
+          properties.planning_priority_score ?? "",
+        ].join(":");
+      })
+      .join("|");
+  }, [priorityMapGeojson]);
+
   const populationMapGeojson = useMemo(() => {
     if (!densityMap.data) {
       return densityMap.data;
@@ -889,13 +905,14 @@ function OverviewPage() {
               </p>
             </div>
             <MapPanel
+              key={`overview-priority-map-${selectedDistrict || "all"}-${priorityMapKey}`}
               geojson={priorityMapGeojson}
               metricName="planning_priority_score"
               colorByField="priority_band"
               palette="priority-bands"
               title={null}
               subtitle={null}
-              heightClass="min-h-[520px]"
+              heightClass="h-[520px] min-h-[520px]"
               loading={densityMap.loading || planningPriorities.loading}
               showLegend
               legendTitle="Planning Priority Bands"
@@ -1017,7 +1034,7 @@ function OverviewPage() {
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-10">
-          <div className="min-w-0 border border-gray-100 rounded p-8 shadow-sm bg-white flex flex-col h-[640px]">
+          <div className="min-w-0 border border-gray-100 rounded p-5 shadow-sm bg-white flex flex-col sm:p-8">
             <h3 className="text-[16px] font-extrabold mb-2">
               {selectedTa
                 ? `${selectedTa} Population Context Map`
@@ -1028,13 +1045,13 @@ function OverviewPage() {
             </p>
             <div
               ref={mapRef}
-              className="w-full flex-1 rounded overflow-hidden relative border border-gray-50 shadow-inner bg-gray-50"
+              className="relative h-[560px] w-full rounded border border-gray-50 bg-gray-50 shadow-inner sm:h-[640px]"
             >
               <PopulationRasterPanel
                 geojson={populationMapGeojson}
                 title={null}
                 subtitle={null}
-                heightClass="h-full min-h-[360px] sm:min-h-[520px] w-full"
+                heightClass="h-full w-full"
                 loading={densityMap.loading}
                 metadataUrl="/worldpop/zomba_ppp_2020.preview.json"
                 legendPositionClass="right-2 top-2 sm:right-4 sm:top-auto sm:bottom-4"
