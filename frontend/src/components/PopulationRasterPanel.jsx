@@ -60,6 +60,7 @@ function PopulationRasterPanel({
   const [showBoundaryLayer, setShowBoundaryLayer] = useState(true);
   const [mapInstance, setMapInstance] = useState(null);
   const [error, setError] = useState(null);
+  const [isResetViewActive, setIsResetViewActive] = useState(false);
 
   useEffect(() => {
     let ignore = false;
@@ -144,6 +145,17 @@ function PopulationRasterPanel({
       [bounds.maxLat, bounds.maxLon],
     ];
   }, [defaultBounds, features, metadata, selectedFeature]);
+  const mapFitterBounds = useMemo(() => {
+    if (isResetViewActive) {
+      return defaultBounds || activeBounds || null;
+    }
+
+    return activeBounds || defaultBounds || null;
+  }, [activeBounds, defaultBounds, isResetViewActive]);
+
+  useEffect(() => {
+    setIsResetViewActive(false);
+  }, [selectedFeatureName, metadataUrl]);
   const pointFeatures = useMemo(() => {
     return (pointsGeojson?.features || []).filter(
       (feature) =>
@@ -346,11 +358,13 @@ function PopulationRasterPanel({
       return;
     }
 
+    setIsResetViewActive(false);
     zoomToBounds(activeFeatureBounds);
   };
 
   const handleResetView = () => {
     if (defaultBounds) {
+      setIsResetViewActive(true);
       zoomToBounds(defaultBounds);
     }
   };
@@ -397,7 +411,7 @@ function PopulationRasterPanel({
           attributionControl={false}
         >
           <MapInstanceCapture onReady={setMapInstance} />
-          <MapFitter bounds={activeBounds || defaultBounds} />
+          <MapFitter bounds={mapFitterBounds} />
           <ZoomControl position="topright" />
           {imageUrl && showRasterLayer ? (
             <ImageOverlay
@@ -472,6 +486,7 @@ function PopulationRasterPanel({
                   click: (e) => {
                     const featureType = getFeatureType(feature);
                     if (typeof onFeatureClick === "function") {
+                      setIsResetViewActive(false);
                       onFeatureClick(feature, e);
                     } else if (
                       name &&
