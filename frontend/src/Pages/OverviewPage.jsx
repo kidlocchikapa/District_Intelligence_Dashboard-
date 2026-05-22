@@ -10,7 +10,6 @@ import {
   Waves,
 } from "lucide-react";
 import { toast } from "react-hot-toast";
-import { useNavigate } from "react-router-dom";
 import { useDashboardData } from "../hooks/useDashboardData";
 import { useDistrict } from "../context/DistrictContext";
 import { buildDashboardPath } from "../lib/query";
@@ -114,50 +113,7 @@ function metricFromRows(rows, keys) {
   return 0;
 }
 
-function getPriorityDrivers(row) {
-  return [
-    {
-      key: "health",
-      label: "Health",
-      path: "/health",
-      value: Number(row?.health_vulnerability_score || 0),
-    },
-    {
-      key: "education",
-      label: "Education",
-      path: "/education",
-      value: Number(row?.education_vulnerability_score || 0),
-    },
-    {
-      key: "disaster",
-      label: "Disaster Risk",
-      path: "/disaster",
-      value: Number(row?.flood_risk_score || 0),
-    },
-    {
-      key: "welfare",
-      label: "Social Welfare",
-      path: "/welfare",
-      value: Number(row?.beneficiary_density_score || 0),
-    },
-  ]
-    .filter((driver) => driver.value > 0)
-    .sort((left, right) => right.value - left.value);
-}
-
-function getPriorityDriverSummary(row) {
-  const drivers = getPriorityDrivers(row);
-  if (drivers.length >= 2) {
-    return `${drivers[0].label} and ${drivers[1].label} pressure is most pronounced here.`;
-  }
-  if (drivers.length === 1) {
-    return `${drivers[0].label} pressure is most pronounced here.`;
-  }
-  return "Cross-sector pressure remains elevated in this area.";
-}
-
 function OverviewPage() {
-  const navigate = useNavigate();
   const { selectedDistrict, selectedTa, setSelectedTa } = useDistrict();
   const [populationChartSearch, setPopulationChartSearch] = useState("");
   const [populationChartLimit, setPopulationChartLimit] = useState(12);
@@ -365,28 +321,6 @@ function OverviewPage() {
       ) || null
     );
   }, [priorityRows, selectedTa]);
-  const topPriorityRow = useMemo(() => {
-    if (!priorityRows.length) {
-      return null;
-    }
-
-    return [...priorityRows].sort((left, right) => {
-      const leftRank = Number(left.rank);
-      const rightRank = Number(right.rank);
-      const hasRanks = Number.isFinite(leftRank) && Number.isFinite(rightRank);
-
-      if (hasRanks && leftRank !== rightRank) {
-        return leftRank - rightRank;
-      }
-
-      return (
-        Number(right.planning_priority_score || 0) -
-        Number(left.planning_priority_score || 0)
-      );
-    })[0];
-  }, [priorityRows]);
-  const snapshotPriorityRow = selectedPriorityRow || topPriorityRow;
-  const snapshotPrimaryDriver = getPriorityDrivers(snapshotPriorityRow)[0] || null;
 
   const priorityMapGeojson = useMemo(() => {
     if (!densityMap.data) {
@@ -928,76 +862,6 @@ function OverviewPage() {
               },
             ]}
           />
-        </div>
-
-        <div className="mb-10">
-          <section className="rounded border border-gray-100 bg-white p-5 shadow-sm">
-            <div className="flex flex-wrap items-start justify-between gap-3">
-              <div>
-                <h3 className="text-[15px] font-extrabold text-black">
-                  Priority Snapshot
-                </h3>
-                <p className="mt-1 text-[12px] font-medium text-gray-500">
-                  A quick handoff to the most relevant recommendation workflow.
-                </p>
-              </div>
-              {planningPriorities.loading ? (
-                <span className="text-[11px] font-bold uppercase tracking-[0.14em] text-gray-400">
-                  Loading...
-                </span>
-              ) : null}
-            </div>
-
-            {!planningPriorities.loading && snapshotPriorityRow ? (
-              <div className="mt-3 rounded-lg border border-gray-100 bg-gray-50 px-4 py-3">
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <div>
-                    <div className="text-[15px] font-extrabold text-black">
-                      {snapshotPriorityRow.admin_unit_name}
-                    </div>
-                    <p className="mt-1 text-[12px] font-medium text-gray-600">
-                      {getPriorityDriverSummary(snapshotPriorityRow)}
-                    </p>
-                  </div>
-                  <div className="text-right">
-                    <div className="text-[10px] font-bold uppercase tracking-[0.14em] text-gray-400">
-                      Score
-                    </div>
-                    <div className="mt-1 text-[24px] font-extrabold leading-none text-black">
-                      {formatStat(snapshotPriorityRow.planning_priority_score, 1)}
-                    </div>
-                  </div>
-                </div>
-
-                <div className="mt-3 flex flex-wrap gap-2">
-                  <button
-                    type="button"
-                    onClick={() =>
-                      selectTa(snapshotPriorityRow.admin_unit_name || "")
-                    }
-                    className="rounded-full border border-gray-300 bg-white px-3 py-1.5 text-xs font-bold text-gray-700 transition hover:border-gray-900 hover:text-black"
-                  >
-                    Focus TA
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => navigate(snapshotPrimaryDriver?.path || "/education")}
-                    className="rounded-full border border-gray-900 bg-gray-900 px-3 py-1.5 text-xs font-bold text-white transition hover:opacity-90"
-                  >
-                    {snapshotPrimaryDriver
-                      ? `Go to ${snapshotPrimaryDriver.label} Recommendations`
-                      : "Go to Recommendations"}
-                  </button>
-                </div>
-              </div>
-            ) : null}
-
-            {!planningPriorities.loading && !snapshotPriorityRow ? (
-              <div className="mt-3 rounded border border-dashed border-gray-200 px-4 py-6 text-sm font-medium text-gray-500">
-                No ranked planning priorities are available for this scope yet.
-              </div>
-            ) : null}
-          </section>
         </div>
 
         <div className="mb-10">
