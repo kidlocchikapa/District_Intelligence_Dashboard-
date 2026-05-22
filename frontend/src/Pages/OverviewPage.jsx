@@ -17,8 +17,13 @@ import { usePdfExport } from "../hooks/usePdfExport";
 import { useImageDownload } from "../hooks/useImageDownload";
 import SharedDistrictSelector from "../components/SharedDistrictSelector";
 import PopulationRasterPanel from "../components/PopulationRasterPanel";
-import MapPanel from "../components/MapPanel";
 import IntegrationSummaryPanel from "../components/IntegrationSummaryPanel";
+import {
+  createSvgProjector,
+  geometryToSvgPath,
+  getFeatureLabelPosition,
+  getGeoBounds,
+} from "../lib/geo";
 import {
   BarChart,
   Bar,
@@ -111,6 +116,160 @@ function metricFromRows(rows, keys) {
   }
 
   return 0;
+}
+
+function DistrictBoundaryMap({
+  geojson,
+  loading,
+  selectedFeatureName,
+  onFeatureClick,
+  scopeLabel,
+}) {
+  const [hoveredFeature, setHoveredFeature] = useState(null);
+  const features = useMemo(() => geojson?.features || [], [geojson]);
+  const width = 1000;
+  const height = 620;
+  const bounds = useMemo(() => getGeoBounds(features), [features]);
+  const project = useMemo(
+    () => createSvgProjector(bounds, width, height, 36),
+    [bounds],
+  );
+  const hoveredName =
+    hoveredFeature?.properties?.admin_unit_name ||
+    hoveredFeature?.properties?.name ||
+    "";
+
+  if (loading) {
+    return (
+      <div className="flex h-[520px] items-center justify-center rounded border border-gray-100 bg-gray-50 text-[12px] font-bold uppercase tracking-[0.16em] text-gray-400">
+        Loading district map...
+      </div>
+    );
+  }
+
+  if (!features.length) {
+    return (
+      <div className="flex h-[520px] items-center justify-center rounded border border-dashed border-gray-200 bg-gray-50 text-sm font-semibold text-gray-400">
+        No TA boundaries available for this district.
+      </div>
+    );
+  }
+
+  return (
+    <div className="grid gap-4 lg:grid-cols-[1fr_260px]">
+      <div
+        className="relative h-[520px] overflow-hidden rounded border border-gray-100 bg-[#f8faf7]"
+        onMouseLeave={() => setHoveredFeature(null)}
+      >
+        <svg
+          viewBox={`0 0 ${width} ${height}`}
+          role="img"
+          aria-label={`TA boundary map for ${scopeLabel}`}
+          className="h-full w-full"
+        >
+          <rect width={width} height={height} fill="#f8faf7" />
+          {features.map((feature, index) => {
+            const properties = feature?.properties || {};
+            const name = properties.admin_unit_name || properties.name || "";
+            const path = geometryToSvgPath(feature.geometry, project);
+            const labelPosition = getFeatureLabelPosition(feature, project);
+            const isSelected =
+              selectedFeatureName &&
+              name &&
+              normalizeName(name) === normalizeName(selectedFeatureName);
+            const isHovered =
+              hoveredName && name && normalizeName(name) === normalizeName(hoveredName);
+            const fillColor = isSelected
+              ? "#111827"
+              : isHovered
+                ? "#dbeafe"
+                : index % 2 === 0
+                  ? "#eef7ee"
+                  : "#f7fbf4";
+
+            if (!path) {
+              return null;
+            }
+
+            return (
+              <g key={feature.id || name}>
+                <path
+                  d={path}
+                  fill={fillColor}
+                  stroke={isSelected ? "#111827" : "#64745f"}
+                  strokeWidth={isSelected ? 3.2 : isHovered ? 2.4 : 1.4}
+                  opacity={isSelected ? 0.94 : 0.9}
+                  className="cursor-pointer transition"
+                  onMouseEnter={() => setHoveredFeature(feature)}
+                  onFocus={() => setHoveredFeature(feature)}
+                  onClick={() => onFeatureClick?.(feature)}
+                  tabIndex={0}
+                  role="button"
+                  aria-label={`Select ${name}`}
+                />
+                {labelPosition ? (
+                  <text
+                    x={labelPosition.x}
+                    y={labelPosition.y}
+                    textAnchor="middle"
+                    dominantBaseline="middle"
+                    className="pointer-events-none select-none fill-gray-700 text-[13px] font-extrabold"
+                  >
+                    {name.replace(/^Ta\s+/i, "TA ")}
+                  </text>
+                ) : null}
+              </g>
+            );
+          })}
+        </svg>
+
+        {hoveredName || selectedFeatureName ? (
+          <div className="absolute left-4 top-4 max-w-[260px] rounded border border-white/80 bg-white/95 px-4 py-3 shadow-md backdrop-blur">
+            <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-gray-400">
+              {hoveredName ? "Hovering" : "Selected TA"}
+            </p>
+            <p className="mt-1 text-[15px] font-extrabold text-gray-900">
+              {hoveredName || selectedFeatureName}
+            </p>
+          </div>
+        ) : null}
+      </div>
+
+      <aside className="rounded border border-gray-100 bg-white p-4">
+        <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-gray-400">
+          Map Legend
+        </p>
+        <h4 className="mt-2 text-[16px] font-extrabold text-gray-900">
+          TA Boundaries
+        </h4>
+        <div className="mt-4 space-y-3 text-[12px] font-semibold text-gray-600">
+          <div className="flex items-center gap-3">
+            <span className="h-4 w-7 rounded-sm border-2 border-[#64745f] bg-[#eef7ee]" />
+            <span>Traditional Authority area</span>
+          </div>
+          <div className="flex items-center gap-3">
+            <span className="h-4 w-7 rounded-sm border-2 border-[#111827] bg-[#111827]" />
+            <span>Selected TA</span>
+          </div>
+          <div className="flex items-center gap-3">
+            <span className="h-4 w-7 rounded-sm border-2 border-[#64745f] bg-[#dbeafe]" />
+            <span>Hovered TA</span>
+          </div>
+        </div>
+        <div className="mt-5 rounded bg-gray-50 p-3">
+          <p className="text-[10px] font-bold uppercase tracking-[0.14em] text-gray-400">
+            Current Scope
+          </p>
+          <p className="mt-1 text-[14px] font-extrabold text-gray-900">
+            {scopeLabel}
+          </p>
+          <p className="mt-2 text-[12px] font-semibold leading-5 text-gray-500">
+            {features.length} TA boundary{features.length === 1 ? "" : "ies"} visible. Click a TA to sync the overview.
+          </p>
+        </div>
+      </aside>
+    </div>
+  );
 }
 
 function OverviewPage() {
@@ -372,22 +531,6 @@ function OverviewPage() {
 
     return { ...densityMap.data, features };
   }, [densityMap.data, priorityLookup]);
-
-  const priorityMapKey = useMemo(() => {
-    const features = priorityMapGeojson?.features || [];
-
-    return features
-      .map((feature) => {
-        const properties = feature?.properties || {};
-        return [
-          feature?.id ?? "",
-          properties.admin_unit_name || properties.name || "",
-          properties.priority_band || "",
-          properties.planning_priority_score ?? "",
-        ].join(":");
-      })
-      .join("|");
-  }, [priorityMapGeojson]);
 
   const populationMapGeojson = useMemo(() => {
     if (!densityMap.data) {
@@ -893,30 +1036,22 @@ function OverviewPage() {
           <div className="min-w-0 border border-gray-100 rounded p-8 shadow-sm bg-white flex flex-col min-h-[640px]">
             <div className="mb-6">
               <div className="flex items-center gap-2 text-[11px] font-bold uppercase tracking-[0.2em] text-gray-400">
-                <ShieldAlert className="h-4 w-4" />
-                Planning Intelligence
+                <MapIcon className="h-4 w-4" />
+                District Geography
               </div>
               <h3 className="mt-2 text-[20px] font-extrabold tracking-tight text-black">
-                Priority Map For {selectedDistrict || "All Districts"}
+                District Map For {selectedDistrict || "All Districts"}
               </h3>
               <p className="mt-1 text-[13px] font-medium text-gray-500">
-                TA areas are shaded by planning priority score. Click an area to
-                sync the rest of the overview.
+                TA areas and their respective boundaries. Click a TA to sync the
+                rest of the overview.
               </p>
             </div>
-            <MapPanel
-              key={`overview-priority-map-${selectedDistrict || "all"}-${priorityMapKey}`}
+            <DistrictBoundaryMap
               geojson={priorityMapGeojson}
-              metricName="planning_priority_score"
-              colorByField="priority_band"
-              palette="priority-bands"
-              title={null}
-              subtitle={null}
-              heightClass="h-[520px] min-h-[520px]"
-              loading={densityMap.loading || planningPriorities.loading}
-              showLegend
-              legendTitle="Planning Priority Bands"
+              loading={densityMap.loading}
               selectedFeatureName={selectedTa}
+              scopeLabel={selectedDistrict || "All Districts"}
               onFeatureClick={(feature) =>
                 selectTa(
                   feature?.properties?.admin_unit_name ||
@@ -925,17 +1060,6 @@ function OverviewPage() {
                   feature?.properties?.district_name || "",
                 )
               }
-              tooltipFields={[
-                { key: "district_name", label: "District" },
-                { key: "priority_band", label: "Priority Band" },
-                { key: "beneficiaries_count", label: "Beneficiaries" },
-                { key: "schools_count", label: "Schools" },
-                { key: "health_facilities_count", label: "Health Facilities" },
-                {
-                  key: "flood_exposed_population_pct",
-                  label: "Flood Exposed %",
-                },
-              ]}
             />
           </div>
         </div>
