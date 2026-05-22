@@ -594,19 +594,36 @@ function PopulationRasterPanel({
                 const pointKey = f.id ?? `${lat}-${lng}-${name}`;
                 const pointDetails = getPointDetails(properties);
                 const isSelectedPoint = selectedPointKey === pointKey;
+                const baseMarkerStyle = {
+                  color: isSelectedPoint ? "#111827" : "#ffffff",
+                  weight: isSelectedPoint ? 1.6 : 1.2,
+                  fillColor: "#f59e0b",
+                  fillOpacity: 0.92,
+                  opacity: 1,
+                };
                 return (
                   <CircleMarker
                     key={pointKey}
                     center={[lat, lng]}
-                    radius={3.5}
-                    pathOptions={{
-                      color: isSelectedPoint ? "#111827" : "#ffffff",
-                      weight: isSelectedPoint ? 1.6 : 1.2,
-                      fillColor: "#f59e0b",
-                      fillOpacity: 0.92,
-                      opacity: 1,
-                    }}
+                    radius={isSelectedPoint ? 6.4 : 5.2}
+                    pathOptions={baseMarkerStyle}
+                    interactive
                     eventHandlers={{
+                      mouseover: (event) => {
+                        const marker = event.target;
+                        marker.setStyle({
+                          ...baseMarkerStyle,
+                          weight: 1.8,
+                        });
+                        marker.setRadius(isSelectedPoint ? 6.8 : 6.2);
+                        marker.bringToFront();
+                        marker.openTooltip();
+                      },
+                      mouseout: (event) => {
+                        const marker = event.target;
+                        marker.setStyle(baseMarkerStyle);
+                        marker.setRadius(isSelectedPoint ? 6.4 : 5.2);
+                      },
                       click: () =>
                         setSelectedPointKey((current) =>
                           current === pointKey ? null : pointKey,
@@ -617,6 +634,7 @@ function PopulationRasterPanel({
                       direction="top"
                       offset={[0, -6]}
                       opacity={0.96}
+                      sticky
                       className="health-ta-tooltip"
                     >
                       <div className="min-w-[170px]">
