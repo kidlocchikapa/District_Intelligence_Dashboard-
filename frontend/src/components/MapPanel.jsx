@@ -140,6 +140,7 @@ function MapPanel({
   palette = "default",
   showLegend = false,
   legendTitle,
+  outlineOnly = false,
   showZoomControls = true,
   heightClass = "h-[380px]",
   loading = false,
@@ -286,6 +287,17 @@ function MapPanel({
       String(featureName).toLowerCase() ===
         String(selectedFeatureName).toLowerCase();
 
+    if (outlineOnly) {
+      return {
+        fillColor: "transparent",
+        weight: isSelected ? 3 : 1.35,
+        opacity: 1,
+        color: isSelected ? "#111827" : "#5f6d5b",
+        dashArray: isSelected ? "" : "3",
+        fillOpacity: 0,
+      };
+    }
+
     let fillColor;
     if (isPriorityBandPalette) {
       const categoryKey = normalizePriorityBand(
@@ -340,11 +352,12 @@ function MapPanel({
       layer.on({
         mouseover: (e) => {
           const layer = e.target;
+          const baseStyle = styleFeature(feature);
           layer.setStyle({
-            weight: 3,
-            color: "#666",
+            ...baseStyle,
+            weight: Math.max(Number(baseStyle?.weight || 1.4) + 0.8, 2.2),
+            color: outlineOnly ? "#374151" : "#666",
             dashArray: "",
-            fillOpacity: 0.9,
           });
           layer.bringToFront();
         },
