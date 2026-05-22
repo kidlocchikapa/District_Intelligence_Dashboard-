@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import "leaflet/dist/leaflet.css";
-import { CircleMarker, GeoJSON, ImageOverlay, MapContainer, Tooltip, ZoomControl, useMap } from "react-leaflet";
+import { CircleMarker, GeoJSON, ImageOverlay, MapContainer, Popup, Tooltip, ZoomControl, useMap } from "react-leaflet";
 import { useDistrict } from "../context/DistrictContext";
 import { getGeoBounds } from "../lib/geo";
 import EmptyState from "./EmptyState";
@@ -61,6 +61,7 @@ function PopulationRasterPanel({
   const [mapInstance, setMapInstance] = useState(null);
   const [error, setError] = useState(null);
   const [isResetViewActive, setIsResetViewActive] = useState(false);
+  const [selectedPointKey, setSelectedPointKey] = useState(null);
 
   useEffect(() => {
     let ignore = false;
@@ -156,6 +157,10 @@ function PopulationRasterPanel({
   useEffect(() => {
     setIsResetViewActive(false);
   }, [selectedFeatureName, metadataUrl]);
+
+  useEffect(() => {
+    setSelectedPointKey(null);
+  }, [metadataUrl, pointsGeojson]);
   const pointFeatures = useMemo(() => {
     return (pointsGeojson?.features || []).filter(
       (feature) =>
@@ -208,6 +213,82 @@ function PopulationRasterPanel({
       maximumFractionDigits: digits,
     });
   };
+
+  const formatPointMetric = (value, format = "number", digits = 0) => {
+    if (value === undefined || value === null || value === "") {
+      return null;
+    }
+
+    if (format === "text") {
+      return String(value);
+    }
+
+    const number = Number(value);
+    if (!Number.isFinite(number)) {
+      return null;
+    }
+
+    if (format === "ratio") {
+      return `1:${formatStat(number, digits)}`;
+    }
+
+    return formatStat(number, digits);
+  };
+
+  function getPointDetails(properties) {
+    const hasSchoolFields =
+      properties?.school_name ||
+      properties?.school_id ||
+      properties?.student_enrollment_total !== undefined;
+    const hasHealthFields =
+      properties?.facility_name ||
+      properties?.doctor_count !== undefined ||
+      properties?.nurse_midwife_count !== undefined;
+
+    if (hasSchoolFields) {
+      return [
+        {
+          label: "Enrollment",
+          value: formatPointMetric(properties.student_enrollment_total),
+        },
+        {
+          label: "Teachers",
+          value: formatPointMetric(
+            properties.teacher_count ?? properties.teacher_distribution,
+          ),
+        },
+        {
+          label: "Classrooms",
+          value: formatPointMetric(properties.blocks_count),
+        },
+        {
+          label: "Risk",
+          value: formatPointMetric(properties.risk_category, "text"),
+        },
+      ].filter((item) => item.value !== null);
+    }
+
+    if (hasHealthFields) {
+      return [
+        {
+          label: "Beds",
+          value: formatPointMetric(
+            properties.beds_count ?? properties.bed_capacity,
+          ),
+        },
+        {
+          label: "Doctors",
+          value: formatPointMetric(properties.doctor_count),
+        },
+        {
+          label: "Nurses/Midwives",
+          value: formatPointMetric(properties.nurse_midwife_count),
+        },
+      ].filter((item) => item.value !== null);
+    }
+
+    return [];
+  }
 
   if (error) {
     return <EmptyState title={title} description={error} />;
@@ -504,22 +585,32 @@ function PopulationRasterPanel({
           {hasPointLayer && showPointLayer
             ? pointFeatures.map((f) => {
                 const [lng, lat] = f.geometry.coordinates;
+                const properties = f.properties || {};
                 const name =
-                  f.properties?.school_name ||
-                  f.properties?.facility_name ||
-                  f.properties?.name ||
+                  properties.school_name ||
+                  properties.facility_name ||
+                  properties.name ||
                   "Location";
+                const pointKey = f.id ?? `${lat}-${lng}-${name}`;
+                const pointDetails = getPointDetails(properties);
+                const isSelectedPoint = selectedPointKey === pointKey;
                 return (
                   <CircleMarker
-                    key={f.id ?? `${lat}-${lng}-${name}`}
+                    key={pointKey}
                     center={[lat, lng]}
                     radius={3.5}
                     pathOptions={{
-                      color: "#ffffff",
-                      weight: 1.2,
+                      color: isSelectedPoint ? "#111827" : "#ffffff",
+                      weight: isSelectedPoint ? 1.6 : 1.2,
                       fillColor: "#f59e0b",
                       fillOpacity: 0.92,
                       opacity: 1,
+                    }}
+                    eventHandlers={{
+                      click: () =>
+                        setSelectedPointKey((current) =>
+                          current === pointKey ? null : pointKey,
+                        ),
                     }}
                   >
                     <Tooltip
@@ -528,8 +619,48 @@ function PopulationRasterPanel({
                       opacity={0.96}
                       className="health-ta-tooltip"
                     >
-                      {name}
+                      <div className="min-w-[170px]">
+                        <p className="text-xs font-extrabold text-black">
+                          {name}
+                        </p>
+                        {pointDetails.length ? (
+                          <div className="mt-1 space-y-0.5 text-[11px] font-semibold text-gray-600">
+                            {pointDetails.map((detail) => (
+                              <p key={`${pointKey}-${detail.label}`}>
+                                {detail.label}: {detail.value}
+                              </p>
+                            ))}
+                          </div>
+                        ) : null}
+                      </div>
                     </Tooltip>
+                    {isSelectedPoint ? (
+                      <Popup
+                        closeButton={false}
+                        autoPan
+                        autoPanPadding={[16, 16]}
+                        className="health-ta-tooltip"
+                      >
+                        <div className="min-w-[180px]">
+                          <p className="text-xs font-extrabold text-black">
+                            {name}
+                          </p>
+                          {pointDetails.length ? (
+                            <div className="mt-1 space-y-0.5 text-[11px] font-semibold text-gray-600">
+                              {pointDetails.map((detail) => (
+                                <p key={`${pointKey}-popup-${detail.label}`}>
+                                  {detail.label}: {detail.value}
+                                </p>
+                              ))}
+                            </div>
+                          ) : (
+                            <p className="mt-1 text-[11px] font-semibold text-gray-500">
+                              No additional point details available.
+                            </p>
+                          )}
+                        </div>
+                      </Popup>
+                    ) : null}
                   </CircleMarker>
                 );
               })

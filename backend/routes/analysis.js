@@ -44,23 +44,23 @@ router.get("/", async (req, res) => {
 
     if (analysisType) {
       params.push(analysisType);
-      conditions.push(`analysis_type = $${params.length}`);
+      conditions.push(`ar.analysis_type = $${params.length}`);
     }
 
     if (normalizedAdminType) {
       params.push(normalizedAdminType);
-      conditions.push(`LOWER(admin_unit_type) = LOWER($${params.length})`);
+      conditions.push(`LOWER(ar.admin_unit_type) = LOWER($${params.length})`);
     }
 
     if (metricName) {
       params.push(metricName);
-      conditions.push(`metric_name = $${params.length}`);
+      conditions.push(`ar.metric_name = $${params.length}`);
     }
 
     appendDistrictNameCondition(
       conditions,
       params,
-      "admin_unit_name",
+      "COALESCE(d.name, d_a3.name, ar.admin_unit_name)",
       district,
     );
 
@@ -69,20 +69,28 @@ router.get("/", async (req, res) => {
       : "";
     const query = `
               SELECT
-                  id,
-                  analysis_type,
-                  admin_unit_id,
-                  admin_unit_code,
-                  admin_unit_name,
-                  admin_unit_type,
-                  metric_name,
-                  metric_value,
-                  metric_unit,
-                  metadata,
-                  calculated_at
-              FROM analysis_results
+                  ar.id,
+                  ar.analysis_type,
+                  ar.admin_unit_id,
+                  ar.admin_unit_code,
+                  ar.admin_unit_name,
+                  ar.admin_unit_type,
+                  ar.metric_name,
+                  ar.metric_value,
+                  ar.metric_unit,
+                  ar.metadata,
+                  ar.calculated_at
+              FROM analysis_results ar
+              LEFT JOIN districts d
+                ON LOWER(ar.admin_unit_type) = LOWER('District')
+               AND d.id = ar.admin_unit_id
+              LEFT JOIN admin3_units a3
+                ON LOWER(ar.admin_unit_type) IN (LOWER('TA'), LOWER('Village'), LOWER('Admin3'))
+               AND a3.id = ar.admin_unit_id
+              LEFT JOIN districts d_a3
+                ON d_a3.id = a3.district_id
               ${whereClause}
-              ORDER BY analysis_type, metric_name, admin_unit_name
+              ORDER BY ar.analysis_type, ar.metric_name, ar.admin_unit_name
           `;
     const result = await db.query(query, params);
     res.json({
@@ -143,7 +151,7 @@ router.get("/geojson", async (req, res) => {
     appendDistrictNameCondition(
       conditions,
       params,
-      "ar.admin_unit_name",
+      "COALESCE(d.name, d_a3.name, ar.admin_unit_name)",
       district,
     );
 
@@ -179,6 +187,8 @@ router.get("/geojson", async (req, res) => {
                   LEFT JOIN admin3_units a3
                     ON LOWER(ar.admin_unit_type) IN (LOWER('TA'), LOWER('Village'), LOWER('Admin3'))
                    AND a3.id = ar.admin_unit_id
+                  LEFT JOIN districts d_a3
+                    ON d_a3.id = a3.district_id
                   WHERE COALESCE(ar.geom, d.geom, a3.geom) IS NOT NULL
                     ${conditions.length ? `AND ${conditions.join(" AND ")}` : ""}
                   ORDER BY ar.analysis_type, ar.metric_name, ar.admin_unit_name
