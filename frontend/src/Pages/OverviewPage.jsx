@@ -479,7 +479,10 @@ function OverviewPage() {
       title: "Education",
       primary: `${formatStat(educationData.school_count || 0)} schools`,
       secondary: `${formatStat(educationData.not_in_school_total || 0)} learners likely out of school`,
-      accent: "bg-amber-50 text-amber-700 border-amber-100",
+      surfaceClass: "border-amber-100 bg-amber-50/45",
+      titleClass: "text-amber-700",
+      valueClass: "text-amber-800",
+      metaClass: "text-amber-700/80",
     },
     {
       title: "Health",
@@ -487,19 +490,28 @@ function OverviewPage() {
       secondary: healthCoveragePct
         ? `${formatPercent(healthCoveragePct)} service coverage`
         : `${formatStat(healthServedPopulation)} served population`,
-      accent: "bg-blue-50 text-blue-700 border-blue-100",
+      surfaceClass: "border-sky-100 bg-sky-50/45",
+      titleClass: "text-sky-700",
+      valueClass: "text-sky-800",
+      metaClass: "text-sky-700/80",
     },
     {
       title: "Welfare",
       primary: `${formatStat(welfareSummary.total_beneficiaries || 0)} beneficiaries`,
       secondary: `${formatPercent(welfareSummary.health_access_pct || 0)} health-access linked`,
-      accent: "bg-violet-50 text-violet-700 border-violet-100",
+      surfaceClass: "border-indigo-100 bg-indigo-50/45",
+      titleClass: "text-indigo-700",
+      valueClass: "text-indigo-800",
+      metaClass: "text-indigo-700/80",
     },
     {
       title: "Disaster",
       primary: `${formatStat(exposedPopulation)} exposed residents`,
       secondary: `${formatPercent(floodSummary.data?.exposed_population_pct || 0)} of current scope`,
-      accent: "bg-emerald-50 text-emerald-700 border-emerald-100",
+      surfaceClass: "border-emerald-100 bg-emerald-50/45",
+      titleClass: "text-emerald-700",
+      valueClass: "text-emerald-800",
+      metaClass: "text-emerald-700/80",
     },
   ];
 
@@ -967,22 +979,27 @@ function OverviewPage() {
                 Department Snapshots
               </h3>
               <p className="mt-1 text-[13px] font-medium text-gray-500">
-                Compact cross-sector signals for the selected area.
+                Compact cross-sector signals for{" "}
+                <span className="font-bold text-gray-700">{scopeLabel}</span>.
               </p>
             </div>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               {snapshotCards.map((card) => (
                 <article
                   key={card.title}
-                  className={`rounded-2xl border px-4 py-5 ${card.accent}`}
+                  className={`rounded-2xl border px-4 py-5 ${card.surfaceClass}`}
                 >
-                  <div className="text-[11px] font-bold uppercase tracking-[0.18em]">
+                  <div
+                    className={`text-[11px] font-bold uppercase tracking-[0.18em] ${card.titleClass}`}
+                  >
                     {card.title}
                   </div>
-                  <div className="mt-3 text-[24px] font-extrabold tracking-tight">
+                  <div
+                    className={`mt-3 text-[24px] font-extrabold tracking-tight ${card.valueClass}`}
+                  >
                     {card.primary}
                   </div>
-                  <p className="mt-2 text-[13px] font-semibold leading-6 opacity-85">
+                  <p className={`mt-2 text-[13px] font-semibold leading-6 ${card.metaClass}`}>
                     {card.secondary}
                   </p>
                 </article>

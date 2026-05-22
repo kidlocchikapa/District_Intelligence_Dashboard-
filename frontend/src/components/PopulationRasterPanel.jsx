@@ -535,7 +535,7 @@ function PopulationRasterPanel({
 
         {legend ? (
           <div
-            className={`absolute z-[401] w-[185px] rounded-xl border border-white/80 bg-white/92 px-3 py-2 shadow-md backdrop-blur-md sm:w-[220px] sm:rounded-2xl sm:px-4 sm:py-3 ${legendPositionClass}`}
+            className={`absolute z-[401] w-[185px] max-h-[calc(100%-1rem)] overflow-y-auto rounded-xl border border-white/80 bg-white/92 px-3 py-2 shadow-md backdrop-blur-md sm:w-[220px] sm:rounded-2xl sm:px-4 sm:py-3 ${legendPositionClass}`}
           >
             <p className="text-[10px] font-bold uppercase tracking-[0.15em] text-slate/50">
               Legend
@@ -602,7 +602,7 @@ function PopulationRasterPanel({
 
         {activeFeature ? (
           <div className="absolute inset-x-4 bottom-4 z-[401] flex items-end justify-start">
-            <div className="rounded-2xl border border-white/80 bg-white/92 px-5 py-4 shadow-md backdrop-blur-md min-w-[240px]">
+            <div className="max-h-[calc(100%-1rem)] min-w-[240px] overflow-y-auto rounded-2xl border border-white/80 bg-white/92 px-5 py-4 shadow-md backdrop-blur-md">
             <div>
               <div className="mb-2.5 flex flex-wrap items-start justify-between gap-2">
                 <p className="text-[10px] font-bold uppercase tracking-[0.15em] text-slate/50 leading-none">
