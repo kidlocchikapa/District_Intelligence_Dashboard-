@@ -88,6 +88,43 @@ function MapFitter({ bounds }) {
   return null;
 }
 
+function MapResizeObserver({ watchKey }) {
+  const map = useMap();
+
+  useEffect(() => {
+    const container = map.getContainer();
+    let frameId;
+
+    const refreshSize = () => {
+      frameId = window.requestAnimationFrame(() => {
+        map.invalidateSize({ animate: false });
+      });
+    };
+
+    refreshSize();
+
+    if (typeof ResizeObserver === "undefined" || !container) {
+      return () => {
+        if (frameId) {
+          window.cancelAnimationFrame(frameId);
+        }
+      };
+    }
+
+    const observer = new ResizeObserver(refreshSize);
+    observer.observe(container);
+
+    return () => {
+      observer.disconnect();
+      if (frameId) {
+        window.cancelAnimationFrame(frameId);
+      }
+    };
+  }, [map, watchKey]);
+
+  return null;
+}
+
 function MapPanel({
   geojson,
   metricName,
@@ -344,6 +381,7 @@ function MapPanel({
           {bounds && bounds.minLat !== Infinity && (
             <MapFitter bounds={bounds} />
           )}
+          <MapResizeObserver watchKey={layerDataKey} />
 
           <GeoJSON
             key={`${metricName}-${colorByField || "metric"}-${selectedFeatureName || "all"}-${layerDataKey}`}
