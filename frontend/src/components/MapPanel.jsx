@@ -209,6 +209,9 @@ function MapPanel({
   const hasPointFeatures = features.some(
     (feature) => feature?.geometry?.type === "Point",
   );
+  const hasAreaFeatures = features.some(
+    (feature) => feature?.geometry?.type !== "Point",
+  );
   const isRiskBandPalette = palette === "risk-bands";
   const isPriorityBandPalette = palette === "priority-bands";
 
@@ -270,7 +273,8 @@ function MapPanel({
   }
 
   const styleFeature = (feature) => {
-    if (hasPointFeatures) return {};
+    const isPointFeature = feature?.geometry?.type === "Point";
+    if (isPointFeature) return {};
     const properties = feature?.properties || {};
     const featureName =
       typeof featureNameResolver === "function"
@@ -312,18 +316,19 @@ function MapPanel({
   };
 
   const onEachFeatureInteraction = (feature, layer) => {
+    const isPointFeature = feature?.geometry?.type === "Point";
     layer.bindPopup(popupContent(feature));
 
     let tcontent = tooltipContent(feature);
     if (
-      !hasPointFeatures &&
+      !isPointFeature &&
       metricName &&
       feature.properties[metricName] !== undefined
     ) {
       tcontent += `<br/>${titleizeMetric(metricName)}: ${formatNumber(feature.properties[metricName], 1)}`;
     }
 
-    if (tooltipFields.length || (!hasPointFeatures && metricName)) {
+    if (tooltipFields.length || (!isPointFeature && metricName)) {
       layer.bindTooltip(tcontent, {
         direction: "top",
         sticky: true,
@@ -331,7 +336,7 @@ function MapPanel({
       });
     }
 
-    if (!hasPointFeatures) {
+    if (!isPointFeature) {
       layer.on({
         mouseover: (e) => {
           const layer = e.target;
@@ -354,6 +359,12 @@ function MapPanel({
           } else if (districtName) {
             setSelectedDistrict(districtName);
           }
+        },
+      });
+    } else if (typeof onFeatureClick === "function") {
+      layer.on({
+        click: (e) => {
+          onFeatureClick(feature, e);
         },
       });
     }
@@ -435,7 +446,7 @@ function MapPanel({
         )}
       </div>
 
-      {!hasPointFeatures && showLegend ? (
+      {hasAreaFeatures && showLegend ? (
         <div className="shrink-0 rounded-[1.25rem] border border-fog bg-cream/70 px-4 py-3 mt-4">
           {isPriorityBandPalette ? (
             <>
