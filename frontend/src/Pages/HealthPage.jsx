@@ -1654,6 +1654,7 @@ function HealthRecommendations({
   const facilityPreviewRows = useMemo(() => {
     return facilities.map((feature, index) => {
       const properties = feature?.properties || {};
+      const classification = classifyFacilityProperties(properties);
       return {
         id:
           feature?.id ||
@@ -1675,7 +1676,9 @@ function HealthRecommendations({
           properties?.ta_name ||
           properties?.ta ||
           "Unknown TA",
-        type: properties?.type || "Facility",
+        type: classification.rawType,
+        typeGroup: classification.label,
+        isHospital: classification.isHospital,
         status: properties?.status || "Unknown",
         doctorCount: Number(properties?.doctor_count || 0),
         nurseCount: Number(properties?.nurse_midwife_count || 0),
@@ -1716,6 +1719,14 @@ function HealthRecommendations({
     return facilityPreviewRows.filter(
       (row) => String(row.ownership).toLowerCase() !== "government",
     );
+  }, [facilityPreviewRows]);
+
+  const hospitalFacilityPreviewRows = useMemo(() => {
+    return facilityPreviewRows.filter((row) => row.isHospital);
+  }, [facilityPreviewRows]);
+
+  const primaryCareFacilityPreviewRows = useMemo(() => {
+    return facilityPreviewRows.filter((row) => !row.isHospital);
   }, [facilityPreviewRows]);
 
   const nonFunctionalFacilityRows = useMemo(() => {
@@ -1792,6 +1803,11 @@ function HealthRecommendations({
   const totalPop = Number(drillSummary.population_total || 0);
 
   const worstTA = allUnderservedTAs[0];
+  const hospitalFacilities = hospitalFacilityPreviewRows.length;
+  const nonHospitalFacilities = Math.max(
+    facilityPreviewRows.length - hospitalFacilities,
+    0,
+  );
 
   // Workforce
   const doctors = facilities.reduce(
@@ -1832,6 +1848,11 @@ function HealthRecommendations({
       { metric: "No access population", value: formatNumber(noAccessTotal, 0) },
       { metric: "Access coverage", value: `${formatNumber(accessShare, 1)}%` },
       { metric: "Facilities", value: formatNumber(totalFacilities, 0) },
+      { metric: "Hospitals", value: formatNumber(hospitalFacilities, 0) },
+      {
+        metric: "Non-hospital providers",
+        value: formatNumber(nonHospitalFacilities, 0),
+      },
       { metric: "Population per facility", value: formatNumber(popPerFacility, 0) },
       { metric: "Doctors", value: formatNumber(doctors, 0) },
       { metric: "Doctor ratio", value: doctorRatio ? `1:${formatNumber(doctorRatio, 0)}` : "N/A" },
@@ -1850,7 +1871,9 @@ function HealthRecommendations({
     accessShare,
     doctorRatio,
     doctors,
+    hospitalFacilities,
     medianTravel,
+    nonHospitalFacilities,
     noAccessTotal,
     nurseRatio,
     nurses,
@@ -1861,6 +1884,8 @@ function HealthRecommendations({
 
   const facilityColumns = [
     { key: "name", label: "Facility" },
+    { key: "typeGroup", label: "Class" },
+    { key: "type", label: "Type" },
     { key: "ownership", label: "Ownership" },
     { key: "district", label: "District" },
     { key: "ta", label: "TA" },
@@ -2013,6 +2038,46 @@ function HealthRecommendations({
       ],
     },
     // 4 — Workforce
+    totalFacilities > 0 && {
+      priority: hospitalFacilities === 0 ? "high" : "medium",
+      icon: Building2,
+      title:
+        hospitalFacilities === 0
+          ? "No Hospitals in Scope: Plan Around Referral Networks"
+          : "Separate Hospital Capacity from Primary-Care Coverage",
+      body:
+        hospitalFacilities === 0
+          ? `This scope has ${formatNumber(totalFacilities, 0)} mapped health providers but no facility classified as a hospital. Coverage appears on the map because clinics, dispensaries, and health centres still deliver frontline care. Decision-making should prioritise referral pathways, emergency transport, and district-level hospital linkage instead of assuming local inpatient capacity.`
+          : `${formatNumber(hospitalFacilities, 0)} of ${formatNumber(totalFacilities, 0)} mapped providers are hospitals, while ${formatNumber(nonHospitalFacilities, 0)} are non-hospital facilities. Coverage maps measure proximity to any provider, so hospital planning should use this service mix split to avoid overestimating inpatient or surgical capacity.`,
+      action:
+        hospitalFacilities === 0
+          ? "Define referral routes from primary-care facilities to nearest district hospitals and set emergency transport triggers"
+          : "Track provider coverage and hospital capacity as separate planning metrics in TA briefs",
+      metricLinks: [
+        {
+          id: "hospital-facilities-count",
+          label: "Hospitals",
+          value: formatNumber(hospitalFacilities, 0),
+          onClick: () =>
+            openMetricPreview({
+              title: "Hospitals (Classified)",
+              rows: hospitalFacilityPreviewRows,
+              columns: facilityColumns,
+            }),
+        },
+        {
+          id: "non-hospital-facilities-count",
+          label: "Non-Hospital Providers",
+          value: formatNumber(nonHospitalFacilities, 0),
+          onClick: () =>
+            openMetricPreview({
+              title: "Primary-Care and Other Providers",
+              rows: primaryCareFacilityPreviewRows,
+              columns: facilityColumns,
+            }),
+        },
+      ],
+    },
     doctorRatio !== null && doctorRatio > 5000 && {
       priority: "high",
       icon: Users,
