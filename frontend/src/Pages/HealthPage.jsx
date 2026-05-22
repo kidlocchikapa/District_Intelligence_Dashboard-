@@ -19,8 +19,6 @@ import {
   BarChart,
   CartesianGrid,
   Cell,
-  ComposedChart,
-  Line,
   Pie,
   PieChart,
   Rectangle,
@@ -63,6 +61,17 @@ function formatDistrictAxisLabel(value) {
   return `${value.slice(0, 8)}…`;
 }
 
+function formatTaCoverageAxisLabel(value) {
+  if (!value) {
+    return "";
+  }
+
+  if (value.length <= 14) {
+    return value;
+  }
+
+  return `${value.slice(0, 14)}...`;
+}
 function getHealthRasterAsset(assets, key) {
   return assets?.[key] || "/worldpop/zomba_ppp_2020.preview.json";
 }
@@ -270,6 +279,30 @@ function HealthPage() {
     return geojson;
   }, [healthCoverageTaGeojson.data, taAnalytics.data]);
 
+  const healthServiceMapGeojson = useMemo(() => {
+    const taBoundaryFeatures = (healthCoverageTaGeojson.data?.features || [])
+      .filter((feature) => feature?.geometry?.type !== "Point")
+      .map((feature, index) => ({
+        ...feature,
+        id:
+          feature?.id ??
+          `ta-boundary-${feature?.properties?.admin_unit_id || feature?.properties?.admin_unit_name || index}`,
+      }));
+    const facilityPointFeatures = (healthLocations.data?.features || []).map(
+      (feature, index) => ({
+        ...feature,
+        id:
+          feature?.id ??
+          `health-facility-${feature?.properties?.id || feature?.properties?.name || index}`,
+      }),
+    );
+
+    return {
+      type: "FeatureCollection",
+      features: [...taBoundaryFeatures, ...facilityPointFeatures],
+    };
+  }, [healthCoverageTaGeojson.data, healthLocations.data]);
+
   const selectTa = (taName) => {
     setSelectedTa(taName || "");
     setHoveredTa("");
@@ -277,7 +310,12 @@ function HealthPage() {
 
   const selectTaFromFeature = (feature) => {
     const properties = feature?.properties || {};
-    selectTa(properties.admin_unit_name || properties.name || "");
+    selectTa(
+      properties.admin_unit_name ||
+      properties.ta_name ||
+      properties.name ||
+      "",
+    );
   };
 
   const clearTaFocus = () => {
@@ -291,7 +329,12 @@ function HealthPage() {
     }
 
     const properties = feature?.properties || {};
-    setHoveredTa(properties.admin_unit_name || properties.name || "");
+    setHoveredTa(
+      properties.admin_unit_name ||
+      properties.ta_name ||
+      properties.name ||
+      "",
+    );
   };
 
   const healthApiErrors = [
@@ -621,9 +664,6 @@ function HealthPage() {
     coverageChartSort,
     coverageTrendData,
   ]);
-  const hasPopulationCoverageTrend = filteredCoverageTrendData.some(
-    (row) => row.served_population_pct > 0,
-  );
 
   const StatCardSkeleton = () => (
     <div className="border border-gray-100 rounded p-6 shadow-md bg-white animate-pulse">
@@ -1008,24 +1048,66 @@ function HealthPage() {
             <h3 className="text-[16px] font-extrabold mb-6">
               Health Services Map
             </h3>
+            <p className="text-xs text-gray-500 font-semibold mb-4">
+              {selectedTa
+                ? `TA boundary and facilities are focused on ${selectedTa}.`
+                : "TA boundaries and facility markers are interactive. Click a boundary or marker to focus that TA."}
+            </p>
             <div className="flex-1 rounded overflow-hidden relative border border-gray-50 bg-gray-50">
               <MapPanel
-                geojson={healthLocations.data}
+                geojson={healthServiceMapGeojson}
                 pointColor="#c56a3d"
+                pointColorResolver={(feature) => {
+                  const taName =
+                    feature?.properties?.ta_name ||
+                    feature?.properties?.admin_unit_name ||
+                    "";
+                  const isSelected =
+                    selectedTa &&
+                    taName &&
+                    String(taName).toLowerCase() ===
+                      String(selectedTa).toLowerCase();
+                  return isSelected ? "#7e22ce" : "#c56a3d";
+                }}
+                selectedFeatureName={selectedTa}
+                featureNameResolver={(feature) => {
+                  const properties = feature?.properties || {};
+                  if (feature?.geometry?.type === "Point") {
+                    return (
+                      properties.ta_name ||
+                      properties.admin_unit_name ||
+                      properties.name ||
+                      ""
+                    );
+                  }
+                  return properties.admin_unit_name || properties.name || "";
+                }}
+                onFeatureClick={selectTaFromFeature}
                 popupFields={[
+                  { key: "ta_name", label: "TA" },
+                  { key: "district_name", label: "District" },
                   { key: "type", label: "Type" },
                   { key: "beds_count", label: "Beds" },
                   { key: "patient_visits_total", label: "Patient Visits" },
+                  {
+                    key: "health_population_served_pct",
+                    label: "Coverage %",
+                  },
                 ]}
                 tooltipFields={[
+                  { key: "ta_name", label: "TA" },
                   { key: "type", label: "Type" },
                   { key: "beds_count", label: "Beds" },
+                  {
+                    key: "health_population_served_pct",
+                    label: "Coverage %",
+                  },
                   { key: "patient_visits_total", label: "Patient Visits" },
                 ]}
                 showLegend={false}
                 showLabels={false}
                 heightClass="h-full w-full"
-                loading={healthLocations.loading}
+                loading={healthLocations.loading || healthCoverageTaGeojson.loading}
               />
             </div>
           </div>
@@ -1089,40 +1171,40 @@ function HealthPage() {
                 </div>
               ) : (
                 <ResponsiveContainer width="100%" height="100%">
-                  <ComposedChart
+                  <BarChart
                     data={filteredCoverageTrendData}
-                    margin={{ top: 16, right: 20, left: 4, bottom: 84 }}
+                    margin={{ top: 8, right: 20, left: 4, bottom: 8 }}
+                    layout="vertical"
                   >
                     <CartesianGrid
                       stroke="#f1f5f9"
                       strokeDasharray="3 3"
-                      vertical={false}
+                      horizontal={false}
                     />
                     <XAxis
-                      dataKey="area"
+                      type="number"
+                      domain={[0, 100]}
                       axisLine={false}
-                      tick={{
-                        fill: "#64748b",
-                        fontSize: 9,
-                        fontWeight: 700,
-                      }}
-                      tickFormatter={formatDistrictAxisLabel}
                       tickLine={false}
-                      angle={-35}
-                      textAnchor="end"
-                      interval={0}
-                      height={72}
-                    />
-                    <YAxis
-                      axisLine={false}
                       tick={{
                         fill: "#64748b",
                         fontSize: 11,
                         fontWeight: 700,
                       }}
-                      tickLine={false}
-                      domain={[0, 100]}
                       tickFormatter={(value) => `${Number(value).toFixed(0)}%`}
+                    />
+                    <YAxis
+                      type="category"
+                      dataKey="area"
+                      width={96}
+                      axisLine={false}
+                      tickLine={false}
+                      tick={{
+                        fill: "#111827",
+                        fontSize: 12,
+                        fontWeight: 800,
+                      }}
+                      tickFormatter={formatTaCoverageAxisLabel}
                     />
                     <Tooltip
                       formatter={(value, name, item) => {
@@ -1130,30 +1212,28 @@ function HealthPage() {
                           return [`${Number(value).toFixed(1)}%`, name];
                         }
 
-                        if (name === "Population served") {
-                          return [`${Number(value).toFixed(1)}%`, name];
-                        }
-
-                        return [
-                          Number(value).toLocaleString(),
-                          name,
-                          item,
-                        ];
+                        return [`${Number(value).toLocaleString()}`, name, item];
                       }}
-                      labelFormatter={(label) => label}
-                      cursor={{ fill: "#eff6ff" }}
+                      labelFormatter={(label, payload) => {
+                        const row = payload?.[0]?.payload || {};
+                        const servedPopulationPct = Number(
+                          row.served_population_pct || 0,
+                        );
+                        return `${label} • Population served: ${servedPopulationPct.toFixed(1)}%`;
+                      }}
+                      cursor={{ fill: "#f8fafc" }}
                       contentStyle={{
-                        borderRadius: "4px",
+                        borderRadius: "8px",
                         border: "none",
-                        boxShadow: "0 4px 6px -1px rgb(0 0 0 / 0.1)",
+                        boxShadow: "0 10px 20px -10px rgb(0 0 0 / 0.25)",
                         fontSize: "12px",
                       }}
                     />
                     <Bar
                       dataKey="coverage_pct"
                       name="Service coverage"
-                      radius={[2, 2, 0, 0]}
-                      barSize={16}
+                      radius={[0, 8, 8, 0]}
+                      barSize={22}
                       onClick={(entry) => selectTa(entry?.area || "")}
                     >
                       {filteredCoverageTrendData.map((entry) => {
@@ -1178,18 +1258,7 @@ function HealthPage() {
                         );
                       })}
                     </Bar>
-                    {hasPopulationCoverageTrend ? (
-                      <Line
-                        type="monotone"
-                        dataKey="served_population_pct"
-                        name="Population served"
-                        stroke="#dc2626"
-                        strokeWidth={2}
-                        dot={{ r: 3, fill: "#dc2626" }}
-                        activeDot={{ r: 5 }}
-                      />
-                    ) : null}
-                  </ComposedChart>
+                  </BarChart>
                 </ResponsiveContainer>
               )}
             </div>
@@ -2142,3 +2211,4 @@ function HealthRecommendations({
 }
 
 export default HealthPage;
+
