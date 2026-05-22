@@ -1057,18 +1057,7 @@ function HealthPage() {
               <MapPanel
                 geojson={healthServiceMapGeojson}
                 pointColor="#c56a3d"
-                pointColorResolver={(feature) => {
-                  const taName =
-                    feature?.properties?.ta_name ||
-                    feature?.properties?.admin_unit_name ||
-                    "";
-                  const isSelected =
-                    selectedTa &&
-                    taName &&
-                    String(taName).toLowerCase() ===
-                      String(selectedTa).toLowerCase();
-                  return isSelected ? "#7e22ce" : "#c56a3d";
-                }}
+                outlineOnly
                 selectedFeatureName={selectedTa}
                 featureNameResolver={(feature) => {
                   const properties = feature?.properties || {};
