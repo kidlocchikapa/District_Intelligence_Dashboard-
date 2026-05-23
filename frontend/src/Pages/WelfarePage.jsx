@@ -6,6 +6,7 @@ import {
   Activity,
   GraduationCap,
   Download,
+  Lightbulb,
 } from "lucide-react";
 import { useDashboardData } from "../hooks/useDashboardData";
 import { useDistrict } from "../context/DistrictContext";
@@ -15,7 +16,7 @@ import { formatNumber } from "../lib/format";
 import DataTable from "../components/DataTable";
 import MapPanel from "../components/MapPanel";
 import SharedDistrictSelector from "../components/SharedDistrictSelector";
-import PlanningPriorityPanel from "../components/PlanningPriorityPanel";
+import InteractiveRecommendations from "../components/InteractiveRecommendations";
 
 function formatMinutes(value) {
   const mins = Number(value);
@@ -84,6 +85,8 @@ function simplifyWelfareSignal(signal) {
       title: "Many Welfare Households May Face Flood Risk",
       description:
         "A large share of supported households are in flood-prone places. Cash support, shelter plans, and service follow-up should be ready before flood season.",
+      action:
+        "Prepare flood-season support plans for the most exposed welfare households.",
     };
   }
 
@@ -93,6 +96,8 @@ function simplifyWelfareSignal(signal) {
       title: "Some Welfare Households Are Far from Health Care",
       description:
         "Many supported households may not be close enough to health services. Outreach visits, transport help, or better referral routes may be needed.",
+      action:
+        "Plan outreach visits or transport support for households far from health services.",
     };
   }
 
@@ -102,6 +107,8 @@ function simplifyWelfareSignal(signal) {
       title: "Some Supported Children May Struggle to Reach School",
       description:
         "Welfare-supported areas may have weak school access or many school-age children not enrolled. Welfare and education teams should follow up together.",
+      action:
+        "Coordinate welfare follow-up with school enrolment checks in these areas.",
     };
   }
 
@@ -111,6 +118,8 @@ function simplifyWelfareSignal(signal) {
       title: "No Nearby Public Hospital Is Showing for This Area",
       description:
         "The selected area does not show welfare households within public hospital reach. Referral routes and transport support should be checked.",
+      action:
+        "Check referral routes and transport options to the nearest public hospital.",
     };
   }
 
@@ -120,6 +129,8 @@ function simplifyWelfareSignal(signal) {
       title: "Enough Linked Data Is Available for Planning",
       description:
         "This view has welfare, school, health, and flood information joined together, so areas can be compared for support planning.",
+      action:
+        "Use this linked view to compare areas before deciding where to focus support.",
     };
   }
 
@@ -286,11 +297,50 @@ function WelfarePage() {
       title: `Review welfare support in ${item.admin_unit_name}`,
       description:
         "This area should be reviewed first because welfare needs overlap with health, school, flood, or population pressures.",
+      action:
+        "Review welfare records together with health, school, flood, and population indicators.",
     }));
   const decisionSignals = [
     ...(integration.data?.decision_signals || []),
     ...planningPrioritySignals,
   ].map(simplifyWelfareSignal).slice(0, 6);
+  const welfareRecommendations = decisionSignals.map((signal, index) => ({
+    id: `welfare-signal-${index}`,
+    priority:
+      signal.severity === "high"
+        ? "high"
+        : signal.severity === "medium"
+          ? "medium"
+          : "low",
+    icon:
+      signal.severity === "high"
+        ? ShieldAlert
+        : signal.severity === "medium"
+          ? Activity
+          : Heart,
+    title: signal.title,
+    body: signal.description,
+    action:
+      signal.action ||
+      "Review the linked welfare, health, education, and flood records for this area.",
+  }));
+  const welfarePriorityConfig = {
+    high: {
+      label: "Immediate Action",
+      classes: "bg-red-50 border-red-200 text-red-700",
+      dot: "bg-red-500",
+    },
+    medium: {
+      label: "Short-Term Action",
+      classes: "bg-amber-50 border-amber-200 text-amber-700",
+      dot: "bg-amber-500",
+    },
+    low: {
+      label: "Planning Note",
+      classes: "bg-blue-50 border-blue-200 text-blue-700",
+      dot: "bg-blue-500",
+    },
+  };
   const notes = integration.data?.notes || [];
   const baseByArea = useMemo(
     () => baseIntegration.data?.by_area ?? EMPTY_ROWS,
@@ -774,11 +824,34 @@ function WelfarePage() {
               ].map((item) => <StatCard key={item.label} {...item} />)}
         </div>
 
-        <PlanningPriorityPanel
-          planningPriorities={planningPriorities}
-          scopeLabel={scopeLabel}
-          compact
-        />
+        <div className="mb-10">
+          <div className="mb-2 flex items-center gap-3">
+            <Lightbulb className="h-5 w-5 text-amber-500" />
+            <h3 className="text-[16px] font-extrabold">
+              Insights & Recommendations
+            </h3>
+          </div>
+          <p className="mb-6 text-sm font-semibold text-gray-500">
+            Practical planning actions based on welfare records, health access,
+            school access, and flood risk for {scopeLabel}.
+          </p>
+          {integration.loading || planningPriorities.loading ? (
+            <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
+              {[...Array(4)].map((_, index) => (
+                <div
+                  key={index}
+                  className="h-36 animate-pulse rounded border border-gray-100 bg-gray-50"
+                />
+              ))}
+            </div>
+          ) : (
+            <InteractiveRecommendations
+              recommendations={welfareRecommendations}
+              priorityConfig={welfarePriorityConfig}
+              sectionKey={`welfare:${scopeLabel}`}
+            />
+          )}
+        </div>
 
         {adminType === "TA" ? (
           <div className="grid grid-cols-1 xl:grid-cols-2 gap-8 mb-10">
@@ -985,53 +1058,7 @@ function WelfarePage() {
           ))}
         </div>
 
-        <div className="grid grid-cols-1 xl:grid-cols-[1.15fr_0.85fr] gap-8 mb-10">
-          <div className="border border-gray-100 rounded p-8 shadow-sm bg-white">
-            <h3 className="text-[16px] font-extrabold mb-6">
-              Practical Welfare Signals for {scopeLabel}
-            </h3>
-            <div className="space-y-4">
-              {integration.loading ? (
-                [...Array(3)].map((_, index) => (
-                  <div
-                    key={index}
-                    className="h-20 rounded border border-gray-100 bg-gray-50 animate-pulse"
-                  />
-                ))
-              ) : decisionSignals.length === 0 ? (
-                <div className="rounded border border-dashed border-gray-200 bg-gray-50 px-4 py-5 text-sm font-semibold text-gray-500">
-                  No decision signals are available for the current filters.
-                </div>
-              ) : (
-                decisionSignals.map((signal, index) => (
-                  <div
-                    key={`${signal.title}-${index}`}
-                    className={`rounded border px-5 py-4 ${
-                      signal.severity === "high"
-                        ? "border-red-100 bg-red-50"
-                        : signal.severity === "medium"
-                          ? "border-amber-100 bg-amber-50"
-                          : "border-blue-100 bg-blue-50"
-                    }`}
-                  >
-                    <div className="flex items-center justify-between gap-3">
-                      <span className="text-[10px] font-bold uppercase tracking-[0.18em] text-gray-500">
-                        {signal.severity}
-                      </span>
-                      <ShieldAlert className="h-4 w-4 text-gray-400" />
-                    </div>
-                    <h4 className="mt-2 text-[15px] font-extrabold text-black">
-                      {signal.title}
-                    </h4>
-                    <p className="mt-2 text-[13px] leading-6 text-gray-600">
-                      {signal.description}
-                    </p>
-                  </div>
-                ))
-              )}
-            </div>
-          </div>
-
+        <div className="grid grid-cols-1 gap-8 mb-10">
           <div className="border border-gray-100 rounded p-8 shadow-sm bg-white">
             <h3 className="text-[16px] font-extrabold mb-6">
               Program Participation Breakdown
