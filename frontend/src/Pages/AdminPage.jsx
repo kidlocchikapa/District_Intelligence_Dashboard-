@@ -426,7 +426,7 @@ function AdminPage() {
         </div>
       </div>
 
-      <div className="flex-1 min-h-[640px] lg:min-h-0">
+      <div className="min-h-[560px] flex-1 lg:min-h-0">
         {isGlobalAdmin && activeTab === "system" && <GlobalAdminStewardship />}
 
         {isGlobalAdmin && activeTab === "operations" && (
@@ -451,12 +451,12 @@ function AdminPage() {
           <>
             {isGlobalAdmin && allowedDepartments.length > 0 && (
               <div className="mb-4 flex flex-wrap items-center gap-3">
-                <label className="text-sm font-bold text-slate-700">
+                <label className="flex w-full flex-col gap-2 text-sm font-bold text-slate-700 sm:w-auto sm:flex-row sm:items-center">
                   Department
                   <select
                     value={selectedDepartment}
                     onChange={(event) => setSelectedDepartment(event.target.value)}
-                    className="ml-3 rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-900 outline-none focus:ring-2 focus:ring-slate-900/10"
+                    className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-900 outline-none focus:ring-2 focus:ring-slate-900/10 sm:ml-3"
                   >
                     {allowedDepartments.map((department) => (
                       <option key={department} value={department}>
@@ -482,7 +482,7 @@ function AdminPage() {
         )}
 
         {!isGlobalAdmin && activeTab === "operations" && (
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 h-full overflow-auto pb-8">
+          <div className="grid h-full grid-cols-1 gap-5 overflow-auto pb-8 lg:grid-cols-2 lg:gap-8">
             <Panel
               title="Dataset Ingestion"
               subtitle="Upload new records to the system via CSV or GeoJSON."
@@ -631,7 +631,7 @@ function AdminPage() {
         {activeTab === "logs" && (
           <div className="flex h-full min-h-[60vh] flex-col overflow-hidden rounded-2xl bg-slate-900 shadow-2xl">
             <div className="flex flex-col gap-3 border-b border-white/10 bg-white/5 p-4 sm:flex-row sm:items-center sm:justify-between">
-              <div className="flex items-center gap-3">
+              <div className="flex flex-wrap items-center gap-3">
                 <Terminal className="text-emerald-400" size={18} />
                 <h3 className="text-sm font-bold text-white tracking-tight">
                   System Console
@@ -640,11 +640,11 @@ function AdminPage() {
                   LIVE
                 </span>
               </div>
-              <div className="flex items-center gap-3">
+              <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto sm:justify-end sm:gap-3">
                 <select
                   value={selectedJobId}
                   onChange={(event) => setSelectedJobId(event.target.value)}
-                  className="max-w-64 rounded-lg border border-white/10 bg-slate-950 px-3 py-2 text-xs font-semibold text-white outline-none"
+                  className="w-full rounded-lg border border-white/10 bg-slate-950 px-3 py-2 text-xs font-semibold text-white outline-none sm:max-w-64"
                 >
                   {jobs.length ? (
                     jobs.map((job) => (
@@ -662,7 +662,7 @@ function AdminPage() {
                 <button
                   onClick={handleClearConsole}
                   disabled={!selectedJob?.id}
-                  className="inline-flex items-center gap-2 rounded-lg border border-white/10 px-3 py-2 text-xs font-bold text-white/80 transition-colors hover:bg-white/10 disabled:opacity-40"
+                  className="inline-flex flex-1 items-center justify-center gap-2 rounded-lg border border-white/10 px-3 py-2 text-xs font-bold text-white/80 transition-colors hover:bg-white/10 disabled:opacity-40 sm:flex-none"
                 >
                   <Trash2 size={14} />
                   Clear console
@@ -670,7 +670,7 @@ function AdminPage() {
                 <button
                   onClick={handleTerminateJob}
                   disabled={!selectedJob?.canTerminate}
-                  className="inline-flex items-center gap-2 rounded-lg border border-rose-500/30 bg-rose-500/10 px-3 py-2 text-xs font-bold text-rose-300 transition-colors hover:bg-rose-500/20 disabled:opacity-40"
+                  className="inline-flex flex-1 items-center justify-center gap-2 rounded-lg border border-rose-500/30 bg-rose-500/10 px-3 py-2 text-xs font-bold text-rose-300 transition-colors hover:bg-rose-500/20 disabled:opacity-40 sm:flex-none"
                 >
                   <Square size={13} />
                   Terminate task
@@ -685,7 +685,7 @@ function AdminPage() {
               </div>
             </div>
 
-            <div className="grid min-h-0 flex-1 lg:grid-cols-[320px_minmax(0,1fr)]">
+            <div className="grid min-h-0 flex-1 lg:grid-cols-[minmax(240px,320px)_minmax(0,1fr)]">
               <div className="border-b border-white/10 bg-black/20 lg:border-b-0 lg:border-r">
                 <div className="px-4 py-3 text-[10px] font-bold uppercase tracking-widest text-slate-500">
                   Recent jobs
@@ -716,14 +716,14 @@ function AdminPage() {
                 </div>
               </div>
 
-              <div className="flex-1 overflow-auto p-6 font-mono text-xs leading-relaxed">
+              <div className="flex-1 overflow-auto p-4 font-mono text-xs leading-relaxed sm:p-6">
                 {selectedJob?.logs?.length ? (
                   selectedJob.logs.map((log, i) => (
                     <div
                       key={i}
-                      className="mb-1.5 flex gap-4 animate-in fade-in slide-in-from-left-2 duration-300"
+                      className="animate-in fade-in slide-in-from-left-2 mb-1.5 flex gap-3 duration-300 sm:gap-4"
                     >
-                      <span className="text-slate-500 flex-shrink-0 w-20">
+                      <span className="w-16 flex-shrink-0 text-slate-500 sm:w-20">
                         [{new Date(log.at).toLocaleTimeString()}]
                       </span>
                       <span

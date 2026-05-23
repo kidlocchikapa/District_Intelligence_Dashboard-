@@ -238,7 +238,7 @@ export default function GlobalAdminStewardship() {
   const toRecord = Math.min(page * 25, meta.total);
 
   return (
-    <div className="flex h-full min-h-[640px] flex-col overflow-hidden rounded border border-slate-200 !bg-white shadow-none">
+    <div className="flex h-full min-h-[560px] flex-col overflow-hidden rounded border border-slate-200 !bg-white shadow-none md:min-h-[640px]">
       <header className="bg-white">
         <div className="flex flex-col gap-4 p-4 xl:flex-row xl:items-center xl:justify-between">
           <div className="min-w-0">
@@ -267,7 +267,7 @@ export default function GlobalAdminStewardship() {
           </div>
         </div>
 
-        <div className="flex items-center gap-2 overflow-x-auto px-4 pb-4 pt-1">
+        <div className="flex items-center gap-2 overflow-x-auto px-3 pb-4 pt-1 sm:px-4">
           {GLOBAL_TABLES.map((table) => {
             const isActive = selectedTableId === table.id;
             return (
@@ -284,7 +284,7 @@ export default function GlobalAdminStewardship() {
                   borderColor: isActive ? "#000000" : "#e5e7eb",
                   color: isActive ? "#ffffff" : "#374151",
                 }}
-                className="flex shrink-0 items-center gap-2 rounded border px-4 py-2 text-sm font-bold transition-all duration-200 hover:brightness-95"
+                className="flex shrink-0 items-center gap-2 rounded border px-3 py-2 text-xs font-bold transition-all duration-200 hover:brightness-95 sm:px-4 sm:text-sm"
               >
                 <FileText size={15} />
                 {table.label}
@@ -330,7 +330,7 @@ export default function GlobalAdminStewardship() {
           </div>
         )}
 
-        <table className="w-full min-w-[1500px] border-collapse text-left">
+        <table className="min-w-[920px] w-full border-collapse text-left lg:min-w-[1200px] xl:min-w-[1500px]">
           <thead className="sticky top-0 z-10 bg-white">
             <tr>
               {columns.map((col) => (

@@ -178,10 +178,10 @@ export default function SuperAdminPage() {
   }
 
   return (
-    <div className="p-6 max-w-[1600px] mx-auto space-y-6">
-      <div className="flex items-end justify-between mb-2">
-        <div>
-          <h1 className="text-2xl font-bold text-slate-900 tracking-tight">
+    <div className="mx-auto max-w-[1600px] space-y-5 p-4 sm:space-y-6 sm:p-6">
+      <div className="mb-2 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+        <div className="min-w-0">
+          <h1 className="text-xl font-bold tracking-tight text-slate-900 sm:text-2xl">
             User Management
           </h1>
           <p className="mt-1 text-sm text-slate-500">
@@ -191,37 +191,37 @@ export default function SuperAdminPage() {
         </div>
 
         {status && (
-          <div className="animate-in fade-in slide-in-from-top-2 duration-300 rounded-lg border border-emerald-100 bg-emerald-50 px-4 py-2 text-xs font-medium text-emerald-700">
+          <div className="animate-in fade-in slide-in-from-top-2 rounded-lg border border-emerald-100 bg-emerald-50 px-4 py-2 text-xs font-medium text-emerald-700 duration-300 sm:max-w-md">
             {status}
           </div>
         )}
       </div>
 
-      <div className="rounded-2xl border border-slate-200 bg-white shadow-sm overflow-hidden">
-        <div className="flex items-center justify-between border-b border-slate-100 bg-slate-50/50 p-3 px-4">
-          <div className="flex items-center gap-3">
-            <button className="flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50 transition-colors shadow-sm">
+      <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+        <div className="flex flex-col gap-3 border-b border-slate-100 bg-slate-50/50 p-3 px-4 md:flex-row md:items-center md:justify-between">
+          <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap sm:items-center sm:gap-3">
+            <button className="flex items-center justify-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-700 shadow-sm transition-colors hover:bg-slate-50 sm:justify-start sm:px-4">
               <Filter size={16} className="text-slate-400" />
               Filters
             </button>
-            <button className="flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50 transition-colors shadow-sm">
+            <button className="flex items-center justify-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-700 shadow-sm transition-colors hover:bg-slate-50 sm:justify-start sm:px-4">
               <Columns size={16} className="text-slate-400" />
               Columns
             </button>
             <button
               onClick={() => setIsModalOpen(true)}
-              className="flex items-center gap-2 rounded-lg bg-slate-900 px-6 py-2 text-sm font-bold text-white hover:bg-slate-800 transition-all active:scale-[0.98] shadow-md shadow-slate-200"
+              className="col-span-2 flex items-center justify-center gap-2 rounded-lg bg-slate-900 px-4 py-2 text-sm font-bold text-white shadow-md shadow-slate-200 transition-all hover:bg-slate-800 active:scale-[0.98] sm:col-span-1 sm:px-6"
             >
               <Plus size={18} />
               Add User
             </button>
           </div>
 
-          <div className="flex items-center gap-4">
+          <div className="flex flex-wrap items-center justify-between gap-3 md:justify-end">
             <div className="text-[11px] font-medium text-slate-400 uppercase tracking-wider">
               {users.length} users • {isLoading ? "loading..." : "uptodate"}
             </div>
-            <div className="h-4 w-px bg-slate-200" />
+            <div className="hidden h-4 w-px bg-slate-200 sm:block" />
             <div className="flex items-center gap-1">
               <button
                 onClick={loadUsers}
@@ -240,8 +240,8 @@ export default function SuperAdminPage() {
           </div>
         </div>
 
-        <div className="overflow-x-auto scrollbar-thin scrollbar-thumb-slate-200 scrollbar-track-transparent">
-          <table className="w-full text-left border-collapse min-w-[1000px]">
+        <div className="overflow-x-auto scrollbar-thin scrollbar-track-transparent scrollbar-thumb-slate-200">
+          <table className="min-w-[920px] w-full border-collapse text-left lg:min-w-[1000px]">
             <thead>
               <tr className="border-b border-slate-100 bg-slate-50/30">
                 <th className="w-12 px-4 py-3">
@@ -522,8 +522,8 @@ export default function SuperAdminPage() {
           </table>
         </div>
 
-        <div className="flex items-center justify-between border-top border-slate-100 bg-slate-50/50 p-3 px-4">
-          <div className="flex items-center gap-4 text-[11px] font-bold text-slate-400 uppercase tracking-wider">
+        <div className="flex flex-col gap-3 border-t border-slate-100 bg-slate-50/50 p-3 px-4 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex items-center gap-4 text-[11px] font-bold uppercase tracking-wider text-slate-400">
             <div className="flex items-center gap-2">
               Rows per page
               <select className="bg-transparent border-none p-0 text-slate-900 focus:ring-0 cursor-pointer">
@@ -533,7 +533,7 @@ export default function SuperAdminPage() {
             </div>
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 self-start sm:self-auto">
             <button
               className="rounded-lg border border-slate-200 bg-white p-1.5 text-slate-400 hover:bg-slate-50 disabled:opacity-50 transition-colors"
               disabled
@@ -613,7 +613,7 @@ export default function SuperAdminPage() {
             </select>
           </div>
 
-          <div className="flex gap-3 pt-2">
+          <div className="flex flex-col gap-3 pt-2 sm:flex-row">
             <button
               type="button"
               onClick={() => setIsModalOpen(false)}
