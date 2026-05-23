@@ -3,6 +3,12 @@ import { toJpeg } from 'html-to-image';
 import { jsPDF } from 'jspdf';
 import { toast } from 'react-hot-toast';
 
+function friendlyTitle(value) {
+  return String(value || '')
+    .replace(/\bAnalysis\b/g, 'Summary')
+    .replace(/\bArea Summary\b/g, 'Area Summary');
+}
+
 function drawTable(pdf, columns, rows, startX, startY, rowHeight) {
   let y = startY;
   const pageHeight = pdf.internal.pageSize.height;
@@ -88,7 +94,7 @@ export function usePdfExport(filename = 'district-report.pdf') {
   };
 
   const exportDataPdf = async ({ title, selectedArea, sections }) => {
-    const loadingToast = toast.loading('Preparing data PDF...');
+    const loadingToast = toast.loading('Preparing easy-to-read report...');
 
     try {
       const pdf = new jsPDF({ orientation: 'portrait', unit: 'pt', format: 'a4' });
@@ -98,14 +104,22 @@ export function usePdfExport(filename = 'district-report.pdf') {
 
       pdf.setFont('helvetica', 'bold');
       pdf.setFontSize(18);
-      pdf.text(title, margin, y);
+      pdf.text(friendlyTitle(title), margin, y);
 
       pdf.setFont('helvetica', 'normal');
       pdf.setFontSize(11);
       pdf.text(`Selected area: ${selectedArea}`, margin, y + 24);
       pdf.text(`Exported on: ${new Date().toLocaleString()}`, margin, y + 40);
 
-      y += 70;
+      pdf.setTextColor(90, 90, 90);
+      pdf.text(
+        'Plain-language summary for planning and community discussion.',
+        margin,
+        y + 56,
+      );
+      pdf.setTextColor(0, 0, 0);
+
+      y += 86;
 
       sections.forEach((section) => {
         if (y + 80 > pageHeight) {
