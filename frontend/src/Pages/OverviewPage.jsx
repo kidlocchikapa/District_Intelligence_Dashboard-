@@ -561,6 +561,11 @@ function OverviewPage() {
           risk_level: floodStats.riskLevel,
           schools_count: Number(serviceStats.schools_count || 0),
           hospitals_count: Number(serviceStats.hospitals_count || 0),
+          non_hospital_providers_count: Math.max(
+            Number(serviceStats.health_facilities_count || 0) -
+              Number(serviceStats.hospitals_count || 0),
+            0,
+          ),
           beneficiaries_count: Number(serviceStats.beneficiaries_count || 0),
           district_name: serviceStats.district_name || "",
           health_facilities_count: Number(
@@ -663,11 +668,6 @@ function OverviewPage() {
         (sum, row) => sum + Number(row.hospitals_count || 0),
         0,
       );
-  const healthServedPopulation = metricFromRows(healthRows, [
-    "population_served",
-    "population_served_total",
-    "served_population_total",
-  ]);
   const healthCoveragePct = metricFromRows(healthRows, [
     "health_service_coverage_pct",
     "service_coverage_pct",
@@ -1219,7 +1219,12 @@ function OverviewPage() {
                 selectedFeatureName={selectedTa}
                 customTooltipMetrics={[
                   { key: "schools_count", label: "Schools" },
-                  { key: "hospitals_count", label: "Hospitals" },
+                  { key: "health_facilities_count", label: "Health Providers" },
+                  { key: "hospitals_count", label: "Hospitals in Providers" },
+                  {
+                    key: "non_hospital_providers_count",
+                    label: "Non-Hospital Providers",
+                  },
                   { key: "beneficiaries_count", label: "Beneficiaries" },
                   { key: "exposed_population", label: "Flood Exposed" },
                   {

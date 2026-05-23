@@ -1064,8 +1064,8 @@ function HealthPage() {
             </h3>
             <p className="text-xs text-gray-500 font-semibold mb-4">
               {selectedTa
-                ? `TA boundary and facilities are focused on ${selectedTa}. Hospitals are one provider type alongside clinics, dispensaries, and health centres.`
-                : "TA boundaries and facility markers are interactive. Click a boundary or marker to focus that TA."}
+                ? `TA boundary and health providers are focused on ${selectedTa}. Hospitals are one provider type alongside clinics, dispensaries, and health centres.`
+                : "TA boundaries and health provider markers are interactive. Click a boundary or marker to focus that TA."}
             </p>
             <div className="flex-1 rounded overflow-hidden relative border border-gray-50 bg-gray-50">
               <MapPanel
@@ -1273,10 +1273,10 @@ function HealthPage() {
           <div className="rounded border border-gray-100 bg-white p-4 shadow-sm sm:p-6 min-h-[360px] h-auto lg:h-[400px] flex flex-col">
             <h3 className="text-[16px] font-extrabold mb-4">
               {selectedTa
-                ? `Health Facilities in ${selectedTa}`
+                ? `Health Providers in ${selectedTa}`
                 : selectedDistrict
-                  ? `Health Facilities in ${selectedDistrict}`
-                  : "Health Facilities Across Zomba"}
+                  ? `Health Providers in ${selectedDistrict}`
+                  : "Health Providers Across Zomba"}
             </h3>
 
             <div className="flex-1 overflow-hidden">
