@@ -2256,7 +2256,7 @@ function HealthRecommendations({
         <h3 className="text-[16px] font-extrabold">Insights & Recommendations</h3>
       </div>
       <p className="text-sm text-gray-500 font-semibold mb-6">
-        Practical planning actions based on the maps, facility records, staff numbers, and flood risk for {districtScope}.
+        Use these cards to see what needs attention first, where to send support, and what action to take next for {districtScope}.
       </p>
       <InteractiveRecommendations
         recommendations={recommendations}
