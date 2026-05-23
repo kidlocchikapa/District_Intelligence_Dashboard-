@@ -38,6 +38,37 @@ const FRIENDLY_METRIC_LABELS = {
   beneficiaries_affected: 'Welfare beneficiaries in flood-prone places',
 };
 
+const METRIC_EXPLANATIONS = [
+  {
+    test: /population density|crowded/i,
+    text: 'Helps show where services may need to serve many people in a small area.',
+  },
+  {
+    test: /people living|estimated population|population$/i,
+    text: 'Use this to understand the size of the community being planned for.',
+  },
+  {
+    test: /flood|exposed|affected|risk-prone/i,
+    text: 'Shows people, services, or land that may need flood preparedness or protection.',
+  },
+  {
+    test: /school|learner|teacher|children/i,
+    text: 'Helps education teams see where school places, teachers, or support may be needed.',
+  },
+  {
+    test: /health|facility|care|hospital/i,
+    text: 'Helps health teams see whether people can reasonably reach care.',
+  },
+  {
+    test: /welfare|beneficiar|household|support/i,
+    text: 'Shows where social support is reaching people and where linked services may be needed.',
+  },
+  {
+    test: /area|land/i,
+    text: 'Shows the size of land affected, so response teams can understand the scale.',
+  },
+];
+
 function normalizeMetricKey(value) {
   return String(value || '')
     .trim()
@@ -68,6 +99,13 @@ function friendlyMetricLabel(value) {
     .replace(/\bSq Km\b/g, 'sq km')
     .replace(/\bTa\b/g, 'TA');
 }
+
+function explainMetric(label, value) {
+  const text = `${label} ${value || ''}`;
+  const match = METRIC_EXPLANATIONS.find((item) => item.test.test(text));
+  return match?.text || 'A planning indicator for comparing needs and choosing where to act first.';
+}
+
 function friendlyTitle(value) {
   return String(value || '')
     .replace(/\bAnalysis\b/g, 'Summary')
