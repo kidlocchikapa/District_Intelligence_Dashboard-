@@ -1435,7 +1435,7 @@ function DisasterRecommendations({
         <h3 className="text-[16px] font-extrabold">Insights & Recommendations</h3>
       </div>
       <p className="text-sm text-gray-500 font-semibold mb-6">
-        Practical planning actions based on flood exposure for people, schools, and health facilities in {scopeLabel}.
+        Use these cards to see what flood risks need attention first, who may be affected, and what action to take next in {scopeLabel}.
       </p>
       <InteractiveRecommendations
         recommendations={recommendations}
