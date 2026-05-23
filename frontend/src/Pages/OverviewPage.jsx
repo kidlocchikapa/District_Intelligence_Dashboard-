@@ -178,7 +178,9 @@ function DistrictBoundaryMap({
               name &&
               normalizeName(name) === normalizeName(selectedFeatureName);
             const isHovered =
-              hoveredName && name && normalizeName(name) === normalizeName(hoveredName);
+              hoveredName &&
+              name &&
+              normalizeName(name) === normalizeName(hoveredName);
             const fillColor = isSelected
               ? "#111827"
               : isHovered
@@ -264,7 +266,8 @@ function DistrictBoundaryMap({
             {scopeLabel}
           </p>
           <p className="mt-2 text-[12px] font-semibold leading-5 text-gray-500">
-            {features.length} TA boundary{features.length === 1 ? "" : "ies"} visible. Click a TA to sync the overview.
+            {features.length} TA boundary{features.length === 1 ? "" : "ies"}{" "}
+            visible. Click a TA to sync the overview.
           </p>
         </div>
       </aside>
@@ -277,7 +280,8 @@ function OverviewPage() {
     useDistrict();
   const [populationChartSearch, setPopulationChartSearch] = useState("");
   const [populationChartLimit, setPopulationChartLimit] = useState(12);
-  const [populationChartSort, setPopulationChartSort] = useState("population_desc");
+  const [populationChartSort, setPopulationChartSort] =
+    useState("population_desc");
   const districtScope = selectedDistrict || "";
   const scopeLabel = selectedTa
     ? selectedTa
@@ -381,7 +385,9 @@ function OverviewPage() {
       }
 
       if (populationChartSort === "name_asc") {
-        return String(left.admin3 || "").localeCompare(String(right.admin3 || ""));
+        return String(left.admin3 || "").localeCompare(
+          String(right.admin3 || ""),
+        );
       }
 
       if (populationChartSort === "district_asc") {
@@ -392,7 +398,9 @@ function OverviewPage() {
           return districtCompare;
         }
 
-        return String(left.admin3 || "").localeCompare(String(right.admin3 || ""));
+        return String(left.admin3 || "").localeCompare(
+          String(right.admin3 || ""),
+        );
       }
 
       return Number(right.population || 0) - Number(left.population || 0);
@@ -403,7 +411,12 @@ function OverviewPage() {
     }
 
     return rows;
-  }, [chartData, populationChartLimit, populationChartSearch, populationChartSort]);
+  }, [
+    chartData,
+    populationChartLimit,
+    populationChartSearch,
+    populationChartSort,
+  ]);
 
   const selectedTaChartRow = chartData.find(
     (item) => normalizeName(item.admin3) === normalizeName(selectedTa),
@@ -501,7 +514,8 @@ function OverviewPage() {
         properties: {
           ...properties,
           admin_unit_name: featureName,
-          district_name: priority?.district_name || properties.district_name || "",
+          district_name:
+            priority?.district_name || properties.district_name || "",
           planning_priority_score: Number(
             priority?.planning_priority_score || 0,
           ),
@@ -1148,7 +1162,9 @@ function OverviewPage() {
                   >
                     {card.primary}
                   </div>
-                  <p className={`mt-2 text-[13px] font-semibold leading-6 ${card.metaClass}`}>
+                  <p
+                    className={`mt-2 text-[13px] font-semibold leading-6 ${card.metaClass}`}
+                  >
                     {card.secondary}
                   </p>
                 </article>
@@ -1162,7 +1178,7 @@ function OverviewPage() {
             <h3 className="text-[16px] font-extrabold mb-2">
               {selectedTa
                 ? `${selectedTa} Population Context Map`
-                : "Population Raster Map"}
+                : "Population per Grid Cell"}
             </h3>
             <p className="text-[13px] font-medium text-gray-500 mb-6">
               Existing population raster view with flood and service tooltips.
@@ -1182,7 +1198,10 @@ function OverviewPage() {
                 selectedFeatureName={selectedTa}
                 customTooltipMetrics={[
                   { key: "schools_count", label: "Schools" },
-                  { key: "hospitals_count", label: "Hospitals" },
+                  {
+                    key: "health_facilities_count",
+                    label: "Health Facilities",
+                  },
                   { key: "beneficiaries_count", label: "Beneficiaries" },
                   { key: "exposed_population", label: "Flood Exposed" },
                   {
@@ -1232,7 +1251,9 @@ function OverviewPage() {
                 })}
                 <select
                   value={populationChartSort}
-                  onChange={(event) => setPopulationChartSort(event.target.value)}
+                  onChange={(event) =>
+                    setPopulationChartSort(event.target.value)
+                  }
                   className="rounded-full border border-gray-200 bg-white px-3 py-1 text-[10px] font-bold uppercase tracking-[0.12em] text-gray-600"
                 >
                   <option value="population_desc">Highest population</option>
@@ -1243,7 +1264,9 @@ function OverviewPage() {
                 <input
                   type="search"
                   value={populationChartSearch}
-                  onChange={(event) => setPopulationChartSearch(event.target.value)}
+                  onChange={(event) =>
+                    setPopulationChartSearch(event.target.value)
+                  }
                   placeholder="Search TA or district..."
                   className="min-w-[180px] flex-1 rounded-full border border-gray-200 px-3 py-1.5 text-xs font-semibold text-gray-700 outline-none focus:border-gray-900"
                 />
@@ -1460,7 +1483,6 @@ function OverviewPage() {
             </div>
           </section>
         </div>
-
       </div>
     </div>
   );
