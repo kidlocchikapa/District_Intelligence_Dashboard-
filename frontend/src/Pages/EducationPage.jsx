@@ -1594,7 +1594,6 @@ function EducationPage() {
 /* ─── Planning Recommendations ────────────────────────────────────────── */
 function PlanningRecommendations({ districtInsights, floodImpact, educationSummary, selectedDistrict, planningPriorities }) {
   const [metricPreview, setMetricPreview] = useState(null);
-  const thresholds   = districtInsights.data?.thresholds || {};
   const allRows = useMemo(
     () => districtInsights.data?.all_districts ?? districtInsights.data?.districts ?? [],
     [districtInsights.data],
