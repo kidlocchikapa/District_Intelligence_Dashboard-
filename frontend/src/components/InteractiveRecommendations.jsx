@@ -130,8 +130,10 @@ function InteractiveRecommendations({
           return (
             <div
               key={rec.id}
-              className={`rounded border bg-white shadow-sm transition-all ${
-                isExpanded ? "border-gray-300" : "border-gray-100"
+              className={`overflow-hidden rounded border bg-white shadow-sm transition-all duration-300 ease-out ${
+                isExpanded
+                  ? "border-gray-300 shadow-md"
+                  : "border-gray-100 hover:border-gray-200 hover:shadow"
               }`}
             >
               <button
@@ -143,11 +145,20 @@ function InteractiveRecommendations({
                       : [...current, rec.id],
                   )
                 }
-                className="flex w-full items-start justify-between gap-3 px-5 py-4 text-left"
+                aria-expanded={isExpanded}
+                className="flex w-full items-start justify-between gap-3 px-5 py-4 text-left transition-colors duration-200 hover:bg-gray-50/70 focus:outline-none focus-visible:ring-2 focus-visible:ring-gray-900/10"
               >
                 <div className="flex min-w-0 items-start gap-2.5">
-                  <div className="mt-0.5 flex-shrink-0 rounded-lg bg-gray-50 p-2">
-                    <Icon className="h-4 w-4 text-gray-600" />
+                  <div
+                    className={`mt-0.5 flex-shrink-0 rounded-lg p-2 transition-colors duration-300 ${
+                      isExpanded ? "bg-gray-100" : "bg-gray-50"
+                    }`}
+                  >
+                    <Icon
+                      className={`h-4 w-4 transition-colors duration-300 ${
+                        isExpanded ? "text-gray-900" : "text-gray-600"
+                      }`}
+                    />
                   </div>
                   <div className="min-w-0">
                     <p className="text-[14px] font-extrabold leading-tight text-black">
@@ -167,68 +178,82 @@ function InteractiveRecommendations({
                     </div>
                   </div>
                 </div>
-                <div className="mt-1 flex-shrink-0 text-gray-400">
-                  {isExpanded ? (
-                    <ChevronUp className="h-4 w-4" />
-                  ) : (
-                    <ChevronDown className="h-4 w-4" />
-                  )}
+                <div
+                  className={`mt-1 flex-shrink-0 text-gray-400 transition-transform duration-300 ease-out ${
+                    isExpanded ? "rotate-180 text-gray-700" : "rotate-0"
+                  }`}
+                >
+                  <ChevronDown className="h-4 w-4" />
                 </div>
               </button>
 
-              {isExpanded ? (
-                <div className="border-t border-gray-100 px-5 py-4">
-                  <div className="text-[13px] leading-6 text-gray-600">{rec.body}</div>
-
-                  <div className="mt-3 flex items-start gap-2 rounded bg-gray-50 px-3 py-2">
-                    <ArrowRight className="mt-0.5 h-3.5 w-3.5 flex-shrink-0 text-gray-400" />
-                    <p className="text-[11px] font-bold uppercase tracking-wide text-gray-500">
-                      {rec.action}
-                    </p>
-                  </div>
-
-                  {Array.isArray(rec.metricLinks) && rec.metricLinks.length ? (
-                    <div className="mt-3">
-                      <p className="mb-2 text-[10px] font-bold uppercase tracking-[0.12em] text-gray-400">
-                        Metric Preview
-                      </p>
-                      <div className="flex flex-wrap gap-2">
-                        {rec.metricLinks.map((metric, index) => {
-                          const metricId = metric?.id || `${rec.id}-metric-${index}`;
-                          const disabled = !metric?.onClick;
-                          return (
-                            <button
-                              key={metricId}
-                              type="button"
-                              onClick={() => metric.onClick?.()}
-                              disabled={disabled}
-                              className={`inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-bold transition-all ${
-                                disabled
-                                  ? "cursor-not-allowed border-gray-200 bg-gray-100 text-gray-400"
-                                  : "border-blue-200 bg-blue-50 text-blue-700 hover:border-blue-300 hover:bg-blue-100"
-                              }`}
-                            >
-                              <span>{metric?.label || "Metric"}</span>
-                              {metric?.value !== undefined ? (
-                                <span
-                                  className={`rounded-full px-1.5 py-0.5 text-[10px] ${
-                                    disabled
-                                      ? "bg-gray-200 text-gray-500"
-                                      : "bg-white/80 text-blue-800"
-                                  }`}
-                                >
-                                  {metric.value}
-                                </span>
-                              ) : null}
-                            </button>
-                          );
-                        })}
-                      </div>
+              <div
+                className={`grid transition-[grid-template-rows] duration-300 ease-out ${
+                  isExpanded ? "grid-rows-[1fr]" : "grid-rows-[0fr]"
+                }`}
+              >
+                <div className="min-h-0 overflow-hidden">
+                  <div
+                    className={`border-t border-gray-100 px-5 py-4 transition-all duration-300 ease-out ${
+                      isExpanded
+                        ? "translate-y-0 opacity-100"
+                        : "-translate-y-2 opacity-0"
+                    }`}
+                  >
+                    <div className="text-[13px] leading-6 text-gray-600">
+                      {rec.body}
                     </div>
-                  ) : null}
 
+                    <div className="mt-3 flex items-start gap-2 rounded bg-gray-50 px-3 py-2 transition-colors duration-200">
+                      <ArrowRight className="mt-0.5 h-3.5 w-3.5 flex-shrink-0 text-gray-400" />
+                      <p className="text-[11px] font-bold uppercase tracking-wide text-gray-500">
+                        {rec.action}
+                      </p>
+                    </div>
+
+                    {Array.isArray(rec.metricLinks) && rec.metricLinks.length ? (
+                      <div className="mt-3">
+                        <p className="mb-2 text-[10px] font-bold uppercase tracking-[0.12em] text-gray-400">
+                          Metric Preview
+                        </p>
+                        <div className="flex flex-wrap gap-2">
+                          {rec.metricLinks.map((metric, index) => {
+                            const metricId = metric?.id || `${rec.id}-metric-${index}`;
+                            const disabled = !metric?.onClick;
+                            return (
+                              <button
+                                key={metricId}
+                                type="button"
+                                onClick={() => metric.onClick?.()}
+                                disabled={disabled || !isExpanded}
+                                tabIndex={isExpanded ? 0 : -1}
+                                className={`inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-bold transition-all ${
+                                  disabled
+                                    ? "cursor-not-allowed border-gray-200 bg-gray-100 text-gray-400"
+                                    : "border-blue-200 bg-blue-50 text-blue-700 hover:border-blue-300 hover:bg-blue-100"
+                                }`}
+                              >
+                                <span>{metric?.label || "Metric"}</span>
+                                {metric?.value !== undefined ? (
+                                  <span
+                                    className={`rounded-full px-1.5 py-0.5 text-[10px] ${
+                                      disabled
+                                        ? "bg-gray-200 text-gray-500"
+                                        : "bg-white/80 text-blue-800"
+                                    }`}
+                                  >
+                                    {metric.value}
+                                  </span>
+                                ) : null}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    ) : null}
+                  </div>
                 </div>
-              ) : null}
+              </div>
             </div>
           );
         })}
