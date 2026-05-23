@@ -824,35 +824,6 @@ function WelfarePage() {
               ].map((item) => <StatCard key={item.label} {...item} />)}
         </div>
 
-        <div className="mb-10">
-          <div className="mb-2 flex items-center gap-3">
-            <Lightbulb className="h-5 w-5 text-amber-500" />
-            <h3 className="text-[16px] font-extrabold">
-              Insights & Recommendations
-            </h3>
-          </div>
-          <p className="mb-6 text-sm font-semibold text-gray-500">
-            Practical planning actions based on welfare records, health access,
-            school access, and flood risk for {scopeLabel}.
-          </p>
-          {integration.loading || planningPriorities.loading ? (
-            <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
-              {[...Array(4)].map((_, index) => (
-                <div
-                  key={index}
-                  className="h-36 animate-pulse rounded border border-gray-100 bg-gray-50"
-                />
-              ))}
-            </div>
-          ) : (
-            <InteractiveRecommendations
-              recommendations={welfareRecommendations}
-              priorityConfig={welfarePriorityConfig}
-              sectionKey={`welfare:${scopeLabel}`}
-            />
-          )}
-        </div>
-
         {adminType === "TA" ? (
           <div className="grid grid-cols-1 xl:grid-cols-2 gap-8 mb-10">
             <div className="border border-gray-100 rounded p-8 shadow-sm bg-white h-[560px] flex flex-col">
@@ -1226,6 +1197,35 @@ function WelfarePage() {
             title={selectedTa ? `Beneficiary Preview for ${selectedTa}` : "Beneficiary Preview"}
             subtitle={`A record-level sample showing program membership, residence, nearby services, and flood context for ${scopeLabel}.`}
           />
+        </div>
+
+        <div className="mb-10">
+          <div className="mb-2 flex items-center gap-3">
+            <Lightbulb className="h-5 w-5 text-amber-500" />
+            <h3 className="text-[16px] font-extrabold">
+              Insights & Recommendations
+            </h3>
+          </div>
+          <p className="mb-6 text-sm font-semibold text-gray-500">
+            Practical planning actions based on welfare records, health access,
+            school access, and flood risk for {scopeLabel}.
+          </p>
+          {integration.loading || planningPriorities.loading ? (
+            <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
+              {[...Array(4)].map((_, index) => (
+                <div
+                  key={index}
+                  className="h-36 animate-pulse rounded border border-gray-100 bg-gray-50"
+                />
+              ))}
+            </div>
+          ) : (
+            <InteractiveRecommendations
+              recommendations={welfareRecommendations}
+              priorityConfig={welfarePriorityConfig}
+              sectionKey={`welfare:${scopeLabel}`}
+            />
+          )}
         </div>
 
         <div className="border border-gray-100 rounded p-8 shadow-sm bg-white">
