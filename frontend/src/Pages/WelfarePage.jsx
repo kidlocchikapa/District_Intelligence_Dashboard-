@@ -824,6 +824,26 @@ function WelfarePage() {
               ].map((item) => <StatCard key={item.label} {...item} />)}
         </div>
 
+        <div className="mb-10 border border-gray-100 rounded p-8 shadow-sm bg-white">
+          <h3 className="text-[16px] font-extrabold mb-5 flex items-center gap-3">
+            <GraduationCap className="h-5 w-5 text-black" />
+            Integration Notes
+          </h3>
+          <div className="space-y-3">
+            {notes.length ? (
+              notes.map((note, index) => (
+                <p key={index} className="text-[13px] leading-6 text-gray-600">
+                  {note}
+                </p>
+              ))
+            ) : (
+              <p className="rounded border border-dashed border-gray-200 bg-gray-50 px-4 py-4 text-sm font-semibold text-gray-500">
+                No integration notes are available for the current filters.
+              </p>
+            )}
+          </div>
+        </div>
+
         {adminType === "TA" ? (
           <div className="grid grid-cols-1 xl:grid-cols-2 gap-8 mb-10">
             <div className="border border-gray-100 rounded p-8 shadow-sm bg-white h-[560px] flex flex-col">
@@ -1228,25 +1248,6 @@ function WelfarePage() {
           )}
         </div>
 
-        <div className="border border-gray-100 rounded p-8 shadow-sm bg-white">
-          <h3 className="text-[16px] font-extrabold mb-5 flex items-center gap-3">
-            <GraduationCap className="h-5 w-5 text-black" />
-            Integration Notes
-          </h3>
-          <div className="space-y-3">
-            {notes.length ? (
-              notes.map((note, index) => (
-                <p key={index} className="text-[13px] leading-6 text-gray-600">
-                  {note}
-                </p>
-              ))
-            ) : (
-              <p className="rounded border border-dashed border-gray-200 bg-gray-50 px-4 py-4 text-sm font-semibold text-gray-500">
-                No integration notes are available for the current filters.
-              </p>
-            )}
-          </div>
-        </div>
       </div>
     </div>
   );
