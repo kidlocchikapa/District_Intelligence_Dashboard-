@@ -163,6 +163,38 @@ function drawTable(pdf, columns, rows, startX, startY, rowHeight) {
   return y;
 }
 
+function makeSectionReadable(section) {
+  const usesMetricValue =
+    section.columns?.some((column) => column.key === 'metric') &&
+    section.columns?.some((column) => column.key === 'value');
+
+  if (!usesMetricValue) {
+    return section;
+  }
+
+  const rows = (section.rows || []).map((row) => {
+    const metric = friendlyMetricLabel(row.metric);
+    const value = row.value ?? '';
+    return {
+      ...row,
+      metric,
+      value,
+      meaning: row.meaning || row.explanation || explainMetric(metric, value),
+    };
+  });
+
+  return {
+    ...section,
+    title: friendlyTitle(section.title),
+    columns: [
+      { key: 'metric', label: 'Indicator', width: 170 },
+      { key: 'value', label: 'Value', width: 105 },
+      { key: 'meaning', label: 'What it means', width: 240 },
+    ],
+    rows,
+  };
+}
+
 export function usePdfExport(filename = 'district-report.pdf') {
   const contentRef = useRef(null);
 
@@ -218,6 +250,7 @@ export function usePdfExport(filename = 'district-report.pdf') {
       const margin = 40;
       let y = 50;
       const pageHeight = pdf.internal.pageSize.height;
+      const readableSections = (sections || []).map(makeSectionReadable);
 
       pdf.setFont('helvetica', 'bold');
       pdf.setFontSize(18);
@@ -227,7 +260,6 @@ export function usePdfExport(filename = 'district-report.pdf') {
       pdf.setFontSize(11);
       pdf.text(`Selected area: ${selectedArea}`, margin, y + 24);
       pdf.text(`Exported on: ${new Date().toLocaleString()}`, margin, y + 40);
-
       pdf.setTextColor(90, 90, 90);
       pdf.text(
         'Plain-language summary for planning and community discussion.',
@@ -238,7 +270,7 @@ export function usePdfExport(filename = 'district-report.pdf') {
 
       y += 86;
 
-      sections.forEach((section) => {
+      readableSections.forEach((section) => {
         if (y + 80 > pageHeight) {
           pdf.addPage();
           y = margin;
