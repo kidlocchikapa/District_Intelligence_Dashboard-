@@ -75,6 +75,57 @@ function formatTaAxisLabel(value) {
   return `${value.slice(0, 14)}...`;
 }
 
+function simplifyWelfareSignal(signal) {
+  const title = String(signal?.title || "");
+
+  if (/flood-sensitive welfare footprint/i.test(title)) {
+    return {
+      ...signal,
+      title: "Many Welfare Households May Face Flood Risk",
+      description:
+        "A large share of supported households are in flood-prone places. Cash support, shelter plans, and service follow-up should be ready before flood season.",
+    };
+  }
+
+  if (/health access gap/i.test(title)) {
+    return {
+      ...signal,
+      title: "Some Welfare Households Are Far from Health Care",
+      description:
+        "Many supported households may not be close enough to health services. Outreach visits, transport help, or better referral routes may be needed.",
+    };
+  }
+
+  if (/education vulnerability/i.test(title)) {
+    return {
+      ...signal,
+      title: "Some Supported Children May Struggle to Reach School",
+      description:
+        "Welfare-supported areas may have weak school access or many school-age children not enrolled. Welfare and education teams should follow up together.",
+    };
+  }
+
+  if (/nearby public hospital coverage/i.test(title)) {
+    return {
+      ...signal,
+      title: "No Nearby Public Hospital Is Showing for This Area",
+      description:
+        "The selected area does not show welfare households within public hospital reach. Referral routes and transport support should be checked.",
+    };
+  }
+
+  if (/integrated baseline/i.test(title)) {
+    return {
+      ...signal,
+      title: "Enough Linked Data Is Available for Planning",
+      description:
+        "This view has welfare, school, health, and flood information joined together, so areas can be compared for support planning.",
+    };
+  }
+
+  return signal;
+}
+
 function getTaBarColor(value, maxValue) {
   if (!Number.isFinite(value) || maxValue <= 0) {
     return "#cbd5e1";
@@ -232,13 +283,14 @@ function WelfarePage() {
           : item.priority_band === "High"
             ? "medium"
             : "info",
-      title: `${item.admin_unit_name} is a ${item.priority_band.toLowerCase()} integrated priority`,
-      description: item.recommended_actions?.[0] || item.narrative,
+      title: `Review welfare support in ${item.admin_unit_name}`,
+      description:
+        "This area should be reviewed first because welfare needs overlap with health, school, flood, or population pressures.",
     }));
   const decisionSignals = [
     ...(integration.data?.decision_signals || []),
     ...planningPrioritySignals,
-  ].slice(0, 6);
+  ].map(simplifyWelfareSignal).slice(0, 6);
   const notes = integration.data?.notes || [];
   const baseByArea = useMemo(
     () => baseIntegration.data?.by_area ?? EMPTY_ROWS,
@@ -936,7 +988,7 @@ function WelfarePage() {
         <div className="grid grid-cols-1 xl:grid-cols-[1.15fr_0.85fr] gap-8 mb-10">
           <div className="border border-gray-100 rounded p-8 shadow-sm bg-white">
             <h3 className="text-[16px] font-extrabold mb-6">
-              Decision Signals for {scopeLabel}
+              Practical Welfare Signals for {scopeLabel}
             </h3>
             <div className="space-y-4">
               {integration.loading ? (
