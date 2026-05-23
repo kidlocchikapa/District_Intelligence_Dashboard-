@@ -1227,8 +1227,9 @@ function WelfarePage() {
             </h3>
           </div>
           <p className="mb-6 text-sm font-semibold text-gray-500">
-            Practical planning actions based on welfare records, health access,
-            school access, and flood risk for {scopeLabel}.
+            Use these cards to see which households or areas need attention
+            first, what support may be missing, and what action to take next for
+            {scopeLabel}.
           </p>
           {integration.loading || planningPriorities.loading ? (
             <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
