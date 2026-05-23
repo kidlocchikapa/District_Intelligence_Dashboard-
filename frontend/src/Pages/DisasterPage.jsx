@@ -1215,9 +1215,9 @@ function DisasterRecommendations({
   const priorityLedRecommendations = rankedPriorities.slice(0, 2).map((row, index) => ({
     priority: index === 0 ? "high" : row.priority_band === "Critical" || row.priority_band === "High" ? "high" : "medium",
     icon: ShieldAlert,
-    title: `${row.admin_unit_name} should anchor the next flood-readiness package`,
-    body: `${row.narrative} Flood exposure is estimated at ${formatNumber(row.flood_exposed_population_pct, 1)}% of the local population, with both service vulnerability and beneficiary concentration reinforcing the need for coordinated preparedness.`,
-    action: row.recommended_actions?.find((action) => /flood|roads|facilities|prepared/i.test(action)) || row.recommended_actions?.[0] || "Use the top-ranked TA as the first flood-readiness intervention zone",
+    title: `Start flood planning in ${row.admin_unit_name}`,
+    body: `About ${formatNumber(row.flood_exposed_population_pct, 1)}% of people in this area may be exposed to flooding. This area should be checked first for roads, shelters, school safety, health access, and welfare support.`,
+    action: row.recommended_actions?.find((action) => /flood|roads|facilities|prepared/i.test(action)) || row.recommended_actions?.[0] || "Use this TA as the first place to review for flood readiness",
   }));
 
   const recommendations = [
@@ -1225,9 +1225,9 @@ function DisasterRecommendations({
     schoolsExposed > 0 && {
       priority: "high",
       icon: School,
-      title: "Temporary Learning Spaces for Flood Season",
-      body: `${formatNumber(schoolsExposed)} schools are in flood-exposed zones, putting ${formatNumber(studentsAtRisk)} enrolled students at risk of disrupted education. All are currently low-risk but require contingency plans before the rainy season. Identify and pre-position temporary learning spaces in elevated areas within Ta Mwambo.`,
-      action: "Pre-position temporary classrooms and establish school closure protocols for flood alerts",
+      title: "Prepare Backup Learning Spaces",
+      body: `${formatNumber(schoolsExposed)} schools are in flood-exposed areas, which could interrupt learning for ${formatNumber(studentsAtRisk)} learners. Even where risk is low, schools should know where learners can go if classrooms are affected.`,
+      action: "Identify safe backup learning spaces before the rainy season",
       metricLinks: [
         {
           id: "exposed-schools",
@@ -1256,9 +1256,9 @@ function DisasterRecommendations({
     studentsAtRisk > 0 && {
       priority: "high",
       icon: BookOpen,
-      title: "Student Continuity Plans Required",
-      body: `${formatNumber(studentsAtRisk)} students face potential school closure during flood events. Without a continuity plan, this translates directly to learning loss and increased dropout risk, particularly for girls and children from low-income households who are least likely to return after disruption.`,
-      action: "Develop and distribute flood-season learning continuity kits to all exposed schools",
+      title: "Keep Learners Studying During Floods",
+      body: `${formatNumber(studentsAtRisk)} learners may have school disrupted during floods. Without a plan, some children may fall behind or stop attending, especially learners from poorer households.`,
+      action: "Prepare simple flood-season learning packs and follow-up plans for exposed schools",
       metricLinks: [
         {
           id: "students-at-risk-total",
@@ -1287,9 +1287,9 @@ function DisasterRecommendations({
     healthFacilitiesExposed > 0 && {
       priority: "high",
       icon: Hospital,
-      title: "Health Service Continuity at Risk",
-      body: `${formatNumber(healthFacilitiesExposed)} health facilities are in flood-exposed zones. During flood events, these facilities may become inaccessible, cutting off ${formatNumber(exposedPop, 0)} people from essential health services. Emergency referral pathways to unaffected facilities must be established.`,
-      action: "Map alternative health facilities and establish emergency referral routes for flood-affected zones",
+      title: "Health Services May Be Hard to Reach",
+      body: `${formatNumber(healthFacilitiesExposed)} health facilities are in flood-exposed areas. During floods, some people may not be able to reach care. Nearby safer facilities should be ready to receive patients.`,
+      action: "List safer health facilities and routes before flood alerts begin",
       metricLinks: [
         {
           id: "health-facilities-exposed",
@@ -1318,9 +1318,9 @@ function DisasterRecommendations({
     highRiskPop > 0 && {
       priority: "high",
       icon: AlertTriangle,
-      title: "High-Risk Zone Evacuation Planning",
-      body: `${formatNumber(highRiskPop, 0)} people live in high flood-risk zones. These communities need pre-identified evacuation routes, designated assembly points, and early warning system access. Coordination with district civil protection is essential before the next flood season.`,
-      action: "Establish community-level early warning systems and evacuation drills in high-risk zones",
+      title: "High-Risk Communities Need Evacuation Plans",
+      body: `${formatNumber(highRiskPop, 0)} people live in high flood-risk areas. These communities need clear routes, safe meeting points, and early warnings before heavy rains start.`,
+      action: "Agree evacuation routes, meeting points, and warning contacts with each high-risk community",
       metricLinks: [
         {
           id: "high-risk-population",
@@ -1349,9 +1349,9 @@ function DisasterRecommendations({
     exposedPct > 0 && {
       priority: "medium",
       icon: MapIcon,
-      title: "Flood-Resilient Infrastructure Investment",
-      body: `${formatNumber(exposedPct, 1)}% of the ${scopeLabel} population lives in flood-exposed areas covering ${formatNumber(summary.exposed_area_sq_km, 1)} sq km. New schools and health facilities in these zones must be built to flood-resilient standards - elevated foundations, flood-resistant materials, and drainage systems.`,
-      action: "Enforce flood-resilient building codes for all new public infrastructure in exposed zones",
+      title: "Build Public Services with Flood Risk in Mind",
+      body: `${formatNumber(exposedPct, 1)}% of the ${scopeLabel} population lives in flood-exposed areas. New schools, clinics, roads, and public buildings in these places should be raised, drained well, and built with materials that can handle floods.`,
+      action: "Apply flood-safe building rules to new public projects in exposed areas",
       metricLinks: [
         {
           id: "exposed-population-share",
@@ -1380,9 +1380,9 @@ function DisasterRecommendations({
     {
       priority: "medium",
       icon: Users,
-      title: "Cross-Sector Flood Response Coordination",
-      body: `Flood exposure cuts across education, health, and welfare sectors simultaneously. A single flood event in Ta Mwambo can displace students, close health facilities, and cut off welfare beneficiaries at the same time. A unified district flood response plan covering all three sectors is needed.`,
-      action: "Establish a multi-sector flood response committee with education, health, and social welfare representation",
+      title: "Flood Response Needs All Departments Together",
+      body: `One flood can affect learners, health facilities, welfare beneficiaries, roads, and households at the same time. Education, health, welfare, and disaster teams should use one shared response plan.`,
+      action: "Create one flood response plan with education, health, welfare, and disaster teams",
       metricLinks: [
         {
           id: "cross-sector-schools",
@@ -1411,9 +1411,9 @@ function DisasterRecommendations({
     {
       priority: "low",
       icon: Lightbulb,
-      title: "Annual Flood Exposure Re-Analysis",
-      body: `Flood risk patterns shift with climate variability. The current analysis is based on the latest available flood raster. Annual re-runs of the flood exposure pipeline after each rainy season will ensure the dashboard reflects current risk and that planning decisions are based on up-to-date data.`,
-      action: "Schedule annual flood raster updates and re-run the exposure analysis pipeline each May",
+      title: "Update Flood Risk Every Year",
+      body: `Flood patterns can change after each rainy season. Updating the flood maps each year will help the district plan with current information instead of relying on old risk areas.`,
+      action: "Update flood maps and rerun the dashboard checks after each rainy season",
     },
   ].filter(Boolean).slice(0, 7);
 
@@ -1435,7 +1435,7 @@ function DisasterRecommendations({
         <h3 className="text-[16px] font-extrabold">Insights & Recommendations</h3>
       </div>
       <p className="text-sm text-gray-500 font-semibold mb-6">
-        Planning actions derived from flood exposure analysis across population, schools, and health facilities in {scopeLabel}.
+        Practical planning actions based on flood exposure for people, schools, and health facilities in {scopeLabel}.
       </p>
       <InteractiveRecommendations
         recommendations={recommendations}
