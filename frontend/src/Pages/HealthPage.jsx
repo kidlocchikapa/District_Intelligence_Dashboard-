@@ -1047,8 +1047,8 @@ function HealthPage() {
         </div>
 
         {/* Map + Coverage Trend Section */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-8">
-          <div className="border border-gray-100 rounded p-8 shadow-sm bg-white h-[600px] flex flex-col">
+        <div className="grid grid-cols-1 gap-5 lg:grid-cols-2 lg:gap-8 mb-8">
+          <div className="rounded border border-gray-100 bg-white p-4 shadow-sm sm:p-6 lg:p-8 min-h-[420px] h-[70vh] max-h-[600px] flex flex-col">
             <h3 className="text-[16px] font-extrabold mb-6">
               Health Services Map
             </h3>
@@ -1105,7 +1105,7 @@ function HealthPage() {
             </div>
           </div>
 
-          <div className="border border-gray-100 rounded p-8 shadow-sm bg-white h-[600px] flex flex-col">
+          <div className="rounded border border-gray-100 bg-white p-4 shadow-sm sm:p-6 lg:p-8 min-h-[420px] h-[70vh] max-h-[600px] flex flex-col">
             <h3 className="text-[16px] font-extrabold mb-6">
               Health Service Coverage Trend
             </h3>
@@ -1147,7 +1147,7 @@ function HealthPage() {
                   value={coverageChartSearch}
                   onChange={(event) => setCoverageChartSearch(event.target.value)}
                   placeholder="Search TA..."
-                  className="min-w-[180px] flex-1 rounded-full border border-gray-200 px-3 py-1.5 text-xs font-semibold text-gray-700 outline-none focus:border-gray-900"
+                  className="w-full flex-1 sm:min-w-[180px] rounded-full border border-gray-200 px-3 py-1.5 text-xs font-semibold text-gray-700 outline-none focus:border-gray-900"
                 />
               </div>
               <p className="mt-2 text-[11px] font-semibold text-gray-500">
@@ -1259,8 +1259,8 @@ function HealthPage() {
         </div>
 
         {/* Charts Section */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-          <div className="border border-gray-100 rounded p-6 shadow-sm bg-white h-[400px] flex flex-col">
+        <div className="grid grid-cols-1 gap-5 lg:grid-cols-2 lg:gap-8">
+          <div className="rounded border border-gray-100 bg-white p-4 shadow-sm sm:p-6 min-h-[360px] h-auto lg:h-[400px] flex flex-col">
             <h3 className="text-[16px] font-extrabold mb-4">
               {selectedTa
                 ? `Health Facilities in ${selectedTa}`
@@ -1369,7 +1369,7 @@ function HealthPage() {
                         value={facilityChartSearch}
                         onChange={(event) => setFacilityChartSearch(event.target.value)}
                         placeholder="Search district..."
-                        className="min-w-[170px] flex-1 rounded-full border border-gray-200 px-3 py-1.5 text-xs font-semibold text-gray-700 outline-none focus:border-gray-900"
+                        className="w-full flex-1 sm:min-w-[170px] rounded-full border border-gray-200 px-3 py-1.5 text-xs font-semibold text-gray-700 outline-none focus:border-gray-900"
                       />
                     </div>
                     <p className="mt-2 text-[11px] font-semibold text-gray-500">
@@ -1377,7 +1377,7 @@ function HealthPage() {
                       {facilityChartData.length} districts.
                     </p>
                   </div>
-                <div className="h-[300px]">
+                <div className="h-[260px] sm:h-[300px]">
                   {districtHealthSummary.loading ? (
                     <div className="h-full w-full animate-pulse rounded bg-gray-50" />
                   ) : filteredFacilityChartData.length === 0 ? (
@@ -1457,7 +1457,7 @@ function HealthPage() {
             </div>
           </div>
 
-          <div className="border border-gray-100 rounded p-6 shadow-sm bg-white h-[400px] flex flex-col">
+          <div className="rounded border border-gray-100 bg-white p-4 shadow-sm sm:p-6 min-h-[360px] h-auto lg:h-[400px] flex flex-col">
             <div className="flex items-start justify-between gap-4 mb-4">
               <div>
                 <h3 className="text-[16px] font-extrabold">
@@ -1570,7 +1570,7 @@ function HealthPage() {
               </h2>
             </div>
           </div>
-          <div className="grid grid-cols-1 xl:grid-cols-2 gap-8 xl:items-start">
+          <div className="grid grid-cols-1 gap-5 xl:grid-cols-2 xl:gap-8 xl:items-start">
             <div className="border border-gray-100 rounded-lg p-6 shadow-sm bg-white">
               <h3 className="text-[16px] font-extrabold mb-2 text-gray-800">
                 Facility Burden Analysis
@@ -2274,4 +2274,6 @@ function HealthRecommendations({
 }
 
 export default HealthPage;
+
+
 

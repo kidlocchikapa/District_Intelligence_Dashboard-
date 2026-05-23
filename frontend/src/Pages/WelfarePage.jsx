@@ -824,7 +824,7 @@ function WelfarePage() {
               ].map((item) => <StatCard key={item.label} {...item} />)}
         </div>
 
-        <div className="mb-10 border border-gray-100 rounded p-8 shadow-sm bg-white">
+        <div className="mb-10 rounded border border-gray-100 bg-white p-4 shadow-sm sm:p-6 lg:p-8">
           <h3 className="text-[16px] font-extrabold mb-5 flex items-center gap-3">
             <GraduationCap className="h-5 w-5 text-black" />
             Integration Notes
@@ -845,8 +845,8 @@ function WelfarePage() {
         </div>
 
         {adminType === "TA" ? (
-          <div className="grid grid-cols-1 xl:grid-cols-2 gap-8 mb-10">
-            <div className="border border-gray-100 rounded p-8 shadow-sm bg-white h-[560px] flex flex-col">
+          <div className="grid grid-cols-1 gap-5 xl:grid-cols-2 xl:gap-8 mb-10">
+            <div className="rounded border border-gray-100 bg-white p-4 shadow-sm sm:p-6 lg:p-8 min-h-[420px] h-[68vh] max-h-[560px] flex flex-col">
               <div className="mb-5 flex items-start justify-between gap-4">
                 <div>
                   <h3 className="text-[16px] font-extrabold">
@@ -892,7 +892,7 @@ function WelfarePage() {
               </div>
             </div>
 
-            <div className="border border-gray-100 rounded p-8 shadow-sm bg-white h-[560px] flex flex-col">
+            <div className="rounded border border-gray-100 bg-white p-4 shadow-sm sm:p-6 lg:p-8 min-h-[420px] h-[68vh] max-h-[560px] flex flex-col">
               <h3 className="text-[16px] font-extrabold mb-2">
                 Beneficiaries by TA
               </h3>
@@ -936,7 +936,7 @@ function WelfarePage() {
                     value={taChartSearch}
                     onChange={(event) => setTaChartSearch(event.target.value)}
                     placeholder="Search TA..."
-                    className="min-w-[170px] flex-1 rounded-full border border-gray-200 px-3 py-1.5 text-xs font-semibold text-gray-700 outline-none focus:border-gray-900"
+                    className="w-full flex-1 sm:min-w-[170px] rounded-full border border-gray-200 px-3 py-1.5 text-xs font-semibold text-gray-700 outline-none focus:border-gray-900"
                   />
                 </div>
                 <p className="mt-2 text-[11px] font-semibold text-gray-500">
@@ -1050,11 +1050,11 @@ function WelfarePage() {
         </div>
 
         <div className="grid grid-cols-1 gap-8 mb-10">
-          <div className="border border-gray-100 rounded p-8 shadow-sm bg-white">
+          <div className="rounded border border-gray-100 bg-white p-4 shadow-sm sm:p-6 lg:p-8">
             <h3 className="text-[16px] font-extrabold mb-6">
               Program Participation Breakdown
             </h3>
-            <div className="h-[280px]">
+            <div className="h-[240px] sm:h-[280px]">
               {integration.loading ? (
                 <div className="h-full w-full bg-gray-50 rounded-full animate-pulse flex items-center justify-center">
                   <div className="w-2/3 h-2/3 bg-white rounded-full"></div>
@@ -1124,12 +1124,12 @@ function WelfarePage() {
                 value={areaSearch}
                 onChange={(event) => setAreaSearch(event.target.value)}
                 placeholder="Search TAs or districts"
-                className="min-w-[220px] flex-1 rounded border border-gray-200 px-3 py-2 text-[13px] font-semibold text-gray-700 outline-none focus:border-black"
+                className="w-full flex-1 rounded border border-gray-200 px-3 py-2 text-[13px] font-semibold text-gray-700 outline-none focus:border-black sm:min-w-[220px]"
               />
               <select
                 value={selectedTa}
                 onChange={(event) => setSelectedTa(event.target.value)}
-                className="min-w-[180px] rounded border border-gray-200 px-3 py-2 text-[13px] font-bold text-gray-700"
+                className="w-full rounded border border-gray-200 px-3 py-2 text-[13px] font-bold text-gray-700 sm:w-auto sm:min-w-[180px]"
               >
                 <option value="">All TAs</option>
                 {taOptions.map((option) => (
@@ -1141,7 +1141,7 @@ function WelfarePage() {
               <select
                 value={riskFilter}
                 onChange={(event) => setRiskFilter(event.target.value)}
-                className="min-w-[170px] rounded border border-gray-200 px-3 py-2 text-[13px] font-bold text-gray-700"
+                className="w-full rounded border border-gray-200 px-3 py-2 text-[13px] font-bold text-gray-700 sm:w-auto sm:min-w-[170px]"
               >
                 <option value="all">All Risk States</option>
                 <option value="flood_only">Flood Affected Only</option>
@@ -1150,7 +1150,7 @@ function WelfarePage() {
               <select
                 value={serviceFilter}
                 onChange={(event) => setServiceFilter(event.target.value)}
-                className="min-w-[190px] rounded border border-gray-200 px-3 py-2 text-[13px] font-bold text-gray-700"
+                className="w-full rounded border border-gray-200 px-3 py-2 text-[13px] font-bold text-gray-700 sm:w-auto sm:min-w-[190px]"
               >
                 <option value="all">All Service States</option>
                 <option value="school_limited">Limited School Access</option>
@@ -1177,12 +1177,12 @@ function WelfarePage() {
                 value={beneficiarySearch}
                 onChange={(event) => setBeneficiarySearch(event.target.value)}
                 placeholder="Search beneficiary, TA, district, or program"
-                className="min-w-[240px] flex-1 rounded border border-gray-200 px-3 py-2 text-[13px] font-semibold text-gray-700 outline-none focus:border-black"
+                className="w-full flex-1 rounded border border-gray-200 px-3 py-2 text-[13px] font-semibold text-gray-700 outline-none focus:border-black sm:min-w-[240px]"
               />
               <select
                 value={selectedProgram}
                 onChange={(event) => setSelectedProgram(event.target.value)}
-                className="min-w-[210px] rounded border border-gray-200 px-3 py-2 text-[13px] font-bold text-gray-700"
+                className="w-full rounded border border-gray-200 px-3 py-2 text-[13px] font-bold text-gray-700 sm:w-auto sm:min-w-[210px]"
               >
                 <option value="">All Programs</option>
                 {programOptions.map((option) => (
@@ -1197,7 +1197,7 @@ function WelfarePage() {
               <select
                 value={selectedTa}
                 onChange={(event) => setSelectedTa(event.target.value)}
-                className="min-w-[180px] rounded border border-gray-200 px-3 py-2 text-[13px] font-bold text-gray-700"
+                className="w-full rounded border border-gray-200 px-3 py-2 text-[13px] font-bold text-gray-700 sm:w-auto sm:min-w-[180px]"
               >
                 <option value="">All TAs</option>
                 {taOptions.map((option) => (
@@ -1255,3 +1255,5 @@ function WelfarePage() {
 }
 
 export default WelfarePage;
+
+

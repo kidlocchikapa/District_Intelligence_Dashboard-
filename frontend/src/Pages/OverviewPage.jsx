@@ -141,7 +141,7 @@ function DistrictBoundaryMap({
 
   if (loading) {
     return (
-      <div className="flex h-[520px] items-center justify-center rounded border border-gray-100 bg-gray-50 text-[12px] font-bold uppercase tracking-[0.16em] text-gray-400">
+      <div className="flex h-[360px] items-center justify-center rounded border border-gray-100 bg-gray-50 text-[12px] font-bold uppercase tracking-[0.16em] text-gray-400 sm:h-[520px]">
         Loading district map...
       </div>
     );
@@ -149,7 +149,7 @@ function DistrictBoundaryMap({
 
   if (!features.length) {
     return (
-      <div className="flex h-[520px] items-center justify-center rounded border border-dashed border-gray-200 bg-gray-50 text-sm font-semibold text-gray-400">
+      <div className="flex h-[360px] items-center justify-center rounded border border-dashed border-gray-200 bg-gray-50 text-sm font-semibold text-gray-400 sm:h-[520px]">
         No TA boundaries available for this district.
       </div>
     );
@@ -158,7 +158,7 @@ function DistrictBoundaryMap({
   return (
     <div className="grid gap-4 lg:grid-cols-[1fr_260px]">
       <div
-        className="relative h-[520px] overflow-hidden rounded border border-gray-100 bg-[#f8faf7]"
+        className="relative h-[360px] overflow-hidden rounded border border-gray-100 bg-[#f8faf7] sm:h-[520px]"
         onMouseLeave={() => setHoveredFeature(null)}
       >
         <svg
@@ -1033,7 +1033,7 @@ function OverviewPage() {
         </div>
 
         <div className="mb-10">
-          <div className="min-w-0 border border-gray-100 rounded p-8 shadow-sm bg-white flex flex-col min-h-[640px]">
+          <div className="min-w-0 rounded border border-gray-100 bg-white p-4 shadow-sm sm:p-6 lg:p-8 flex flex-col min-h-[440px] sm:min-h-[640px]">
             <div className="mb-6">
               <div className="flex items-center gap-2 text-[11px] font-bold uppercase tracking-[0.2em] text-gray-400">
                 <MapIcon className="h-4 w-4" />
@@ -1064,8 +1064,8 @@ function OverviewPage() {
           </div>
         </div>
 
-        <div className="grid grid-cols-1 xl:grid-cols-[0.9fr_1.1fr] gap-8 mb-10">
-          <section className="min-w-0 border border-gray-100 rounded p-8 shadow-sm bg-white">
+        <div className="grid grid-cols-1 gap-5 xl:grid-cols-[0.9fr_1.1fr] xl:gap-8 mb-10">
+          <section className="min-w-0 rounded border border-gray-100 bg-white p-4 shadow-sm sm:p-6 lg:p-8">
             <div className="mb-6">
               <h3 className="text-[18px] font-extrabold text-black">
                 Cross-Department Pressure Profile
@@ -1076,7 +1076,7 @@ function OverviewPage() {
                   : "Average normalized planning signals across the current TA scope."}
               </p>
             </div>
-            <div className="h-[320px]">
+            <div className="h-[260px] sm:h-[320px]">
               <ResponsiveContainer width="100%" height="100%">
                 <BarChart
                   data={comparisonData}
@@ -1122,7 +1122,7 @@ function OverviewPage() {
             </div>
           </section>
 
-          <section className="min-w-0 border border-gray-100 rounded p-8 shadow-sm bg-white">
+          <section className="min-w-0 rounded border border-gray-100 bg-white p-4 shadow-sm sm:p-6 lg:p-8">
             <div className="mb-6">
               <h3 className="text-[18px] font-extrabold text-black">
                 Department Snapshots
@@ -1157,8 +1157,8 @@ function OverviewPage() {
           </section>
         </div>
 
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-10">
-          <div className="min-w-0 border border-gray-100 rounded p-5 shadow-sm bg-white flex flex-col sm:p-8">
+        <div className="grid grid-cols-1 gap-5 lg:grid-cols-2 lg:gap-8 mb-10">
+          <div className="flex min-w-0 flex-col rounded border border-gray-100 bg-white p-4 shadow-sm sm:p-6 lg:p-8">
             <h3 className="text-[16px] font-extrabold mb-2">
               {selectedTa
                 ? `${selectedTa} Population Context Map`
@@ -1169,7 +1169,7 @@ function OverviewPage() {
             </p>
             <div
               ref={mapRef}
-              className="relative h-[560px] w-full rounded border border-gray-50 bg-gray-50 shadow-inner sm:h-[640px]"
+              className="relative h-[380px] w-full rounded border border-gray-50 bg-gray-50 shadow-inner sm:h-[520px] lg:h-[640px]"
             >
               <PopulationRasterPanel
                 geojson={populationMapGeojson}
@@ -1204,7 +1204,7 @@ function OverviewPage() {
             </div>
           </div>
 
-          <div className="min-w-0 border border-gray-100 rounded p-8 shadow-sm bg-white flex flex-col min-h-[640px]">
+          <div className="min-w-0 rounded border border-gray-100 bg-white p-4 shadow-sm sm:p-6 lg:p-8 flex flex-col min-h-[440px] sm:min-h-[640px]">
             <h3 className="text-[16px] font-extrabold mb-2">
               {selectedTa ? `Population for ${selectedTa}` : "Population by TA"}
             </h3>
@@ -1245,7 +1245,7 @@ function OverviewPage() {
                   value={populationChartSearch}
                   onChange={(event) => setPopulationChartSearch(event.target.value)}
                   placeholder="Search TA or district..."
-                  className="min-w-[180px] flex-1 rounded-full border border-gray-200 px-3 py-1.5 text-xs font-semibold text-gray-700 outline-none focus:border-gray-900"
+                  className="w-full flex-1 sm:min-w-[180px] rounded-full border border-gray-200 px-3 py-1.5 text-xs font-semibold text-gray-700 outline-none focus:border-gray-900"
                 />
                 {selectedTa ? (
                   <button
@@ -1370,12 +1370,12 @@ function OverviewPage() {
           </div>
         </div>
 
-        <div className="grid grid-cols-1 xl:grid-cols-[0.85fr_1.15fr] gap-8 mb-10">
-          <section className="min-w-0 border border-gray-100 rounded p-8 shadow-sm bg-white">
+        <div className="grid grid-cols-1 gap-5 xl:grid-cols-[0.85fr_1.15fr] xl:gap-8 mb-10">
+          <section className="min-w-0 rounded border border-gray-100 bg-white p-4 shadow-sm sm:p-6 lg:p-8">
             <h3 className="text-[16px] font-extrabold mb-6">
               Flood Exposure Distribution for {scopeLabel}
             </h3>
-            <div className="h-[320px]">
+            <div className="h-[260px] sm:h-[320px]">
               {floodSummary.loading ? (
                 <div className="flex items-center justify-center h-full text-gray-400">
                   Loading flood exposure data...
@@ -1435,7 +1435,7 @@ function OverviewPage() {
             </div>
           </section>
 
-          <section className="min-w-0 border border-gray-100 rounded p-8 shadow-sm bg-white">
+          <section className="min-w-0 rounded border border-gray-100 bg-white p-4 shadow-sm sm:p-6 lg:p-8">
             <h3 className="text-[16px] font-extrabold mb-2">Data Freshness</h3>
             <p className="text-[13px] font-medium text-gray-500 mb-6">
               Latest available update timestamps across the main overview
@@ -1467,3 +1467,5 @@ function OverviewPage() {
 }
 
 export default OverviewPage;
+
+

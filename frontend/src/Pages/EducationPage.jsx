@@ -996,7 +996,7 @@ function EducationPage() {
           )}
         </div>
 
-        <div className="grid grid-cols-1 xl:grid-cols-[1.55fr_0.75fr] gap-8 mb-10">
+        <div className="grid grid-cols-1 gap-5 xl:grid-cols-[1.55fr_0.75fr] xl:gap-8 mb-10">
           {districtInsights.loading ? (
             <>
               <div className="h-[620px] animate-pulse rounded border border-gray-100 bg-gray-50" />
@@ -1005,7 +1005,7 @@ function EducationPage() {
           ) : (
             <>
               <div className="space-y-8">
-                <div className="border border-gray-100 rounded p-8 shadow-sm bg-white">
+                <div className="rounded border border-gray-100 bg-white p-4 shadow-sm sm:p-6 lg:p-8">
                   <div className="mb-6 flex items-start justify-between gap-4">
                     <div>
                       <h3 className="text-[16px] font-extrabold">
@@ -1038,7 +1038,7 @@ function EducationPage() {
                     </div>
                   </div>
 
-                  <div className="h-[250px]">
+                  <div className="h-[220px] sm:h-[250px]">
                     <ResponsiveContainer width="100%" height="100%">
                       <ScatterChart
                         margin={{ top: 16, right: 18, left: 8, bottom: 24 }}
@@ -1130,8 +1130,8 @@ function EducationPage() {
                   </div>
                 </div>
 
-                <div className="border border-gray-100 rounded p-8 shadow-sm bg-white">
-                  <div className="h-[250px]">
+                <div className="rounded border border-gray-100 bg-white p-4 shadow-sm sm:p-6 lg:p-8">
+                  <div className="h-[220px] sm:h-[250px]">
                     <ResponsiveContainer width="100%" height="100%">
                       <PieChart>
                         <Pie
@@ -1183,7 +1183,7 @@ function EducationPage() {
                 </div>
               </div>
 
-              <div className="border border-gray-100 rounded p-8 shadow-sm bg-white">
+              <div className="rounded border border-gray-100 bg-white p-4 shadow-sm sm:p-6 lg:p-8">
                 <h3 className="text-[16px] font-extrabold">Signal Board</h3>
                 <p className="mt-2 text-sm leading-6 text-gray-500">
                   The strongest flagged TAs from the current benchmark.
@@ -1261,9 +1261,9 @@ function EducationPage() {
           )}
         </div>
 
-        <div className="grid grid-cols-1 xl:grid-cols-2 gap-8">
+        <div className="grid grid-cols-1 gap-5 xl:grid-cols-2 xl:gap-8">
           {/* ── School Infrastructure Map ─────────────────────────── */}
-          <div className="border border-gray-100 rounded p-8 shadow-sm bg-white h-[600px] flex flex-col">
+          <div className="rounded border border-gray-100 bg-white p-4 shadow-sm sm:p-6 lg:p-8 min-h-[420px] h-[70vh] max-h-[600px] flex flex-col">
             <h3 className="text-[16px] font-extrabold">
               School Infrastructure Mapping
             </h3>
@@ -1338,7 +1338,7 @@ function EducationPage() {
           </div>
 
           {/* ── At-Risk Schools Table ─────────────────────────────── */}
-          <div className="border border-gray-100 rounded p-8 shadow-sm bg-white h-[600px] flex flex-col">
+          <div className="rounded border border-gray-100 bg-white p-4 shadow-sm sm:p-6 lg:p-8 min-h-[420px] h-[70vh] max-h-[600px] flex flex-col">
             <div className="flex items-start justify-between gap-4 mb-1">
               <div>
                 <h3 className="text-[16px] font-extrabold flex items-center gap-2">
@@ -1536,9 +1536,9 @@ function EducationPage() {
           </div>
         </div>
 
-        <div className="mt-8 border border-gray-100 rounded p-8 shadow-sm bg-white">
+        <div className="mt-8 rounded border border-gray-100 bg-white p-4 shadow-sm sm:p-6 lg:p-8">
           {districtInsights.loading ? (
-            <div className="h-[280px] w-full animate-pulse rounded bg-gray-50" />
+            <div className="h-[240px] sm:h-[280px] w-full animate-pulse rounded bg-gray-50" />
           ) : (
             <DataTable
               title={
@@ -2021,7 +2021,7 @@ function FloodImpactMap({ geojson, loading, coverageFocusDistrict }) {
   const rasterMetadataUrl = `/worldpop/flood_risk_${districtSlug}.preview.json`;
 
   return (
-    <div className="h-[420px] rounded overflow-hidden border border-gray-100">
+    <div className="h-[320px] overflow-hidden rounded border border-gray-100 sm:h-[420px]">
       <PopulationRasterPanel
         geojson={taGeojson}
         pointsGeojson={schoolGeojson}
@@ -2153,7 +2153,7 @@ function FloodImpactSection({ floodImpact, floodImpactGeojson, coverageFocusDist
       )}
 
       {/* Map + chart split */}
-      <div className="grid grid-cols-1 xl:grid-cols-[1.2fr_0.8fr] gap-6">
+      <div className="grid grid-cols-1 gap-5 xl:grid-cols-[1.2fr_0.8fr] xl:gap-6">
         {/* Map */}
         <div className="relative isolate border border-gray-100 rounded p-4 shadow-sm bg-white">
           <p className="text-[13px] font-extrabold mb-3">Flood Exposure Map</p>
@@ -2215,7 +2215,7 @@ function FloodImpactSection({ floodImpact, floodImpactGeojson, coverageFocusDist
                 value={floodTaSearch}
                 onChange={(event) => setFloodTaSearch(event.target.value)}
                 placeholder="Search TA..."
-                className="min-w-[160px] flex-1 rounded-full border border-gray-200 px-3 py-1.5 text-xs font-semibold text-gray-700 outline-none focus:border-gray-900"
+                className="w-full flex-1 rounded-full border border-gray-200 px-3 py-1.5 text-xs font-semibold text-gray-700 outline-none focus:border-gray-900 sm:min-w-[160px]"
               />
             </div>
             <p className="mt-2 text-[11px] font-semibold text-gray-500">
@@ -2223,9 +2223,9 @@ function FloodImpactSection({ floodImpact, floodImpactGeojson, coverageFocusDist
             </p>
           </div>
           {floodImpact.loading ? (
-            <div className="h-[380px] animate-pulse rounded bg-gray-50" />
+            <div className="h-[320px] animate-pulse rounded bg-gray-50 sm:h-[380px]" />
           ) : chartData.length === 0 ? (
-            <div className="h-[380px] flex items-center justify-center text-sm text-gray-400 font-semibold">
+            <div className="flex h-[320px] items-center justify-center text-sm font-semibold text-gray-400 sm:h-[380px]">
               No flood-impact TA rows match the current filters.
             </div>
           ) : (
@@ -2295,4 +2295,6 @@ function FloodImpactSection({ floodImpact, floodImpactGeojson, coverageFocusDist
 }
 
 export default EducationPage;
+
+
 

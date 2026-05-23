@@ -389,7 +389,7 @@ function PopulationPage() {
             Showing {filteredChartData.length} of {chartData.length}{" "}
             {selectedDistrict ? "TAs" : "districts"}.
           </p>
-          <div className="h-[420px] overflow-x-auto">
+          <div className="h-[340px] overflow-x-auto sm:h-[420px]">
             {filteredChartData.length ? (
               <div className="h-full min-w-[620px] sm:min-w-0">
                 <ResponsiveContainer width="100%" height="100%">
@@ -487,3 +487,4 @@ function PopulationPage() {
 }
 
 export default PopulationPage;
+

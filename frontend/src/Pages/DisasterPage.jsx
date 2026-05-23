@@ -587,8 +587,8 @@ function DisasterPage() {
         </div>
 
         {/* Map Section */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-8 mb-10">
-          <div className="border border-gray-100 rounded p-8 shadow-sm bg-white h-[600px] flex flex-col">
+        <div className="grid grid-cols-1 gap-5 md:grid-cols-2 md:gap-8 mb-10">
+          <div className="rounded border border-gray-100 bg-white p-4 shadow-sm sm:p-6 lg:p-8 min-h-[420px] h-[70vh] max-h-[600px] flex flex-col">
             <h3 className="text-[16px] font-extrabold mb-6">
               Flood Risk Zone Mapping
             </h3>
@@ -655,7 +655,7 @@ function DisasterPage() {
             </div>
           </div>
 
-          <div className="border border-gray-100 rounded p-8 shadow-sm bg-white h-[600px] flex flex-col">
+          <div className="rounded border border-gray-100 bg-white p-4 shadow-sm sm:p-6 lg:p-8 min-h-[420px] h-[70vh] max-h-[600px] flex flex-col">
             <h3 className="text-[16px] font-extrabold mb-2">
               Exposed TAs and Population
             </h3>
@@ -697,7 +697,7 @@ function DisasterPage() {
                   value={exposureChartSearch}
                   onChange={(event) => setExposureChartSearch(event.target.value)}
                   placeholder="Search TA..."
-                  className="min-w-[170px] flex-1 rounded-full border border-gray-200 px-3 py-1.5 text-xs font-semibold text-gray-700 outline-none focus:border-gray-900"
+                  className="w-full flex-1 sm:min-w-[170px] rounded-full border border-gray-200 px-3 py-1.5 text-xs font-semibold text-gray-700 outline-none focus:border-gray-900"
                 />
               </div>
               <p className="mt-2 text-[11px] font-semibold text-gray-500">
@@ -803,7 +803,7 @@ function DisasterPage() {
           </div>
         </div>
         {/* ── Facility Impact Panels ──────────────────────────────── */}
-        <div className="grid grid-cols-1 xl:grid-cols-2 gap-8 mb-10">
+        <div className="grid grid-cols-1 gap-5 xl:grid-cols-2 xl:gap-8 mb-10">
 
           {/* Schools Impact */}
           <div className="border border-gray-100 rounded p-6 shadow-sm bg-white">
@@ -1451,3 +1451,5 @@ function DisasterRecommendations({
   );
 }
 export default DisasterPage;
+
+
