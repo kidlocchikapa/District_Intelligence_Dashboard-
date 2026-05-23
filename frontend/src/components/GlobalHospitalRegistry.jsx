@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useMemo, useState } from "react";
 import {
   Search,
   AlertCircle,
@@ -51,10 +51,11 @@ function GlobalHospitalRegistry({ data, loading }) {
   const [wardFilter, setWardFilter] = useState("");
   const [statusFilter, setStatusFilter] = useState("all"); // all, underserved, high_demand
 
-  useEffect(() => {
+  function handleScopeChange(nextScope) {
+    setRegistryScope(nextScope);
     setTypeFilter("");
     setWardFilter("");
-  }, [registryScope]);
+  }
 
   const facilities = useMemo(() => {
     if (!data?.features) return [];
@@ -205,7 +206,7 @@ function GlobalHospitalRegistry({ data, loading }) {
             <button
               key={scope.id}
               type="button"
-              onClick={() => setRegistryScope(scope.id)}
+              onClick={() => handleScopeChange(scope.id)}
               className={`flex shrink-0 items-center gap-2 border-r border-gray-100 px-4 py-2 text-[11px] font-black uppercase tracking-wider transition-all last:border-r-0 ${
                 isActive
                   ? "bg-black text-white"
