@@ -112,9 +112,15 @@ function friendlyTitle(value) {
     .replace(/\bArea Summary\b/g, 'Area Summary');
 }
 
+function wrapText(pdf, text, maxWidth) {
+  const safeText = String(text ?? '');
+  return pdf.splitTextToSize(safeText, Math.max(maxWidth, 20));
+}
+
 function drawTable(pdf, columns, rows, startX, startY, rowHeight) {
   let y = startY;
   const pageHeight = pdf.internal.pageSize.height;
+  const bottomMargin = 42;
 
   pdf.setFont('helvetica', 'bold');
   pdf.setFontSize(11);
@@ -130,20 +136,28 @@ function drawTable(pdf, columns, rows, startX, startY, rowHeight) {
   pdf.setFont('helvetica', 'normal');
 
   rows.forEach((row) => {
-    if (y + rowHeight > pageHeight - 40) {
+    const lineGroups = columns.map((column) =>
+      wrapText(pdf, row[column.key] ?? '', column.width - 8),
+    );
+    const rowLines = Math.max(...lineGroups.map((lines) => lines.length), 1);
+    const actualRowHeight = Math.max(rowHeight, rowLines * 13 + 12);
+
+    if (y + actualRowHeight > pageHeight - bottomMargin) {
       pdf.addPage();
       y = 40;
     }
 
     x = startX;
-    columns.forEach((column) => {
-      const text = String(row[column.key] ?? '');
-      pdf.text(text, x + 4, y + 14, { maxWidth: column.width - 8 });
-      pdf.rect(x, y, column.width, rowHeight);
+    columns.forEach((column, index) => {
+      pdf.text(lineGroups[index], x + 4, y + 14, {
+        maxWidth: column.width - 8,
+        lineHeightFactor: 1.15,
+      });
+      pdf.rect(x, y, column.width, actualRowHeight);
       x += column.width;
     });
 
-    y += rowHeight;
+    y += actualRowHeight;
   });
 
   return y;
