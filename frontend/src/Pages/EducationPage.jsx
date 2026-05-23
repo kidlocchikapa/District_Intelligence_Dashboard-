@@ -279,7 +279,7 @@ function EducationPage() {
     buildDashboardPath("/dashboard/education/summary", {
       district: selectedDistrict,
       ta: selectedTa,
-      admin_type: "District",
+      admin_type: selectedTa ? "TA" : "District",
     }),
   );
   const schoolLocations = useDashboardData(
@@ -296,7 +296,8 @@ function EducationPage() {
   const educationIntegration = useDashboardData(
     buildDashboardPath("/dashboard/welfare/integration", {
       district: selectedDistrict,
-      admin_type: "District",
+      ta: selectedTa,
+      admin_type: selectedTa ? "TA" : "District",
     }),
   );
   const educationRasterMetadata = useDashboardData(
@@ -332,7 +333,7 @@ function EducationPage() {
       : "National";
 
   const handleDownloadReport = async () => {
-    const selectedInsightRow = selectedInsight || {};
+    const selectedInsightRow = selectedTa ? selectedInsight || {} : {};
     const rows = [
       {
         metric: "Total Schools",

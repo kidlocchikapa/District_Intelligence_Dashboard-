@@ -104,7 +104,7 @@ function DisasterPage() {
     buildDashboardPath("/dashboard/disaster/flood/summary", {
       district: disasterDistrictFilter,
       ta: selectedTa,
-      admin_type: "District",
+      admin_type: selectedTa ? "TA" : "District",
     }),
   );
 
@@ -112,7 +112,7 @@ function DisasterPage() {
     buildDashboardPath("/dashboard/disaster/flood/facilities/summary", {
       district: disasterDistrictFilter,
       ta: selectedTa,
-      admin_type: "District",
+      admin_type: selectedTa ? "TA" : "District",
       facility_type: "education",
     }),
   );
@@ -121,7 +121,7 @@ function DisasterPage() {
     buildDashboardPath("/dashboard/disaster/flood/facilities/summary", {
       district: disasterDistrictFilter,
       ta: selectedTa,
-      admin_type: "District",
+      admin_type: selectedTa ? "TA" : "District",
       facility_type: "health",
     }),
   );
@@ -182,7 +182,7 @@ function DisasterPage() {
     buildDashboardPath("/dashboard/welfare/integration", {
       district: selectedDistrict,
       ta: selectedTa,
-      admin_type: "District",
+      admin_type: selectedTa ? "TA" : "District",
     }),
   );
 
@@ -318,7 +318,7 @@ function DisasterPage() {
       ? `TA: ${selectedTa}`
       : selectedDistrict
         ? `District: ${selectedDistrict}`
-        : "National";
+        : `District: ${scopeLabel}`;
 
     const disasterRows = [
       {

@@ -138,9 +138,9 @@ function HealthPage() {
   );
   const healthIntegration = useDashboardData(
     buildDashboardPath("/dashboard/welfare/integration", {
-      district: selectedDistrict,
+      district: districtScope,
       ta: selectedTa,
-      admin_type: "District",
+      admin_type: selectedTa ? "TA" : "District",
     }),
   );
   const servedPopulationTrend = useDashboardData(
@@ -248,9 +248,7 @@ function HealthPage() {
 
   const selectedAreaName = selectedTa
     ? `TA: ${selectedTa}`
-    : selectedDistrict
-      ? `District: ${selectedDistrict}`
-      : "National";
+    : `District: ${districtScope}`;
 
   const handleDownloadReport = async () => {
     const healthRows = Array.isArray(healthSummary.data)

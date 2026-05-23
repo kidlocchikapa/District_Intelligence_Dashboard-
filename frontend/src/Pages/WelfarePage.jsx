@@ -181,7 +181,7 @@ function WelfarePage() {
   const integration = useDashboardData(
     buildDashboardPath("/dashboard/welfare/integration", {
       district: selectedDistrict,
-      admin_type: adminType,
+      admin_type: selectedTa ? "TA" : adminType,
       ta: selectedTa,
       program_id: selectedProgramId || undefined,
       preview_limit: 15,

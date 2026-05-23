@@ -100,7 +100,7 @@ function PopulationPage() {
     buildDashboardPath("/dashboard/welfare/integration", {
       district: selectedDistrict,
       ta: selectedTa,
-      admin_type: "District",
+      admin_type: selectedTa ? "TA" : "District",
     }),
   );
 
@@ -176,9 +176,19 @@ function PopulationPage() {
       },
     ];
 
-    const topRows = [...chartData]
-      .sort((left, right) => Number(right.population || 0) - Number(left.population || 0))
-      .slice(0, 8)
+    const locationRows = selectedTa
+      ? chartData.filter(
+          (item) =>
+            item.label?.trim().toLowerCase() === selectedTa.trim().toLowerCase(),
+        )
+      : [...chartData]
+          .sort(
+            (left, right) =>
+              Number(right.population || 0) - Number(left.population || 0),
+          )
+          .slice(0, 8);
+
+    const topRows = locationRows
       .map((item) => ({
         metric: item.label,
         value: Number(item.population || 0).toLocaleString(),
@@ -197,7 +207,9 @@ function PopulationPage() {
           rows,
         },
         {
-          title: "Top Location Population",
+          title: selectedTa
+            ? "Selected TA Population"
+            : "Top Location Population",
           columns: [
             { key: "metric", label: selectedDistrict ? "TA" : "District", width: 260 },
             { key: "value", label: "Population", width: 180 },
