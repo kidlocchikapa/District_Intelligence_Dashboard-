@@ -234,6 +234,8 @@ const presetTaskDefinitions = {
       childClassMax,
       adminLevel,
       coverageDistanceKm,
+      floodRasterPath,
+      analysisDate,
     }) => [
       {
         label: "WorldPop totals",
@@ -1217,7 +1219,11 @@ function terminateJob(job) {
   if (!job.process) {
     job.terminateRequested = true;
     job.status = "terminating";
-    appendJobLog(job, "Termination requested. Waiting for the active process handle.", "error");
+    appendJobLog(
+      job,
+      "Termination requested. Waiting for the active process handle.",
+      "error",
+    );
     return {
       ok: true,
       message: "Termination requested for the active job.",
@@ -1227,11 +1233,19 @@ function terminateJob(job) {
   if (job.status !== "terminating") {
     job.status = "terminating";
     job.terminateRequested = true;
-    appendJobLog(job, "Termination requested. Sending SIGTERM to the ETL process.", "error");
+    appendJobLog(
+      job,
+      "Termination requested. Sending SIGTERM to the ETL process.",
+      "error",
+    );
     job.process.kill("SIGTERM");
     setTimeout(() => {
       if (job.process && !job.process.killed) {
-        appendJobLog(job, "Process did not exit after SIGTERM. Sending SIGKILL.", "error");
+        appendJobLog(
+          job,
+          "Process did not exit after SIGTERM. Sending SIGKILL.",
+          "error",
+        );
         job.process.kill("SIGKILL");
       }
     }, 5000);
@@ -1367,7 +1381,11 @@ function queueWorkflow(job, stages) {
 
       job.status = "failed";
       job.finishedAt = new Date().toISOString();
-      appendJobLog(job, error.message || "Unexpected workflow failure.", "error");
+      appendJobLog(
+        job,
+        error.message || "Unexpected workflow failure.",
+        "error",
+      );
     });
   });
 }
@@ -2013,7 +2031,10 @@ router.post("/run-task", auth, async (req, res) => {
   });
 
   const includesFloodStage = stages.some(
-    (stage) => Array.isArray(stage.args) && stage.args.includes("--type") && stage.args.includes("flood"),
+    (stage) =>
+      Array.isArray(stage.args) &&
+      stage.args.includes("--type") &&
+      stage.args.includes("flood"),
   );
 
   if (includesFloodStage && !fs.existsSync(path.resolve(floodRasterPath))) {

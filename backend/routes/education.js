@@ -1776,7 +1776,7 @@ router.get("/flood-impact/geojson", async (req, res) => {
         SELECT jsonb_build_object(
           'type', 'Feature',
           'id', CONCAT('school-', e.facility_id),
-          'geometry', ST_AsGeoJSON(e.school_geom)::jsonb,
+          'geometry', ST_AsGeoJSON(ST_PointOnSurface(e.school_geom))::jsonb,
           'properties', jsonb_build_object(
             'feature_kind',   'school',
             'facility_id',    e.facility_id,
