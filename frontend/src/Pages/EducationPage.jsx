@@ -504,6 +504,10 @@ function EducationPage() {
       : selectedDistrict
         ? insightRows[0] || null
         : null;
+  const districtSchoolCount = insightRows.reduce(
+    (sum, row) => sum + Number(row.school_count || 0),
+    0,
+  );
   const chartRows = sourceInsightRows.map(
     (row) => ({
       ...row,
@@ -852,9 +856,11 @@ function EducationPage() {
                 {
                   label: "Total Schools",
                   value: formatStat(
-                    selectedInsight?.school_count ||
-                      educationSummary.data?.school_count ||
-                      0,
+                    selectedTa
+                      ? selectedInsight?.school_count || 0
+                      : districtSchoolCount ||
+                          educationSummary.data?.school_count ||
+                          0,
                   ),
                   icon: School,
                 },

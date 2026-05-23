@@ -441,6 +441,10 @@ function HealthPage() {
 
   const facilities = healthLocations?.data?.features || [];
   const totalFacilities = facilities.length;
+  const hospitalFacilities = facilities.filter((feature) =>
+    classifyFacilityProperties(feature?.properties || {}).isHospital,
+  ).length;
+  const nonHospitalProviders = Math.max(totalFacilities - hospitalFacilities, 0);
   
   const functionalFacilities = facilities.filter(
     (f) => f?.properties?.status === "Functional"
@@ -717,14 +721,24 @@ function HealthPage() {
         </div>
 
         {/* Stats Row */}
-        <div className="grid grid-cols-2 md:grid-cols-5 gap-6 mb-10">
+        <div className="grid grid-cols-2 gap-6 mb-10 md:grid-cols-3 xl:grid-cols-6">
           {healthLocations.loading
-            ? [...Array(5)].map((_, i) => <StatCardSkeleton key={i} />)
+            ? [...Array(6)].map((_, i) => <StatCardSkeleton key={i} />)
             : [
                 {
-                  label: "Total Facilities",
+                  label: "Health Providers",
                   value: formatStat(totalFacilities),
                   icon: HeartPulse,
+                },
+                {
+                  label: "Hospitals",
+                  value: formatStat(hospitalFacilities),
+                  icon: Building2,
+                },
+                {
+                  label: "Non-hospital Providers",
+                  value: formatStat(nonHospitalProviders),
+                  icon: Building,
                 },
                 {
                   label: "Functional",
@@ -735,11 +749,6 @@ function HealthPage() {
                   label: "Non-functional",
                   value: formatStat(nonFunctionalFacilities),
                   icon: AlertCircle,
-                },
-                {
-                  label: "Govt Owned",
-                  value: formatStat(govFacilities),
-                  icon: Building2,
                 },
                 {
                   label: "Private / Other",

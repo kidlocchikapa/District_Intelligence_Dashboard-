@@ -329,6 +329,11 @@ function OverviewPage() {
       admin_type: selectedTa ? "TA" : "District",
     }),
   );
+  const educationInsights = useDashboardData(
+    buildDashboardPath("/dashboard/education/insights", {
+      district: districtScope,
+    }),
+  );
   const healthSummary = useDashboardData(
     buildDashboardPath("/dashboard/health/summary", {
       district: districtScope,
@@ -594,6 +599,20 @@ function OverviewPage() {
     : [];
   const welfareSummary = welfareIntegration.data?.summary || {};
   const educationData = educationSummary.data || {};
+  const educationInsightRows = useMemo(
+    () => educationInsights.data?.districts ?? [],
+    [educationInsights.data],
+  );
+  const selectedEducationInsight = selectedTa
+    ? educationInsightRows.find(
+        (row) =>
+          normalizeName(row.admin_unit_name) === normalizeName(selectedTa),
+      ) || null
+    : null;
+  const districtEducationSchoolCount = educationInsightRows.reduce(
+    (sum, row) => sum + Number(row.school_count || 0),
+    0,
+  );
 
   const comparisonSource = selectedPriorityRow
     ? [selectedPriorityRow]
@@ -626,6 +645,24 @@ function OverviewPage() {
     "facility_count",
     "health_facility_count",
   ]);
+  const selectedTaServiceStats = selectedTa
+    ? taServiceLookup.get(`name:${normalizeName(selectedTa)}`) || null
+    : null;
+  const overviewSchoolCount = selectedTa
+    ? Number(selectedEducationInsight?.school_count || 0)
+    : districtEducationSchoolCount || Number(educationData.school_count || 0);
+  const overviewHealthProviderCount = selectedTaServiceStats
+    ? Number(selectedTaServiceStats.health_facilities_count || 0)
+    : (taServiceStats.data || []).reduce(
+        (sum, row) => sum + Number(row.health_facilities_count || 0),
+        0,
+      ) || healthFacilityCount || Number(summary.data?.total_health_facilities || 0);
+  const overviewHospitalCount = selectedTaServiceStats
+    ? Number(selectedTaServiceStats.hospitals_count || 0)
+    : (taServiceStats.data || []).reduce(
+        (sum, row) => sum + Number(row.hospitals_count || 0),
+        0,
+      );
   const healthServedPopulation = metricFromRows(healthRows, [
     "population_served",
     "population_served_total",
@@ -639,7 +676,7 @@ function OverviewPage() {
   const snapshotCards = [
     {
       title: "Education",
-      primary: `${formatStat(educationData.school_count || 0)} schools`,
+      primary: `${formatStat(overviewSchoolCount)} schools`,
       secondary: `${formatStat(educationData.not_in_school_total || 0)} learners likely out of school`,
       surfaceClass: "border-amber-100 bg-amber-50/45",
       titleClass: "text-amber-700",
@@ -648,10 +685,10 @@ function OverviewPage() {
     },
     {
       title: "Health",
-      primary: `${formatStat(healthFacilityCount || summary.data?.total_health_facilities || 0)} facilities`,
+      primary: `${formatStat(overviewHealthProviderCount)} providers`,
       secondary: healthCoveragePct
         ? `${formatPercent(healthCoveragePct)} service coverage`
-        : `${formatStat(healthServedPopulation)} served population`,
+        : `${formatStat(overviewHospitalCount)} hospitals classified`,
       surfaceClass: "border-sky-100 bg-sky-50/45",
       titleClass: "text-sky-700",
       valueClass: "text-sky-800",
@@ -690,15 +727,21 @@ function OverviewPage() {
     },
     {
       label: "Schools",
-      value: formatStat(summary.data?.total_schools || 0),
+      value: formatStat(overviewSchoolCount),
       icon: School,
       helper: scopeLabel,
     },
     {
-      label: "Health Facilities",
-      value: formatStat(summary.data?.total_health_facilities || 0),
+      label: "Health Providers",
+      value: formatStat(overviewHealthProviderCount),
       icon: HeartPulse,
       helper: scopeLabel,
+    },
+    {
+      label: "Hospitals",
+      value: formatStat(overviewHospitalCount),
+      icon: HeartPulse,
+      helper: "Hospital-classified providers only",
     },
     {
       label: "Welfare Beneficiaries",
@@ -903,6 +946,8 @@ function OverviewPage() {
   const loadingAnyTopCard =
     summary.loading ||
     welfareIntegration.loading ||
+    educationInsights.loading ||
+    taServiceStats.loading ||
     floodSummary.loading ||
     planningPriorities.loading;
 
@@ -947,7 +992,7 @@ function OverviewPage() {
 
         <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-6 mb-10">
           {loadingAnyTopCard
-            ? [...Array(6)].map((_, index) => (
+            ? [...Array(7)].map((_, index) => (
                 <div
                   key={index}
                   className="border border-gray-100 rounded p-6 shadow-md bg-white animate-pulse"
@@ -1000,17 +1045,15 @@ function OverviewPage() {
                     selectedTaChartRow?.population ||
                     summary.data?.total_estimated_population ||
                     0,
-                  schools: summary.data?.total_schools || 0,
+                  schools: overviewSchoolCount,
                   not_in_school: educationData.not_in_school_total || 0,
                 },
               },
               {
                 label: "Health & Welfare",
                 metrics: {
-                  health_facilities:
-                    healthFacilityCount ||
-                    summary.data?.total_health_facilities ||
-                    0,
+                  health_providers: overviewHealthProviderCount,
+                  hospitals: overviewHospitalCount,
                   welfare_beneficiaries:
                     welfareSummary.total_beneficiaries || 0,
                   health_access_pct: welfareSummary.health_access_pct || 0,
