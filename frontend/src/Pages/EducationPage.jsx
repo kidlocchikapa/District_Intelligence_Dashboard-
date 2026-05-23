@@ -1948,10 +1948,10 @@ function PlanningRecommendations({ districtInsights, floodImpact, educationSumma
     <div className="mt-10 relative z-10">
       <div className="flex items-center gap-3 mb-2">
         <Lightbulb className="h-5 w-5 text-amber-500" />
-        <h3 className="text-[16px] font-extrabold">Planning Recommendations</h3>
+        <h3 className="text-[16px] font-extrabold">Insights & Recommendations</h3>
       </div>
       <p className="text-sm text-gray-500 font-semibold mb-6">
-        Practical planning actions based on school coverage, class size, teacher numbers, and flood exposure.
+        Use these cards to see what needs attention first, which schools or TAs need support, and what action to take next.
         {selectedDistrict ? ` Scoped to ${selectedDistrict}.` : " Covering all districts."}
       </p>
 
