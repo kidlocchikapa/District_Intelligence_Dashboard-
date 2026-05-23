@@ -3,6 +3,71 @@ import { toJpeg } from 'html-to-image';
 import { jsPDF } from 'jspdf';
 import { toast } from 'react-hot-toast';
 
+const FRIENDLY_METRIC_LABELS = {
+  estimated_population: 'People living in the area',
+  total_estimated_population: 'People living in the area',
+  population_total: 'People living in the area',
+  total_population: 'People living in the area',
+  population_density: 'How crowded the area is',
+  total_population_density: 'How crowded the area is',
+  flood_exposed_population: 'People in flood-prone places',
+  exposed_population: 'People in flood-prone places',
+  not_exposed_population: 'People outside flood-prone places',
+  school_count: 'Schools',
+  total_schools: 'Schools',
+  student_enrollment_total: 'Learners enrolled in school',
+  teacher_count_total: 'Teachers',
+  school_age_population_total: 'Children of school age',
+  school_age_population_unenrolled: 'Children not enrolled in school',
+  not_in_school_total: 'Children not enrolled in school',
+  health_facility_count: 'Health facilities',
+  total_health_facilities: 'Health facilities',
+  health_population_served_total: 'People near a health facility',
+  health_population_unserved_total: 'People far from a health facility',
+  health_population_served_pct: 'Share of people near health care',
+  beneficiary_count: 'People receiving welfare support',
+  total_beneficiaries: 'People receiving welfare support',
+  estimated_household_population: 'People reached through supported households',
+  health_access_count: 'Beneficiaries near health care',
+  school_access_count: 'Beneficiaries near a school',
+  flood_affected_count: 'Beneficiaries in flood-prone places',
+  flood_affected_pct: 'Share of beneficiaries in flood-prone places',
+  exposed_area_sq_km: 'Land area exposed to flood risk',
+  schools_exposed: 'Schools in flood-prone places',
+  health_facilities_exposed: 'Health facilities in flood-prone places',
+  beneficiaries_affected: 'Welfare beneficiaries in flood-prone places',
+};
+
+function normalizeMetricKey(value) {
+  return String(value || '')
+    .trim()
+    .replace(/([a-z])([A-Z])/g, '$1_$2')
+    .replace(/[^a-zA-Z0-9]+/g, '_')
+    .replace(/^_+|_+$/g, '')
+    .toLowerCase();
+}
+
+function toTitleCase(value) {
+  return String(value || '')
+    .replace(/_/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .replace(/\b\w/g, (letter) => letter.toUpperCase());
+}
+
+function friendlyMetricLabel(value) {
+  const raw = String(value || '').trim();
+  const key = normalizeMetricKey(raw);
+
+  if (FRIENDLY_METRIC_LABELS[key]) {
+    return FRIENDLY_METRIC_LABELS[key];
+  }
+
+  return toTitleCase(raw)
+    .replace(/\bPct\b/g, '%')
+    .replace(/\bSq Km\b/g, 'sq km')
+    .replace(/\bTa\b/g, 'TA');
+}
 function friendlyTitle(value) {
   return String(value || '')
     .replace(/\bAnalysis\b/g, 'Summary')
