@@ -1716,9 +1716,9 @@ function PlanningRecommendations({ districtInsights, floodImpact, educationSumma
   const priorityLedRecommendations = rankedPriorities.slice(0, 2).map((row, index) => ({
     priority: index === 0 ? "high" : row.priority_band === "Critical" || row.priority_band === "High" ? "high" : "medium",
     icon: row.education_vulnerability_score >= row.health_vulnerability_score ? School : ShieldAlert,
-    title: `${row.admin_unit_name} should anchor the next education intervention package`,
-    body: `${row.narrative} Education-specific pressure is scored at ${formatNumber(row.education_vulnerability_score, 1)}, with flood isolation at ${formatNumber(row.education_flood_isolation_score, 1)}. This indicates that school access planning in ${row.admin_unit_name} should be coordinated with wider district vulnerability reduction.`,
-    action: row.recommended_actions?.[0] || "Prioritise the top-ranked TA in the next education planning cycle",
+    title: `Start education support in ${row.admin_unit_name}`,
+    body: `This area has a high education need score of ${formatNumber(row.education_vulnerability_score, 1)} and may also be hard to reach during floods. It should be reviewed first for classrooms, teachers, school supplies, or learner support.`,
+    action: row.recommended_actions?.[0] || "Use this TA as the first place to review for the next education plan",
   }));
 
   const recommendations = [
@@ -1727,28 +1727,28 @@ function PlanningRecommendations({ districtInsights, floodImpact, educationSumma
     infraGapTAs.length > 0 && {
       priority: "high",
       icon: School,
-      title: "New School Construction Needed",
-      body: `${infraGapTAs.length} TA${infraGapTAs.length > 1 ? "s" : ""} fall below the minimum school density threshold of ${formatNumber(thresholds.schools_per_10k_low, 1)} schools per 10,000 residents.${worstInfra ? ` ${worstInfra.admin_unit_name} is the most underserved at ${formatNumber(worstInfra.schools_per_10k, 1)} schools/10k with a population of ${formatNumber(worstInfra.population_total, 0)}.` : ""} Prioritise capital investment in these areas.`,
-      action: "Target capital budget for school construction in flagged TAs",
+      title: "Some Areas Need More Schools",
+      body: `${infraGapTAs.length} TA${infraGapTAs.length > 1 ? "s have" : " has"} too few schools for the number of people living there.${worstInfra ? ` ${worstInfra.admin_unit_name} has the lowest school coverage, with ${formatNumber(worstInfra.schools_per_10k, 1)} schools for every 10,000 people.` : ""} These areas should be checked first for new schools or added classrooms.`,
+      action: "Review the flagged TAs first when planning school construction funds",
       metricLinks: [
         {
           id: "infra-gap-ta-count",
-          label: "Infrastructure-Gap TAs",
+          label: "Areas Short of Schools",
           value: formatNumber(infraGapTAs.length, 0),
           onClick: () =>
             openMetricPreview({
-              title: "Infrastructure-Gap TA List",
+              title: "Areas Short of Schools",
               rows: infraGapPreviewRows,
               columns: taRowColumns,
             }),
         },
         {
           id: "worst-schools-density",
-          label: "Lowest Schools/10k",
+          label: "Lowest School Coverage",
           value: worstInfra ? formatNumber(worstInfra.schools_per_10k, 1) : "N/A",
           onClick: () =>
             openMetricPreview({
-              title: "Infrastructure-Gap TA List",
+              title: "Areas Short of Schools",
               rows: infraGapPreviewRows,
               columns: taRowColumns,
             }),
@@ -1759,28 +1759,28 @@ function PlanningRecommendations({ districtInsights, floodImpact, educationSumma
     overcrowdingTAs.length > 0 && {
       priority: "high",
       icon: Users,
-      title: "Classroom Expansion Required",
-      body: `${overcrowdingTAs.length} TA${overcrowdingTAs.length > 1 ? "s" : ""} exceed the overcrowding threshold of ${formatNumber(thresholds.students_per_school_high, 0)} students per school.${worstCrowd ? ` ${worstCrowd.admin_unit_name} averages ${formatNumber(worstCrowd.students_per_school, 0)} students per school.` : ""} Additional classrooms or satellite schools are needed to reduce pressure.`,
-      action: "Commission classroom block additions in overcrowded TAs",
+      title: "Some Schools Are Too Crowded",
+      body: `${overcrowdingTAs.length} TA${overcrowdingTAs.length > 1 ? "s have" : " has"} too many learners for the available schools.${worstCrowd ? ` ${worstCrowd.admin_unit_name} averages about ${formatNumber(worstCrowd.students_per_school, 0)} learners per school.` : ""} These areas may need more classrooms, extra school blocks, or nearby satellite schools.`,
+      action: "Plan extra classrooms first in the most crowded TAs",
       metricLinks: [
         {
           id: "overcrowding-ta-count",
-          label: "Overcrowding TAs",
+          label: "Crowded TAs",
           value: formatNumber(overcrowdingTAs.length, 0),
           onClick: () =>
             openMetricPreview({
-              title: "Overcrowding TA List",
+              title: "Crowded TAs",
               rows: overcrowdingPreviewRows,
               columns: taRowColumns,
             }),
         },
         {
           id: "worst-overcrowding-value",
-          label: "Worst Students/School",
+          label: "Most Crowded",
           value: worstCrowd ? formatNumber(worstCrowd.students_per_school, 0) : "N/A",
           onClick: () =>
             openMetricPreview({
-              title: "Overcrowding TA List",
+              title: "Crowded TAs",
               rows: overcrowdingPreviewRows,
               columns: taRowColumns,
             }),
@@ -1791,9 +1791,9 @@ function PlanningRecommendations({ districtInsights, floodImpact, educationSumma
     teacherRatio !== null && teacherRatio > 60 && {
       priority: "high",
       icon: BookOpen,
-      title: "Teacher Recruitment Urgently Needed",
-      body: `The district-wide teacher-to-student ratio is 1:${teacherRatio}, exceeding the national standard of 1:60. This affects learning quality across all schools. Targeted recruitment and deployment to high-pressure TAs should be prioritised.`,
-      action: "Increase teacher recruitment and redistribute existing staff to high-ratio schools",
+      title: "More Teachers Are Needed",
+      body: `There is about 1 teacher for every ${teacherRatio} learners. This can make classes hard to manage and reduce learning quality. The busiest schools should receive extra teachers first.`,
+      action: "Send new or reassigned teachers to the schools with the biggest classes first",
       metricLinks: [
         {
           id: "teacher-ratio",
@@ -1823,17 +1823,17 @@ function PlanningRecommendations({ districtInsights, floodImpact, educationSumma
     underutilizedTAs.length > 0 && {
       priority: "medium",
       icon: TrendingUp,
-      title: "Optimise Underutilised School Capacity",
-      body: `${underutilizedTAs.length} TA${underutilizedTAs.length > 1 ? "s" : ""} have schools operating well below capacity. Before building new schools, consider redistribution of students from overcrowded neighbouring TAs or repurposing spare capacity for adult literacy or vocational programmes.`,
-      action: "Map underutilised schools against overcrowded neighbours for redistribution planning",
+      title: "Some Schools Have Space Available",
+      body: `${underutilizedTAs.length} TA${underutilizedTAs.length > 1 ? "s have" : " has"} schools with unused space. Before building nearby, check whether learners can be supported to use these schools or whether the space can support adult learning or skills training.`,
+      action: "Compare schools with extra space against nearby crowded schools",
       metricLinks: [
         {
           id: "underutilized-ta-count",
-          label: "Underutilized TAs",
+          label: "TAs with Space",
           value: formatNumber(underutilizedTAs.length, 0),
           onClick: () =>
             openMetricPreview({
-              title: "Underutilized TA List",
+              title: "TAs with School Space",
               rows: underutilizedPreviewRows,
               columns: taRowColumns,
             }),
@@ -1844,7 +1844,7 @@ function PlanningRecommendations({ districtInsights, floodImpact, educationSumma
           value: formatNumber(underutilizedSchoolCount, 0),
           onClick: () =>
             openMetricPreview({
-              title: "Underutilized TA List",
+              title: "TAs with School Space",
               rows: underutilizedPreviewRows,
               columns: taRowColumns,
             }),
@@ -1855,9 +1855,9 @@ function PlanningRecommendations({ districtInsights, floodImpact, educationSumma
     floodSummary.exposed_schools > 0 && {
       priority: "high",
       icon: ShieldAlert,
-      title: "Flood-Resilient School Infrastructure",
-      body: `${floodSummary.exposed_schools} schools with ${formatNumber(floodSummary.students_at_risk, 0)} enrolled students sit within flood-exposed zones. All are currently classified as low-risk, but infrastructure investment in these schools should include flood-resilient design standards and contingency relocation plans.`,
-      action: "Integrate flood-resilient construction standards for all schools in Ta Mwambo and adjacent flood zones",
+      title: "Protect Schools from Flood Disruption",
+      body: `${floodSummary.exposed_schools} schools with ${formatNumber(floodSummary.students_at_risk, 0)} learners are in flood-exposed areas. Even if the current risk level is low, these schools should have safe learning plans before the rainy season.`,
+      action: "Prepare safe learning spaces and flood-ready building plans for exposed schools",
       metricLinks: [
         {
           id: "exposed-schools",
@@ -1887,9 +1887,9 @@ function PlanningRecommendations({ districtInsights, floodImpact, educationSumma
     outOfSchoolTotal > 0 && {
       priority: "medium",
       icon: UserRoundX,
-      title: "Address Out-of-School Children",
-      body: `An estimated ${formatNumber(outOfSchoolTotal, 0)} school-age children are not enrolled. This gap is largest in TAs with infrastructure deficits, suggesting access barriers rather than demand issues. Community outreach combined with school construction will be most effective.`,
-      action: "Combine school construction with targeted enrolment drives in underserved TAs",
+      title: "Help Children Who Are Not in School",
+      body: `About ${formatNumber(outOfSchoolTotal, 0)} school-age children are not enrolled. Many are likely in areas where schools are too far away or too crowded. Outreach should be paired with school construction or classroom expansion.`,
+      action: "Run enrolment outreach in the same TAs being reviewed for new classrooms or schools",
       metricLinks: [
         {
           id: "out-of-school-total",
@@ -1919,9 +1919,9 @@ function PlanningRecommendations({ districtInsights, floodImpact, educationSumma
     {
       priority: "low",
       icon: Lightbulb,
-      title: "Link Education Planning to Welfare Data",
-      body: `The integrated welfare context shows flood-affected beneficiaries and school-age unenrolled populations overlap significantly. Social cash transfer programmes should include school attendance conditionality to improve enrolment in high-poverty, low-access TAs.`,
-      action: "Introduce school attendance conditionality in social protection programmes for targeted TAs",
+      title: "Use Welfare Support to Keep Children in School",
+      body: `Some welfare-supported households are also in areas with flood risk or children who are not enrolled. Education and welfare teams should work together so vulnerable households get support that helps children stay in school.`,
+      action: "Link school follow-up with welfare support in the most vulnerable TAs",
     },
   ].filter(Boolean).slice(0, 7);
 
@@ -1951,7 +1951,7 @@ function PlanningRecommendations({ districtInsights, floodImpact, educationSumma
         <h3 className="text-[16px] font-extrabold">Planning Recommendations</h3>
       </div>
       <p className="text-sm text-gray-500 font-semibold mb-6">
-        Data-driven actions derived from the infrastructure mapping, pressure analysis, and flood exposure above.
+        Practical planning actions based on school coverage, class size, teacher numbers, and flood exposure.
         {selectedDistrict ? ` Scoped to ${selectedDistrict}.` : " Covering all districts."}
       </p>
 
