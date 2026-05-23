@@ -947,9 +947,9 @@ function OverviewPage() {
 
   return (
     <div className="min-h-screen bg-white text-black font-sans pb-10">
-      <div className="flex items-center gap-4 px-8 py-8 border-b border-gray-200">
-        <div>
-          <h1 className="text-[28px] font-extrabold tracking-tight">
+      <div className="flex flex-col gap-3 border-b border-gray-200 px-4 py-5 sm:px-6 sm:py-6 lg:px-8 lg:py-8">
+        <div className="min-w-0">
+          <h1 className="text-2xl font-extrabold tracking-tight sm:text-[28px]">
             OVERVIEW
           </h1>
           <p className="mt-2 max-w-3xl text-[14px] font-medium leading-6 text-gray-500">
@@ -959,8 +959,8 @@ function OverviewPage() {
         </div>
       </div>
 
-      <div className="px-8 mt-8">
-        <div className="flex flex-wrap gap-4 mb-8">
+      <div className="mt-6 px-4 sm:mt-8 sm:px-6 lg:px-8">
+        <div className="mb-8 flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center sm:gap-4">
           <button
             onClick={handleDownloadReport}
             disabled={(!selectedDistrict && !selectedTa) || summary.loading}
@@ -969,7 +969,7 @@ function OverviewPage() {
                 ? "Download analysis for selected area"
                 : "Select a district or TA first"
             }
-            className="flex items-center gap-2 border border-gray-300 rounded px-3 py-1.5 text-[13px] font-bold hover:bg-gray-50 transition-all shadow-sm active:scale-95 disabled:cursor-not-allowed disabled:opacity-50"
+            className="flex w-full items-center justify-center gap-2 rounded border border-gray-300 px-3 py-2 text-[13px] font-bold shadow-sm transition-all hover:bg-gray-50 active:scale-95 disabled:cursor-not-allowed disabled:opacity-50 sm:w-auto sm:justify-start sm:py-1.5"
           >
             <Download className="h-4 w-4" />
             Download Area Analysis
@@ -984,12 +984,12 @@ function OverviewPage() {
           <SharedDistrictSelector />
         </div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-6 mb-10">
+        <div className="mb-10 grid grid-cols-1 gap-4 sm:grid-cols-2 sm:gap-5 lg:grid-cols-3 xl:gap-6">
           {loadingAnyTopCard
             ? [...Array(6)].map((_, index) => (
                 <div
                   key={index}
-                  className="border border-gray-100 rounded p-6 shadow-md bg-white animate-pulse"
+                  className="rounded border border-gray-100 bg-white p-4 shadow-md animate-pulse sm:p-6"
                 >
                   <div className="flex justify-between items-start mb-4">
                     <div className="h-4 w-32 bg-gray-200 rounded"></div>
@@ -1001,15 +1001,15 @@ function OverviewPage() {
             : overviewStats.map((stat) => (
                 <div
                   key={stat.label}
-                  className="border border-gray-100 rounded p-6 shadow-md bg-white hover:shadow-lg transition-all group"
+                  className="group rounded border border-gray-100 bg-white p-4 shadow-md transition-all hover:shadow-lg sm:p-6"
                 >
-                  <div className="flex justify-between items-start">
+                  <div className="flex items-start justify-between gap-3">
                     <span className="text-[14px] text-gray-500 font-bold group-hover:text-black transition-colors">
                       {stat.label}
                     </span>
                     <stat.icon className="h-5 w-5 text-gray-300 group-hover:text-black transition-colors" />
                   </div>
-                  <div className="mt-4 text-[32px] font-extrabold tracking-tight">
+                  <div className="mt-4 break-words text-[26px] font-extrabold tracking-tight sm:text-[32px]">
                     {stat.value}
                   </div>
                   <p className="mt-2 text-[12px] font-semibold text-gray-400">
@@ -1070,7 +1070,7 @@ function OverviewPage() {
         </div>
 
         <div className="mb-10">
-          <div className="min-w-0 rounded border border-gray-100 bg-white p-4 shadow-sm sm:p-6 lg:p-8 flex flex-col min-h-[440px] sm:min-h-[640px]">
+          <div className="flex min-w-0 flex-col rounded border border-gray-100 bg-white p-4 shadow-sm sm:min-h-[560px] sm:p-6 lg:min-h-[640px] lg:p-8">
             <div className="mb-6">
               <div className="flex items-center gap-2 text-[11px] font-bold uppercase tracking-[0.2em] text-gray-400">
                 <MapIcon className="h-4 w-4" />
@@ -1303,7 +1303,7 @@ function OverviewPage() {
                 Showing {filteredChartData.length} of {chartData.length} TAs.
               </p>
             </div>
-            <div className="flex-1">
+            <div className="min-h-[340px] flex-1 overflow-x-auto">
               {populationDistribution.loading ? (
                 <div className="h-full w-full flex flex-col gap-4 animate-pulse">
                   <div className="flex-1 bg-gray-50 rounded-lg relative overflow-hidden">
@@ -1319,11 +1319,12 @@ function OverviewPage() {
                   </div>
                 </div>
               ) : filteredChartData.length > 0 ? (
-                <ResponsiveContainer width="100%" height="100%">
-                  <BarChart
-                    data={filteredChartData}
-                    margin={{ top: 20, right: 20, left: 12, bottom: 92 }}
-                  >
+                <div className="h-full min-w-[560px] sm:min-w-0">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <BarChart
+                      data={filteredChartData}
+                      margin={{ top: 20, right: 20, left: 12, bottom: 92 }}
+                    >
                     <CartesianGrid
                       strokeDasharray="3 3"
                       vertical={false}
@@ -1367,42 +1368,43 @@ function OverviewPage() {
                       }}
                       cursor={{ fill: "#f8fafc" }}
                     />
-                    <Bar
-                      dataKey="population"
-                      radius={[2, 2, 0, 0]}
-                      barSize={14}
-                      minPointSize={2}
-                      activeBar={<Rectangle fill="#7e22ce" />}
-                      onClick={(entry) =>
-                        selectTa(entry?.admin3 || "", entry?.district || "")
-                      }
-                    >
-                      {filteredChartData.map((entry) => {
-                        const isSelected =
-                          normalizeName(entry.admin3) ===
-                          normalizeName(selectedTa);
+                      <Bar
+                        dataKey="population"
+                        radius={[2, 2, 0, 0]}
+                        barSize={14}
+                        minPointSize={2}
+                        activeBar={<Rectangle fill="#7e22ce" />}
+                        onClick={(entry) =>
+                          selectTa(entry?.admin3 || "", entry?.district || "")
+                        }
+                      >
+                        {filteredChartData.map((entry) => {
+                          const isSelected =
+                            normalizeName(entry.admin3) ===
+                            normalizeName(selectedTa);
 
-                        return (
-                          <Cell
-                            key={`population-bar-${entry.admin3}`}
-                            cursor="pointer"
-                            fill={
-                              isSelected
-                                ? "#7e22ce"
-                                : getPopulationBarColor(
-                                    Number(entry.population),
-                                    maxPopulation,
-                                  )
-                            }
-                            stroke={isSelected ? "#111827" : "transparent"}
-                            strokeWidth={isSelected ? 2 : 0}
-                            fillOpacity={selectedTa && !isSelected ? 0.28 : 1}
-                          />
-                        );
-                      })}
-                    </Bar>
-                  </BarChart>
-                </ResponsiveContainer>
+                          return (
+                            <Cell
+                              key={`population-bar-${entry.admin3}`}
+                              cursor="pointer"
+                              fill={
+                                isSelected
+                                  ? "#7e22ce"
+                                  : getPopulationBarColor(
+                                      Number(entry.population),
+                                      maxPopulation,
+                                    )
+                              }
+                              stroke={isSelected ? "#111827" : "transparent"}
+                              strokeWidth={isSelected ? 2 : 0}
+                              fillOpacity={selectedTa && !isSelected ? 0.28 : 1}
+                            />
+                          );
+                        })}
+                      </Bar>
+                    </BarChart>
+                  </ResponsiveContainer>
+                </div>
               ) : (
                 <div className="flex h-full items-center justify-center rounded border border-dashed border-gray-200 bg-gray-50 text-sm font-semibold text-gray-400">
                   No rows match the current chart filters.
@@ -1433,8 +1435,8 @@ function OverviewPage() {
                       data={pieData}
                       cx="50%"
                       cy="50%"
-                      innerRadius={72}
-                      outerRadius={102}
+                      innerRadius="45%"
+                      outerRadius="68%"
                       paddingAngle={4}
                       dataKey="value"
                     >
