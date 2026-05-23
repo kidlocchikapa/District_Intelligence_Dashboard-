@@ -203,7 +203,7 @@ export function usePdfExport(filename = 'district-report.pdf') {
     }
   };
 
-  const exportDataPdf = async ({ title, selectedArea, sections }) => {
+  const exportDataPdf = async ({ title, selectedArea, sections, mapNode }) => {
     const loadingToast = toast.loading('Preparing easy-to-read report...');
 
     try {
@@ -212,6 +212,35 @@ export function usePdfExport(filename = 'district-report.pdf') {
       let y = 50;
       const pageHeight = pdf.internal.pageSize.height;
       const readableSections = (sections || []).map(makeSectionReadable);
+
+      async function loadImageSize(dataUrl) {
+        return new Promise((resolve, reject) => {
+          const img = new Image();
+          img.onload = () => resolve({ width: img.naturalWidth, height: img.naturalHeight });
+          img.onerror = reject;
+          img.src = dataUrl;
+        });
+      }
+
+      // If a map DOM node is provided, render it into the PDF before the sections.
+      if (mapNode) {
+        try {
+          const mapImgData = await toJpeg(mapNode, { quality: 1.0, pixelRatio: 2, backgroundColor: '#ffffff' });
+          const imgSize = await loadImageSize(mapImgData);
+          const pageWidth = pdf.internal.pageSize.width;
+          const availableWidth = pageWidth - margin * 2;
+          const scale = Math.min(1, availableWidth / imgSize.width);
+          const drawWidth = imgSize.width * scale;
+          const drawHeight = imgSize.height * scale;
+
+          // Add image on current page and advance Y position.
+          pdf.addImage(mapImgData, 'JPEG', margin, y, drawWidth, drawHeight);
+          y += drawHeight + 12;
+        } catch (err) {
+          // If map capture fails, continue without it.
+          console.warn('Failed to capture map for PDF export', err);
+        }
+      }
 
       pdf.setFont('helvetica', 'bold');
       pdf.setFontSize(18);
