@@ -269,7 +269,7 @@ function EducationPage() {
     EDUCATION_RASTER_LAYERS[0].key,
   );
   const [riskTableSort, setRiskTableSort] = useState({ key: "teacher_ratio", dir: "desc" });
-  const { contentRef, exportPdf } = usePdfExport("Education_Report.pdf");
+  const { contentRef, exportDataPdf } = usePdfExport("Education_Report.pdf");
   const activeEducationRasterLayer =
     EDUCATION_RASTER_LAYERS.find(
       (layer) => layer.key === activeEducationRasterKey,

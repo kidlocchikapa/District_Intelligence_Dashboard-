@@ -107,7 +107,7 @@ function HealthPage() {
   const [facilityChartSearch, setFacilityChartSearch] = useState("");
   const [facilityChartLimit, setFacilityChartLimit] = useState(20);
   const [facilityChartSort, setFacilityChartSort] = useState("facilities_desc");
-  const { contentRef, exportPdf } = usePdfExport("Health_Report.pdf");
+  const { contentRef, exportDataPdf } = usePdfExport("Health_Report.pdf");
   const districtScope = selectedDistrict || "Zomba";
   const activeTaPreview = selectedTa || hoveredTa;
   const activeHealthRasterLayer =
