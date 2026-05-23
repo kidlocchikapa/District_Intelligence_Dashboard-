@@ -25,6 +25,7 @@ export function DistrictProvider({ children }) {
   );
 }
 
+// eslint-disable-next-line react-refresh/only-export-components
 export function useDistrict() {
   const context = useContext(DistrictContext);
   if (context === undefined) {

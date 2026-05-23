@@ -1,4 +1,5 @@
 const express = require("express");
+const path = require("path");
 const router = express.Router();
 const db = require("../db");
 const {
@@ -41,7 +42,9 @@ function normalizeAdminType(adminType) {
 }
 
 function buildRasterSlug(district) {
-  const normalized = String(district || "").trim().toLowerCase();
+  const normalized = String(district || "")
+    .trim()
+    .toLowerCase();
   if (
     normalized === "zomba" ||
     normalized === "zomba city" ||
@@ -64,6 +67,88 @@ function buildRasterSlug(district) {
       .filter(Boolean)
       .join("-") || "malawi"
   );
+}
+
+function parseRunMetadata(value) {
+  if (!value) {
+    return null;
+  }
+
+  if (typeof value === "object") {
+    return value;
+  }
+
+  if (typeof value === "string") {
+    try {
+      return JSON.parse(value);
+    } catch (error) {
+      return null;
+    }
+  }
+
+  return null;
+}
+
+function normalizePreviewAssetPath(filePath, publicDirName) {
+  if (!filePath) {
+    return null;
+  }
+
+  const value = String(filePath);
+  const marker = `/${publicDirName}/`;
+  const markerIndex = value.indexOf(marker);
+  if (markerIndex >= 0) {
+    return value.slice(markerIndex);
+  }
+
+  const filename = path.basename(value);
+  if (!filename) {
+    return null;
+  }
+
+  return `/${publicDirName}/${filename}`;
+}
+
+async function fetchLatestPreviewAssets(datasetType, districtValues) {
+  const baseQuery = `
+    SELECT run_metadata, completed_at
+    FROM data_load_log
+    WHERE dataset_type = $1
+      AND status = 'Success'
+  `;
+  const orderClause = " ORDER BY completed_at DESC NULLS LAST, id DESC LIMIT 1";
+  let result = null;
+
+  if (Array.isArray(districtValues) && districtValues.length) {
+    result = await db.query(
+      `${baseQuery} AND (run_metadata->'district_names' ?| $2)${orderClause}`,
+      [datasetType, districtValues],
+    );
+  }
+
+  if (!result || !result.rows.length) {
+    result = await db.query(`${baseQuery}${orderClause}`, [datasetType]);
+  }
+
+  const row = result.rows[0] || {};
+  const metadata = parseRunMetadata(row.run_metadata);
+  const previewAssets = metadata?.preview_assets;
+  return {
+    previewAssets: Array.isArray(previewAssets) ? previewAssets : [],
+    completedAt: row.completed_at || null,
+  };
+}
+
+function findPreviewPath(previewPaths, suffix) {
+  return previewPaths.find((value) => String(value).endsWith(suffix)) || null;
+}
+
+function buildEducationRasterAssets(slug, coverageDistanceKm) {
+  return {
+    education_buffer_coverage: `/education-access/${slug}.education_buffer_${coverageDistanceKm}km.preview.json`,
+    education_network_distance: `/education-access/${slug}.education_network_distance.preview.json`,
+    education_travel_time: `/education-access/${slug}.education_travel_time.preview.json`,
+  };
 }
 
 function appendOptionalTaCondition(
@@ -596,7 +681,9 @@ router.get("/facility-buffers/geojson", async (req, res) => {
     Number.isFinite(parsedBufferKm) && parsedBufferKm > 0
       ? Math.min(parsedBufferKm, 30)
       : 5;
-  const hasMetricsTable = await tableExists("education_facility_access_metrics");
+  const hasMetricsTable = await tableExists(
+    "education_facility_access_metrics",
+  );
 
   try {
     const params = [fallbackBufferKm];
@@ -860,18 +947,74 @@ router.get("/raster-metadata", async (req, res) => {
       : 5;
   const slug = buildRasterSlug(district);
 
-  res.json({
-    status: "success",
-    data: {
-      district: district || null,
-      coverageDistanceKm,
-      assets: {
-        education_buffer_coverage: `/education-access/${slug}.education_buffer_${coverageDistanceKm}km.preview.json`,
-        education_network_distance: `/education-access/${slug}.education_network_distance.preview.json`,
-        education_travel_time: `/education-access/${slug}.education_travel_time.preview.json`,
+  try {
+    const districtValues = resolveDistrictFilterValues(district);
+    const { previewAssets, completedAt } = await fetchLatestPreviewAssets(
+      "education_access",
+      districtValues,
+    );
+    const previewJsons = previewAssets
+      .map((asset) => asset?.json)
+      .filter(Boolean);
+
+    const bufferPreview = findPreviewPath(
+      previewJsons,
+      `.education_buffer_${coverageDistanceKm}km.preview.json`,
+    );
+    const networkPreview = findPreviewPath(
+      previewJsons,
+      ".education_network_distance.preview.json",
+    );
+    const travelPreview = findPreviewPath(
+      previewJsons,
+      ".education_travel_time.preview.json",
+    );
+
+    const assets = buildEducationRasterAssets(slug, coverageDistanceKm);
+    const bufferUrl = normalizePreviewAssetPath(
+      bufferPreview,
+      "education-access",
+    );
+    const networkUrl = normalizePreviewAssetPath(
+      networkPreview,
+      "education-access",
+    );
+    const travelUrl = normalizePreviewAssetPath(
+      travelPreview,
+      "education-access",
+    );
+
+    if (bufferUrl) {
+      assets.education_buffer_coverage = bufferUrl;
+    }
+    if (networkUrl) {
+      assets.education_network_distance = networkUrl;
+    }
+    if (travelUrl) {
+      assets.education_travel_time = travelUrl;
+    }
+
+    return res.json({
+      status: "success",
+      data: {
+        district: district || null,
+        coverageDistanceKm,
+        assets,
+        completed_at: completedAt,
       },
-    },
-  });
+    });
+  } catch (error) {
+    console.error("Education raster metadata error:", error.message);
+    return res.json({
+      status: "success",
+      data: {
+        district: district || null,
+        coverageDistanceKm,
+        assets: buildEducationRasterAssets(slug, coverageDistanceKm),
+        completed_at: null,
+      },
+    });
+  }
 });
 
 // @route   GET api/v1/dashboard/education/insights
@@ -1471,7 +1614,12 @@ router.get("/flood-impact", async (req, res) => {
   try {
     const conditions = [];
     const params = [];
-    appendDistrictNameCondition(conditions, params, "ffe.district_name", district);
+    appendDistrictNameCondition(
+      conditions,
+      params,
+      "ffe.district_name",
+      district,
+    );
     const andWhere = conditions.length ? `AND ${conditions.join(" AND ")}` : "";
 
     const query = `
@@ -1525,26 +1673,34 @@ router.get("/flood-impact", async (req, res) => {
 
     const summary = rows.reduce(
       (acc, r) => {
-        acc.exposed_schools     += Number(r.exposed_schools     || 0);
-        acc.students_at_risk    += Number(r.students_at_risk    || 0);
-        acc.high_risk_schools   += Number(r.high_risk_schools   || 0);
+        acc.exposed_schools += Number(r.exposed_schools || 0);
+        acc.students_at_risk += Number(r.students_at_risk || 0);
+        acc.high_risk_schools += Number(r.high_risk_schools || 0);
         acc.medium_risk_schools += Number(r.medium_risk_schools || 0);
-        acc.low_risk_schools    += Number(r.low_risk_schools    || 0);
-        acc.high_risk_students  += Number(r.high_risk_students  || 0);
-        acc.medium_risk_students+= Number(r.medium_risk_students|| 0);
-        acc.low_risk_students   += Number(r.low_risk_students   || 0);
+        acc.low_risk_schools += Number(r.low_risk_schools || 0);
+        acc.high_risk_students += Number(r.high_risk_students || 0);
+        acc.medium_risk_students += Number(r.medium_risk_students || 0);
+        acc.low_risk_students += Number(r.low_risk_students || 0);
         return acc;
       },
       {
-        exposed_schools: 0, students_at_risk: 0,
-        high_risk_schools: 0, medium_risk_schools: 0, low_risk_schools: 0,
-        high_risk_students: 0, medium_risk_students: 0, low_risk_students: 0,
+        exposed_schools: 0,
+        students_at_risk: 0,
+        high_risk_schools: 0,
+        medium_risk_schools: 0,
+        low_risk_schools: 0,
+        high_risk_students: 0,
+        medium_risk_students: 0,
+        low_risk_students: 0,
       },
     );
 
     res.json({ status: "success", data: { summary, ta_breakdown: rows } });
   } catch (err) {
-    console.error("Education flood-impact error", { message: err.message, district });
+    console.error("Education flood-impact error", {
+      message: err.message,
+      district,
+    });
     res.status(500).send("Server error");
   }
 });
@@ -1557,11 +1713,19 @@ router.get("/flood-impact/geojson", async (req, res) => {
   try {
     const conditions = [];
     const params = [];
-    appendDistrictNameCondition(conditions, params, "ffe.district_name", district);
+    appendDistrictNameCondition(
+      conditions,
+      params,
+      "ffe.district_name",
+      district,
+    );
     const andWhere = conditions.length ? `AND ${conditions.join(" AND ")}` : "";
 
     // Build district filter for the all-TAs query
-    const taConditions = ["a3.geom IS NOT NULL", "LOWER(a3.type) IN ('ta', 'ward', 'admin3')"];
+    const taConditions = [
+      "a3.geom IS NOT NULL",
+      "LOWER(a3.type) IN ('ta', 'ward', 'admin3')",
+    ];
     const taParams = [];
     appendDistrictNameCondition(taConditions, taParams, "d.name", district);
     const taWhereClause = `WHERE ${taConditions.join(" AND ")}`;
@@ -1664,8 +1828,8 @@ router.get("/flood-impact/geojson", async (req, res) => {
 
     // Combine params: exposed filter params first, then TA boundary params
     // Re-offset the TA condition placeholders since they were built with their own param array
-    const offsetTaConditions = taConditions.map(c =>
-      c.replace(/\$(\d+)/g, (_, n) => `$${Number(n) + params.length}`)
+    const offsetTaConditions = taConditions.map((c) =>
+      c.replace(/\$(\d+)/g, (_, n) => `$${Number(n) + params.length}`),
     );
     const offsetTaWhereClause = `WHERE ${offsetTaConditions.join(" AND ")}`;
     const allParams = [...params, ...taParams];
@@ -1674,10 +1838,16 @@ router.get("/flood-impact/geojson", async (req, res) => {
     const result = await db.query(finalQuery, allParams);
     res.json({
       status: "success",
-      data: result.rows[0]?.geojson || { type: "FeatureCollection", features: [] },
+      data: result.rows[0]?.geojson || {
+        type: "FeatureCollection",
+        features: [],
+      },
     });
   } catch (err) {
-    console.error("Education flood-impact geojson error", { message: err.message, district });
+    console.error("Education flood-impact geojson error", {
+      message: err.message,
+      district,
+    });
     res.status(500).send("Server error");
   }
 });

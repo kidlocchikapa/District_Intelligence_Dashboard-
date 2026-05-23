@@ -11,11 +11,13 @@ This reads district/TA boundaries from the database (same as the full pipeline)
 and writes updated PNG + JSON files to frontend/public/worldpop/.
 """
 
+# import standard libraries
 import argparse
 import logging
 import os
 import sys
 
+# import third-party libraries
 from dotenv import load_dotenv
 
 from db_utils import get_session
@@ -32,7 +34,7 @@ LOGGER = logging.getLogger("regenerate_flood_raster")
 # Default districts that cover the Zomba combined area
 DEFAULT_DISTRICT_NAMES = ["Zomba", "Zomba City"]
 
-
+# 
 def parse_args():
     parser = argparse.ArgumentParser(
         description="Regenerate flood risk raster preview PNG and JSON metadata."
@@ -62,7 +64,7 @@ def parse_args():
     )
     return parser.parse_args()
 
-
+# Load boundaries and regenerate the raster preview 
 def regenerate(flood_raster_path: str, district_names: list[str]) -> None:
     """Load boundaries and regenerate the raster preview for each district group."""
     if not os.path.exists(flood_raster_path):
@@ -103,7 +105,7 @@ def regenerate(flood_raster_path: str, district_names: list[str]) -> None:
     finally:
         session.close()
 
-
+# Main function to parse arguments, set up logging, and call the regeneration process
 def main() -> None:
     load_dotenv()
     setup_logging()

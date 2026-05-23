@@ -108,17 +108,24 @@ const CLASSROOM_RATIO_THRESHOLD = 40;
 
 // Per-school risk categories (distinct from TA-level pressure categories)
 const SCHOOL_RISK_CATEGORIES = [
-  "Overcrowding Risk",   // teacher ratio exceeded
-  "Infrastructure Gap",  // classroom ratio exceeded
-  "Both Risks",          // both exceeded
+  "Teacher Shortage",              // teacher ratio exceeded
+  "Classroom Shortage",            // classroom ratio exceeded
+  "Teacher & Classroom Shortage",  // both exceeded
   "OK",
 ];
 
 const SCHOOL_RISK_COLORS = {
-  "Overcrowding Risk":  "#f59e0b",  // amber
-  "Infrastructure Gap": "#dc2626",  // red
-  "Both Risks":         "#7c3aed",  // purple
-  "OK":                 "#22c55e",  // green
+  "Teacher Shortage":             "#f59e0b",  // amber
+  "Classroom Shortage":           "#dc2626",  // red
+  "Teacher & Classroom Shortage": "#7c3aed",  // purple
+  "OK":                           "#22c55e",  // green
+};
+
+const SCHOOL_RISK_PRIORITY = {
+  "OK": 0,
+  "Teacher Shortage": 1,
+  "Classroom Shortage": 2,
+  "Teacher & Classroom Shortage": 3,
 };
 
 function classifySchoolRisk(properties) {
@@ -134,9 +141,9 @@ function classifySchoolRisk(properties) {
   const teacherRisk   = teacherRatio   > TEACHER_RATIO_THRESHOLD;
   const classroomRisk = classroomRatio > CLASSROOM_RATIO_THRESHOLD;
 
-  if (teacherRisk && classroomRisk) return "Both Risks";
-  if (classroomRisk)                return "Infrastructure Gap";
-  if (teacherRisk)                  return "Overcrowding Risk";
+  if (teacherRisk && classroomRisk) return "Teacher & Classroom Shortage";
+  if (classroomRisk)                return "Classroom Shortage";
+  if (teacherRisk)                  return "Teacher Shortage";
   return "OK";
 }
 
@@ -146,28 +153,70 @@ function getSchoolRiskColor(riskCategory) {
 
 function getSchoolRiskBadgeClasses(riskCategory) {
   const map = {
-    "Overcrowding Risk":  "border border-amber-200 bg-amber-50 text-amber-700",
-    "Infrastructure Gap": "border border-red-200 bg-red-50 text-red-700",
-    "Both Risks":         "border border-purple-200 bg-purple-50 text-purple-700",
-    "OK":                 "border border-emerald-200 bg-emerald-50 text-emerald-700",
+    "Teacher Shortage":             "border border-amber-200 bg-amber-50 text-amber-700",
+    "Classroom Shortage":           "border border-red-200 bg-red-50 text-red-700",
+    "Teacher & Classroom Shortage": "border border-purple-200 bg-purple-50 text-purple-700",
+    "OK":                           "border border-emerald-200 bg-emerald-50 text-emerald-700",
   };
   return map[riskCategory] || map["OK"];
 }
 
-const PRESSURE_FILTER_CATEGORIES = [
-  "Infrastructure Gap",
-  "Overcrowding Risk",
-  "Underutilized Schools",
-  "Balanced Capacity",
-  "Unmapped",
-];
+function normalizeSchoolIdentity(value) {
+  return String(value || "")
+    .trim()
+    .replace(/\s+/g, " ")
+    .toLowerCase();
+}
 
-function getPressureCategoryColor(value) {
-  if (value === "Unmapped") {
-    return "#94a3b8";
+function getSchoolFeatureDedupKey(feature) {
+  const properties = feature?.properties || {};
+  const name = normalizeSchoolIdentity(properties.school_name || properties.name);
+
+  if (!name) {
+    return `id:${properties.school_id ?? feature?.id ?? JSON.stringify(feature?.geometry?.coordinates || "")}`;
   }
 
-  return getInsightColor(value);
+  const district = normalizeSchoolIdentity(
+    properties.district || properties.district_name,
+  );
+  const ta = normalizeSchoolIdentity(
+    properties.ta_id ?? properties.ward_id ?? properties.ta_name ?? properties.admin_unit_name,
+  );
+
+  return `school:${name}|district:${district}|ta:${ta}`;
+}
+
+function getSchoolFeaturePriority(feature) {
+  const properties = feature?.properties || {};
+  const enrollment = Number(properties.student_enrollment_total || 0);
+  const teachers = Number(properties.teacher_count ?? properties.teacher_distribution ?? 0);
+  const classrooms = Number(properties.blocks_count ?? 0);
+  const teacherRatio = teachers > 0 ? enrollment / teachers : enrollment > 0 ? 9999 : 0;
+  const classroomRatio = classrooms > 0 ? enrollment / classrooms : enrollment > 0 ? 9999 : 0;
+
+  return [
+    SCHOOL_RISK_PRIORITY[properties.risk_category] ?? 0,
+    teacherRatio,
+    classroomRatio,
+    enrollment,
+  ];
+}
+
+function isHigherPrioritySchool(candidate, current) {
+  const candidatePriority = getSchoolFeaturePriority(candidate);
+  const currentPriority = getSchoolFeaturePriority(current);
+
+  for (let index = 0; index < candidatePriority.length; index += 1) {
+    if (candidatePriority[index] > currentPriority[index]) {
+      return true;
+    }
+
+    if (candidatePriority[index] < currentPriority[index]) {
+      return false;
+    }
+  }
+
+  return false;
 }
 
 function normalizeTaName(value) {
@@ -258,22 +307,22 @@ function EducationCategoryPieTooltip({ active, payload }) {
 }
 
 function EducationPage() {
-  const { selectedDistrict, selectedTa } = useDistrict();
-  const [selectedPressureCategories, setSelectedPressureCategories] = useState(
-    PRESSURE_FILTER_CATEGORIES,
-  );
+  const { selectedDistrict, selectedTa, setSelectedTa } = useDistrict();
   const [selectedSchoolRiskCategories, setSelectedSchoolRiskCategories] = useState(
     SCHOOL_RISK_CATEGORIES,
   );
   const [activeEducationRasterKey, setActiveEducationRasterKey] = useState(
     EDUCATION_RASTER_LAYERS[0].key,
   );
+  const [hoveredEducationTa, setHoveredEducationTa] = useState("");
   const [riskTableSort, setRiskTableSort] = useState({ key: "teacher_ratio", dir: "desc" });
+  const [schoolRiskPreview, setSchoolRiskPreview] = useState(null);
   const { contentRef, exportDataPdf } = usePdfExport("Education_Report.pdf");
   const activeEducationRasterLayer =
     EDUCATION_RASTER_LAYERS.find(
       (layer) => layer.key === activeEducationRasterKey,
     ) || EDUCATION_RASTER_LAYERS[0];
+  const activeEducationTaPreview = selectedTa || hoveredEducationTa;
 
   const educationSummary = useDashboardData(
     buildDashboardPath("/dashboard/education/summary", {
@@ -324,6 +373,15 @@ function EducationPage() {
       district: coverageFocusDistrict,
     }),
   );
+  const planningPriorities = useDashboardData(
+    buildDashboardPath("/dashboard/planning-priorities", {
+      district: selectedDistrict,
+      ta: selectedTa,
+      admin_type: "TA",
+      department: "education",
+      limit: selectedTa ? 1 : 5,
+    }),
+  );
 
   const formatStat = (value, digits = 0) => formatNumber(value, digits);
   const selectedAreaName = selectedTa
@@ -331,6 +389,25 @@ function EducationPage() {
     : selectedDistrict
       ? `District: ${selectedDistrict}`
       : "National";
+
+  const selectTa = (taName) => {
+    setSelectedTa(taName || "");
+    setHoveredEducationTa("");
+  };
+
+  const selectTaFromFeature = (feature) => {
+    const properties = feature?.properties || {};
+    selectTa(properties.admin_unit_name || properties.name || "");
+  };
+
+  const previewTaFromFeature = (feature) => {
+    if (selectedTa) {
+      return;
+    }
+
+    const properties = feature?.properties || {};
+    setHoveredEducationTa(properties.admin_unit_name || properties.name || "");
+  };
 
   const handleDownloadReport = async () => {
     const selectedInsightRow = selectedTa ? selectedInsight || {} : {};
@@ -366,6 +443,12 @@ function EducationPage() {
         ),
       },
     ];
+    const planningRows = (planningPriorities.data?.priorities || []).map((row) => ({
+      area: row.admin_unit_name,
+      priority: row.priority_band,
+      score: formatStat(row.planning_priority_score, 1),
+      action: row.recommended_actions?.[0] || "Review service gaps and target investment",
+    }));
 
     await exportDataPdf({
       title: "Education Area Analysis",
@@ -379,12 +462,35 @@ function EducationPage() {
           ],
           rows,
         },
+        {
+          title: "Planning Priorities",
+          columns: [
+            { key: "area", label: "Area", width: 140 },
+            { key: "priority", label: "Priority", width: 90 },
+            { key: "score", label: "Score", width: 70 },
+            { key: "action", label: "Recommended Action", width: 280 },
+          ],
+          rows: planningRows.length > 0 ? planningRows : [
+            {
+              area: selectedDistrict || "Education overview",
+              priority: "N/A",
+              score: "0.0",
+              action: "No ranked education planning priorities are available for this scope yet.",
+            },
+          ],
+        },
       ],
     });
   };
 
-  const allInsightRows = districtInsights.data?.all_districts || [];
-  const insightRows = districtInsights.data?.districts || [];
+  const allInsightRows = useMemo(
+    () => districtInsights.data?.all_districts ?? [],
+    [districtInsights.data],
+  );
+  const insightRows = useMemo(
+    () => districtInsights.data?.districts ?? [],
+    [districtInsights.data],
+  );
   const benchmarkSummary = districtInsights.data?.summary || {};
   const visibleInsightSummary =
     districtInsights.data?.visible_summary || benchmarkSummary;
@@ -417,9 +523,8 @@ function EducationPage() {
 
   const pressureByTaId = useMemo(() => {
     const lookup = new Map();
-    const sourceRows = allInsightRows.length ? allInsightRows : insightRows;
 
-    sourceRows.forEach((row) => {
+    sourceInsightRows.forEach((row) => {
       if (row.admin_unit_id === undefined || row.admin_unit_id === null) {
         return;
       }
@@ -431,12 +536,13 @@ function EducationPage() {
     });
 
     return lookup;
-  }, [allInsightRows, insightRows]);
+  }, [sourceInsightRows]);
 
   const schoolFeaturesWithPressure = useMemo(() => {
     const features = schoolLocations.data?.features || [];
+    const uniqueSchools = new Map();
 
-    return features.map((feature) => {
+    features.forEach((feature) => {
       const taId =
         feature?.properties?.ta_id !== undefined &&
         feature?.properties?.ta_id !== null
@@ -451,7 +557,7 @@ function EducationPage() {
       // Per-school risk classification using national thresholds
       const riskCategory = classifySchoolRisk(feature?.properties);
 
-      return {
+      const enrichedFeature = {
         ...feature,
         properties: {
           ...feature.properties,
@@ -459,7 +565,16 @@ function EducationPage() {
           risk_category: riskCategory,
         },
       };
+
+      const schoolKey = getSchoolFeatureDedupKey(enrichedFeature);
+      const existingFeature = uniqueSchools.get(schoolKey);
+
+      if (!existingFeature || isHigherPrioritySchool(enrichedFeature, existingFeature)) {
+        uniqueSchools.set(schoolKey, enrichedFeature);
+      }
     });
+
+    return Array.from(uniqueSchools.values());
   }, [schoolLocations.data, pressureByTaId]);
 
   // At-risk schools for the table (all except "OK")
@@ -493,29 +608,81 @@ function EducationPage() {
     });
   }, [atRiskSchools, riskTableSort]);
 
+  const openSchoolRiskPreview = (category) => {
+    const matchingSchools = atRiskSchools.filter(
+      (school) => school.risk_category === category,
+    );
+    const rows = matchingSchools
+      .sort((left, right) => {
+        const leftTeacherRatio = left.teacher_ratio ?? 0;
+        const rightTeacherRatio = right.teacher_ratio ?? 0;
+        const leftClassRatio = left.classroom_ratio ?? 0;
+        const rightClassRatio = right.classroom_ratio ?? 0;
+
+        return (
+          rightTeacherRatio + rightClassRatio -
+          (leftTeacherRatio + leftClassRatio)
+        );
+      })
+      .map((school, index) => ({
+        id: school.school_id || `${category}-${index}`,
+        schoolName: school.school_name,
+        riskCategory: school.risk_category,
+        enrollment: formatNumber(school.enrollment, 0),
+        pupilsPerTeacher:
+          school.teacher_ratio != null ? `1:${school.teacher_ratio}` : "-",
+        pupilsPerClass:
+          school.classroom_ratio != null ? `1:${school.classroom_ratio}` : "-",
+        operator: school.operator,
+      }));
+
+    setSchoolRiskPreview({
+      title: `${category} Schools (${formatNumber(matchingSchools.length, 0)})`,
+      columns: [
+        { key: "schoolName", label: "School" },
+        { key: "riskCategory", label: "Shortage Type" },
+        { key: "enrollment", label: "Enrollment" },
+        { key: "pupilsPerTeacher", label: "Pupils / Teacher" },
+        { key: "pupilsPerClass", label: "Pupils / Class" },
+        { key: "operator", label: "Operator" },
+      ],
+      rows,
+    });
+  };
+
+  const openSingleSchoolPreview = (school) => {
+    setSchoolRiskPreview({
+      title: school.school_name,
+      columns: [
+        { key: "schoolName", label: "School" },
+        { key: "riskCategory", label: "Shortage Type" },
+        { key: "enrollment", label: "Enrollment" },
+        { key: "pupilsPerTeacher", label: "Pupils / Teacher" },
+        { key: "pupilsPerClass", label: "Pupils / Class" },
+        { key: "operator", label: "Operator" },
+      ],
+      rows: [
+        {
+          id: school.school_id || school.school_name,
+          schoolName: school.school_name,
+          riskCategory: school.risk_category,
+          enrollment: formatNumber(school.enrollment, 0),
+          pupilsPerTeacher:
+            school.teacher_ratio != null ? `1:${school.teacher_ratio}` : "-",
+          pupilsPerClass:
+            school.classroom_ratio != null ? `1:${school.classroom_ratio}` : "-",
+          operator: school.operator,
+        },
+      ],
+    });
+  };
+
   const schoolRiskCounts = useMemo(() => {
     const counts = Object.fromEntries(SCHOOL_RISK_CATEGORIES.map(c => [c, 0]));
     schoolFeaturesWithPressure.forEach(f => {
       const cat = f.properties.risk_category;
       if (counts[cat] !== undefined) counts[cat]++;
     });
-    return counts;
-  }, [schoolFeaturesWithPressure]);
-
-  const pressureCategoryCounts = useMemo(() => {
-    const counts = PRESSURE_FILTER_CATEGORIES.reduce(
-      (accumulator, category) => {
-        accumulator[category] = 0;
-        return accumulator;
-      },
-      {},
-    );
-
-    schoolFeaturesWithPressure.forEach((feature) => {
-      const category = feature?.properties?.pressure_category || "Unmapped";
-      counts[category] = (counts[category] || 0) + 1;
-    });
-
     return counts;
   }, [schoolFeaturesWithPressure]);
 
@@ -1102,7 +1269,7 @@ function EducationPage() {
               School Infrastructure Mapping
             </h3>
             <p className="mt-1 text-sm text-gray-500 font-semibold">
-              Coloured by per-school risk · teacher 1:60 · classroom 1:40
+              Coloured by school shortage type - teacher 1:60 - classroom 1:40
             </p>
 
             {/* Risk filter chips */}
@@ -1180,7 +1347,7 @@ function EducationPage() {
                   At-Risk Schools
                 </h3>
                 <p className="mt-1 text-sm text-gray-500 font-semibold">
-                  Schools exceeding national teacher or classroom thresholds
+                  Schools exceeding teacher or classroom shortage thresholds
                 </p>
               </div>
               <span className="flex-shrink-0 rounded-full bg-red-50 border border-red-200 px-3 py-1 text-xs font-bold text-red-700">
@@ -1191,13 +1358,16 @@ function EducationPage() {
             {/* Summary badges */}
             <div className="mt-3 mb-4 flex flex-wrap gap-2">
               {SCHOOL_RISK_CATEGORIES.filter(c => c !== "OK").map(cat => (
-                <span
+                <button
                   key={cat}
-                  className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-bold ${getSchoolRiskBadgeClasses(cat)}`}
+                  type="button"
+                  onClick={() => openSchoolRiskPreview(cat)}
+                  className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-bold transition hover:-translate-y-0.5 hover:shadow-sm focus:outline-none focus:ring-2 focus:ring-black/10 ${getSchoolRiskBadgeClasses(cat)}`}
+                  title={`Preview ${cat.toLowerCase()} schools`}
                 >
                   <span className="h-2 w-2 rounded-full" style={{ backgroundColor: getSchoolRiskColor(cat) }} />
                   {cat}: {schoolRiskCounts[cat] || 0}
-                </span>
+                </button>
               ))}
             </div>
 
@@ -1243,7 +1413,9 @@ function EducationPage() {
                     {sortedAtRiskSchools.map((school, i) => (
                       <tr
                         key={school.school_id ?? i}
-                        className="border-b border-gray-50 hover:bg-gray-50 transition-colors"
+                        onClick={() => openSingleSchoolPreview(school)}
+                        className="cursor-pointer border-b border-gray-50 transition-colors hover:bg-gray-50"
+                        title="Click to preview this school"
                       >
                         <td className="py-2 px-2 font-semibold text-black max-w-[140px] truncate" title={school.school_name}>
                           {school.school_name}
@@ -1271,8 +1443,8 @@ function EducationPage() {
 
             {/* Threshold legend */}
             <div className="mt-3 pt-3 border-t border-gray-100 flex gap-4 text-[10px] font-bold text-gray-400 uppercase tracking-wide">
-              <span className="text-amber-600">Pupils/Teacher &gt; {TEACHER_RATIO_THRESHOLD} = Overcrowding</span>
-              <span className="text-red-600">Pupils/Class &gt; {CLASSROOM_RATIO_THRESHOLD} = Infra Gap</span>
+              <span className="text-amber-600">Pupils/Teacher &gt; {TEACHER_RATIO_THRESHOLD} = Teacher Shortage</span>
+              <span className="text-red-600">Pupils/Class &gt; {CLASSROOM_RATIO_THRESHOLD} = Classroom Shortage</span>
             </div>
           </div>
         </div>
@@ -1280,7 +1452,11 @@ function EducationPage() {
         <div className="mt-8">
           <h3 className="text-[16px] font-extrabold">Education Access Raster</h3>
           <p className="mt-2 text-sm text-gray-500 font-semibold">
-            High-resolution service coverage and travel-distance surfaces derived from school locations and beneficiary routing.
+            {selectedTa
+              ? `Showing the selected education access layer focused on ${selectedTa}. Click another TA boundary to switch the locked area.`
+              : activeEducationTaPreview
+                ? `Previewing education details for ${activeEducationTaPreview}. Click to lock this TA.`
+                : "Hover any TA boundary to preview its details on the active layer, or click to lock it."}
           </p>
           <div className="mt-5 border border-gray-100 rounded p-5 shadow-sm bg-white">
             <div className="flex flex-wrap gap-2">
@@ -1302,12 +1478,42 @@ function EducationPage() {
                 );
               })}
             </div>
+            <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-3">
+              {EDUCATION_RASTER_LAYERS.map((layer) => {
+                const isActive = layer.key === activeEducationRasterLayer.key;
+                return (
+                  <button
+                    key={`education-layer-card-${layer.key}`}
+                    type="button"
+                    onClick={() => setActiveEducationRasterKey(layer.key)}
+                    className={`rounded-xl border px-3 py-3 text-left transition ${
+                      isActive
+                        ? "border-gray-900 bg-gray-900 text-white"
+                        : "border-gray-100 bg-gray-50 text-gray-700 hover:border-gray-300"
+                    }`}
+                  >
+                    <p className="text-[10px] font-bold uppercase tracking-[0.12em]">
+                      {isActive ? "Active Layer" : "Layer"}
+                    </p>
+                    <p className="mt-1 text-sm font-extrabold">{layer.shortLabel}</p>
+                    <p
+                      className={`mt-1 text-xs font-semibold ${
+                        isActive ? "text-white/75" : "text-gray-500"
+                      }`}
+                    >
+                      {layer.subtitle}
+                    </p>
+                  </button>
+                );
+              })}
+            </div>
             <p className="mt-3 text-xs font-semibold text-gray-500">
               Layer focus keeps the map clean while still letting users compare
               coverage, distance, and travel-time patterns quickly.
             </p>
             <div className="mt-4 border border-gray-100 rounded p-3 bg-white">
               <PopulationRasterPanel
+                key={`education-raster-${activeEducationRasterLayer.key}`}
                 geojson={educationCoverageTaGeojson.data}
                 pointsGeojson={schoolLocations.data}
                 pointLayerLabel="Schools"
@@ -1323,6 +1529,9 @@ function EducationPage() {
                   educationRasterMetadata.loading
                 }
                 selectedFeatureName={selectedTa}
+                hoveredFeatureName={selectedTa ? "" : hoveredEducationTa}
+                onFeatureHover={previewTaFromFeature}
+                onFeatureClick={selectTaFromFeature}
               />
             </div>
           </div>
@@ -1349,19 +1558,28 @@ function EducationPage() {
           )}
         </div>
 
+        {/* ── Flood Impact on Schools ─────────────────────────────────── */}
+        <FloodImpactSection
+          floodImpact={floodImpact}
+          floodImpactGeojson={floodImpactGeojson}
+          coverageFocusDistrict={coverageFocusDistrict}
+        />
+
         {/* ── Planning Recommendations ─────────────────────────────── */}
         <PlanningRecommendations
           districtInsights={districtInsights}
           floodImpact={floodImpact}
           educationSummary={educationSummary}
           selectedDistrict={selectedDistrict}
+          planningPriorities={planningPriorities}
         />
 
-        {/* ── Flood Impact on Schools ─────────────────────────────────── */}
-        <FloodImpactSection
-          floodImpact={floodImpact}
-          floodImpactGeojson={floodImpactGeojson}
-          coverageFocusDistrict={coverageFocusDistrict}
+        <MetricPreviewModal
+          metricPreview={schoolRiskPreview}
+          onClose={() => setSchoolRiskPreview(null)}
+          description="Previewing schools behind this shortage category."
+          emptyMessage="No schools are currently in this shortage category."
+          emphasisKeys={["schoolName", "riskCategory"]}
         />
       </div>
     </div>
@@ -1369,77 +1587,124 @@ function EducationPage() {
 }
 
 /* ─── Planning Recommendations ────────────────────────────────────────── */
-function PlanningRecommendations({ districtInsights, floodImpact, educationSummary, selectedDistrict }) {
+function PlanningRecommendations({ districtInsights, floodImpact, educationSummary, selectedDistrict, planningPriorities }) {
   const [metricPreview, setMetricPreview] = useState(null);
-  const summary = districtInsights.data?.summary || {};
-  const thresholds = districtInsights.data?.thresholds || {};
-  const allRows =
-    districtInsights.data?.all_districts || districtInsights.data?.districts || [];
+  const thresholds   = districtInsights.data?.thresholds || {};
+  const allRows = useMemo(
+    () => districtInsights.data?.all_districts ?? districtInsights.data?.districts ?? [],
+    [districtInsights.data],
+  );
   const floodSummary = floodImpact.data?.summary || {};
-  const floodTaBreakdown = floodImpact.data?.ta_breakdown || [];
-  const eduSummary = educationSummary.data || {};
+  const eduSummary   = educationSummary.data || {};
+  const rankedPriorities = planningPriorities?.data?.priorities || [];
 
-  const loading =
-    districtInsights.loading || floodImpact.loading || educationSummary.loading;
+  const loading = districtInsights.loading || floodImpact.loading || educationSummary.loading || planningPriorities.loading;
 
-  const taPreviewRows = useMemo(() => {
-    return allRows.map((row, index) => ({
-      id: `ta-${row.admin_unit_id || row.admin_unit_name || index}`,
-      ta: row.admin_unit_name || "Unknown TA",
-      district: row.district || "Unknown District",
-      insight: row.insight_label || row.insight || "Balanced Capacity",
-      status: row.classification_label || "Balanced",
-      schoolCount: Number(row.school_count || 0),
-      schoolsPer10k: Number(row.schools_per_10k || 0),
-      studentsPerSchool: Number(row.students_per_school || 0),
-      outOfSchool: Number(row.not_in_school_total || 0),
-      schoolAgePopulation: Number(row.school_age_population_total || 0),
-    }));
-  }, [allRows]);
+  // Derive key numbers
+  const infraGapTAs = allRows.filter((row) => row.insight === "infrastructure gap");
+  const overcrowdingTAs = allRows.filter((row) => row.insight === "overcrowding risk");
+  const underutilizedTAs = allRows.filter((row) => row.insight === "underutilized schools");
+  const worstInfra       = [...infraGapTAs].sort((a,b) => a.schools_per_10k - b.schools_per_10k)[0];
+  const worstCrowd       = [...overcrowdingTAs].sort((a,b) => b.students_per_school - a.students_per_school)[0];
+  const teacherTotal     = Number(eduSummary.teacher_count_total || 0);
+  const schoolAgeTotal   = Number(eduSummary.school_age_population_total || 0);
+  const outOfSchoolTotal = Number(eduSummary.not_in_school_total || 0);
+  const teacherRatio     = eduSummary.teacher_count_total > 0
+    ? Math.round(eduSummary.student_enrollment_total / eduSummary.teacher_count_total)
+    : null;
+  const floodTaRows = useMemo(() => {
+    return (floodImpact.data?.ta_breakdown || [])
+      .map((row, index) => ({
+        id: `flood-ta-${row.ta_id || row.ta_name || index}`,
+        ta: row.ta_name || "Unknown TA",
+        district: row.district_name || selectedDistrict || "Unknown District",
+        exposedSchools: Number(row.exposed_schools || 0),
+        highRiskStudents: Number(row.high_risk_students || 0),
+        mediumRiskStudents: Number(row.medium_risk_students || 0),
+        lowRiskStudents: Number(row.low_risk_students || 0),
+        studentsAtRisk: Number(row.students_at_risk || 0),
+      }))
+      .sort((left, right) => right.studentsAtRisk - left.studentsAtRisk);
+  }, [floodImpact.data, selectedDistrict]);
 
   const taRowColumns = [
     { key: "ta", label: "TA" },
     { key: "district", label: "District" },
-    { key: "insight", label: "Insight" },
-    { key: "status", label: "Status" },
-    { key: "schoolCount", label: "Schools" },
     { key: "schoolsPer10k", label: "Schools/10k" },
     { key: "studentsPerSchool", label: "Students/School" },
-    { key: "outOfSchool", label: "Out-of-School" },
+    { key: "schoolCount", label: "Schools" },
+    { key: "population", label: "Population" },
   ];
   const floodRowColumns = [
     { key: "ta", label: "TA" },
     { key: "district", label: "District" },
-    { key: "exposedSchools", label: "Exposed Schools" },
     { key: "studentsAtRisk", label: "Students at Risk" },
-    { key: "highRiskSchools", label: "High Risk Schools" },
-    { key: "mediumRiskSchools", label: "Medium Risk Schools" },
-    { key: "lowRiskSchools", label: "Low Risk Schools" },
+    { key: "exposedSchools", label: "Exposed Schools" },
+    { key: "highRiskStudents", label: "High Risk" },
+    { key: "mediumRiskStudents", label: "Medium Risk" },
+    { key: "lowRiskStudents", label: "Low Risk" },
   ];
   const summaryColumns = [
     { key: "metric", label: "Metric" },
     { key: "value", label: "Value" },
   ];
 
-  function selectTaRows(sourceRows) {
-    const sourceIds = new Set(
-      sourceRows
-        .map((row) => row.admin_unit_id)
-        .filter((value) => value !== null && value !== undefined)
-        .map((value) => String(value)),
-    );
-    const sourceNames = new Set(
-      sourceRows
-        .map((row) => String(row.admin_unit_name || "").trim().toLowerCase())
-        .filter(Boolean),
-    );
-
-    return taPreviewRows.filter((row) => {
-      const rowId = String(row.id || "").replace(/^ta-/, "");
-      const rowName = String(row.ta || "").trim().toLowerCase();
-      return sourceIds.has(rowId) || sourceNames.has(rowName);
-    });
-  }
+  const infraGapPreviewRows = infraGapTAs.map((row, index) => ({
+    id: `infra-${row.admin_unit_id || row.admin_unit_name || index}`,
+    ta: row.admin_unit_name || "Unknown TA",
+    district: row.district || selectedDistrict || "Unknown District",
+    schoolsPer10k: Number(row.schools_per_10k || 0),
+    studentsPerSchool: Number(row.students_per_school || 0),
+    schoolCount: Number(row.school_count || 0),
+    population: Number(row.population_total || 0),
+  }));
+  const overcrowdingPreviewRows = overcrowdingTAs.map((row, index) => ({
+    id: `crowd-${row.admin_unit_id || row.admin_unit_name || index}`,
+    ta: row.admin_unit_name || "Unknown TA",
+    district: row.district || selectedDistrict || "Unknown District",
+    schoolsPer10k: Number(row.schools_per_10k || 0),
+    studentsPerSchool: Number(row.students_per_school || 0),
+    schoolCount: Number(row.school_count || 0),
+    population: Number(row.population_total || 0),
+  }));
+  const underutilizedPreviewRows = underutilizedTAs.map((row, index) => ({
+    id: `under-${row.admin_unit_id || row.admin_unit_name || index}`,
+    ta: row.admin_unit_name || "Unknown TA",
+    district: row.district || selectedDistrict || "Unknown District",
+    schoolsPer10k: Number(row.schools_per_10k || 0),
+    studentsPerSchool: Number(row.students_per_school || 0),
+    schoolCount: Number(row.school_count || 0),
+    population: Number(row.population_total || 0),
+  }));
+  const underutilizedSchoolCount = underutilizedPreviewRows.reduce(
+    (sum, row) => sum + Number(row.schoolCount || 0),
+    0,
+  );
+  const outOfSchoolRows = allRows
+    .map((row, index) => ({
+      id: `oos-${row.admin_unit_id || row.admin_unit_name || index}`,
+      ta: row.admin_unit_name || "Unknown TA",
+      district: row.district || selectedDistrict || "Unknown District",
+      outOfSchool: Number(row.not_in_school_total || 0),
+      schoolAgePopulation: Number(row.school_age_population_total || 0),
+      schoolsPer10k: Number(row.schools_per_10k || 0),
+      studentsPerSchool: Number(row.students_per_school || 0),
+    }))
+    .filter((row) => row.outOfSchool > 0)
+    .sort((left, right) => right.outOfSchool - left.outOfSchool);
+  const summaryRows = [
+    { metric: "Total schools", value: formatNumber(eduSummary.school_count || 0, 0) },
+    { metric: "Total teachers", value: formatNumber(teacherTotal, 0) },
+    { metric: "Student enrollment", value: formatNumber(eduSummary.student_enrollment_total || 0, 0) },
+    { metric: "School-age population", value: formatNumber(schoolAgeTotal, 0) },
+    { metric: "Out-of-school population", value: formatNumber(outOfSchoolTotal, 0) },
+    { metric: "Teacher ratio", value: teacherRatio ? `1:${formatNumber(teacherRatio, 0)}` : "N/A" },
+    { metric: "Infra-gap TAs", value: formatNumber(infraGapTAs.length, 0) },
+    { metric: "Overcrowding TAs", value: formatNumber(overcrowdingTAs.length, 0) },
+    { metric: "Underutilized TAs", value: formatNumber(underutilizedTAs.length, 0) },
+    { metric: "Flood-exposed schools", value: formatNumber(floodSummary.exposed_schools || 0, 0) },
+    { metric: "Students at flood risk", value: formatNumber(floodSummary.students_at_risk || 0, 0) },
+  ];
 
   function openMetricPreview({ title, rows, columns }) {
     setMetricPreview({
@@ -1449,104 +1714,17 @@ function PlanningRecommendations({ districtInsights, floodImpact, educationSumma
     });
   }
 
-  // Derive key numbers
-  const infraGapTAs = allRows.filter((row) =>
-    String(row.insight || row.insight_label || "")
-      .toLowerCase()
-      .includes("infrastructure"),
-  );
-  const overcrowdingTAs = allRows.filter((row) =>
-    String(row.insight || row.insight_label || "")
-      .toLowerCase()
-      .includes("overcrowding"),
-  );
-  const underutilizedTAs = allRows.filter((row) =>
-    String(row.insight || row.insight_label || "")
-      .toLowerCase()
-      .includes("underutilized"),
-  );
-  const worstInfra = [...infraGapTAs].sort(
-    (left, right) =>
-      Number(left.schools_per_10k || 0) - Number(right.schools_per_10k || 0),
-  )[0];
-  const worstCrowd = [...overcrowdingTAs].sort(
-    (left, right) =>
-      Number(right.students_per_school || 0) -
-      Number(left.students_per_school || 0),
-  )[0];
-  const teacherTotal = Number(eduSummary.teacher_count_total || 0);
-  const studentTotal = Number(eduSummary.student_enrollment_total || 0);
-  const schoolAgeTotal = Number(eduSummary.school_age_population_total || 0);
-  const outOfSchoolTotal = Number(eduSummary.not_in_school_total || 0);
-  const teacherRatio =
-    teacherTotal > 0 ? Math.round(studentTotal / teacherTotal) : null;
-
-  const infraGapPreviewRows = useMemo(
-    () => selectTaRows(infraGapTAs),
-    [infraGapTAs, taPreviewRows],
-  );
-  const overcrowdingPreviewRows = useMemo(
-    () => selectTaRows(overcrowdingTAs),
-    [overcrowdingTAs, taPreviewRows],
-  );
-  const underutilizedPreviewRows = useMemo(
-    () => selectTaRows(underutilizedTAs),
-    [underutilizedTAs, taPreviewRows],
-  );
-  const outOfSchoolRows = useMemo(() => {
-    return taPreviewRows
-      .filter((row) => row.outOfSchool > 0)
-      .sort((left, right) => right.outOfSchool - left.outOfSchool);
-  }, [taPreviewRows]);
-  const floodTaRows = useMemo(() => {
-    return floodTaBreakdown
-      .map((row, index) => ({
-        id: `flood-ta-${row.ta_id || row.ta_name || index}`,
-        ta: row.ta_name || "Unknown TA",
-        district: row.district_name || "Unknown District",
-        exposedSchools: Number(row.exposed_schools || 0),
-        studentsAtRisk: Number(row.students_at_risk || 0),
-        highRiskSchools: Number(row.high_risk_schools || 0),
-        mediumRiskSchools: Number(row.medium_risk_schools || 0),
-        lowRiskSchools: Number(row.low_risk_schools || 0),
-      }))
-      .sort((left, right) => right.studentsAtRisk - left.studentsAtRisk);
-  }, [floodTaBreakdown]);
-  const underutilizedSchoolCount = underutilizedPreviewRows.reduce(
-    (sum, row) => sum + Number(row.schoolCount || 0),
-    0,
-  );
-  const summaryRows = [
-    { metric: "Total Schools", value: formatNumber(eduSummary.school_count || 0, 0) },
-    { metric: "Total Students", value: formatNumber(studentTotal, 0) },
-    { metric: "Total Teachers", value: formatNumber(teacherTotal, 0) },
-    {
-      metric: "Teacher Ratio",
-      value: teacherRatio !== null ? `1:${formatNumber(teacherRatio, 0)}` : "N/A",
-    },
-    { metric: "School-Age Population", value: formatNumber(schoolAgeTotal, 0) },
-    { metric: "Out-of-School Children", value: formatNumber(outOfSchoolTotal, 0) },
-    { metric: "Infrastructure-Gap TAs", value: formatNumber(infraGapTAs.length, 0) },
-    { metric: "Overcrowding TAs", value: formatNumber(overcrowdingTAs.length, 0) },
-    { metric: "Underutilized TAs", value: formatNumber(underutilizedTAs.length, 0) },
-    {
-      metric: "Schools/10k Threshold",
-      value: formatNumber(thresholds.schools_per_10k_low || 0, 1),
-    },
-    {
-      metric: "Students/School Threshold",
-      value: formatNumber(thresholds.students_per_school_high || 0, 0),
-    },
-    { metric: "Flood-Exposed Schools", value: formatNumber(floodSummary.exposed_schools || 0, 0) },
-    { metric: "Students at Flood Risk", value: formatNumber(floodSummary.students_at_risk || 0, 0) },
-    {
-      metric: "Benchmark Areas",
-      value: formatNumber(summary.total_districts || 0, 0),
-    },
-  ];
+  const priorityLedRecommendations = rankedPriorities.slice(0, 2).map((row, index) => ({
+    priority: index === 0 ? "high" : row.priority_band === "Critical" || row.priority_band === "High" ? "high" : "medium",
+    icon: row.education_vulnerability_score >= row.health_vulnerability_score ? School : ShieldAlert,
+    title: `${row.admin_unit_name} should anchor the next education intervention package`,
+    body: `${row.narrative} Education-specific pressure is scored at ${formatNumber(row.education_vulnerability_score, 1)}, with flood isolation at ${formatNumber(row.education_flood_isolation_score, 1)}. This indicates that school access planning in ${row.admin_unit_name} should be coordinated with wider district vulnerability reduction.`,
+    action: row.recommended_actions?.[0] || "Prioritise the top-ranked TA in the next education planning cycle",
+  }));
 
   const recommendations = [
-    // 1 - Infrastructure gaps
+    ...priorityLedRecommendations,
+    // 1 — Infrastructure gaps
     infraGapTAs.length > 0 && {
       priority: "high",
       icon: School,
@@ -1745,32 +1923,8 @@ function PlanningRecommendations({ districtInsights, floodImpact, educationSumma
       title: "Link Education Planning to Welfare Data",
       body: `The integrated welfare context shows flood-affected beneficiaries and school-age unenrolled populations overlap significantly. Social cash transfer programmes should include school attendance conditionality to improve enrolment in high-poverty, low-access TAs.`,
       action: "Introduce school attendance conditionality in social protection programmes for targeted TAs",
-      metricLinks: [
-        {
-          id: "welfare-link-out-of-school",
-          label: "Out-of-School Children",
-          value: formatNumber(outOfSchoolTotal, 0),
-          onClick: () =>
-            openMetricPreview({
-              title: "Out-of-School by TA",
-              rows: outOfSchoolRows,
-              columns: taRowColumns,
-            }),
-        },
-        {
-          id: "welfare-link-flood-exposed",
-          label: "Flood-Exposed Schools",
-          value: formatNumber(floodSummary.exposed_schools || 0, 0),
-          onClick: () =>
-            openMetricPreview({
-              title: "Flood Exposure by TA",
-              rows: floodTaRows,
-              columns: floodRowColumns,
-            }),
-        },
-      ],
     },
-  ].filter(Boolean);
+  ].filter(Boolean).slice(0, 7);
 
   const priorityConfig = {
     high:   { label: "High Priority",   classes: "bg-red-50 border-red-200 text-red-700",    dot: "bg-red-500"    },
@@ -1816,9 +1970,6 @@ function PlanningRecommendations({ districtInsights, floodImpact, educationSumma
   );
 }
 /* ─── Risk colour helpers ──────────────────────────────────────────────── */
-const RISK_COLORS = { high: "#dc2626", medium: "#f59e0b", low: "#3b82f6", none: "#94a3b8" };
-function riskColor(cls) { return RISK_COLORS[cls] || RISK_COLORS.none; }
-
 function riskBadge(cls) {
   const map = {
     high:   "bg-red-50 text-red-700 border-red-200",
@@ -1892,7 +2043,7 @@ function FloodImpactMap({ geojson, loading, coverageFocusDistrict }) {
 /* ─── Main flood section ───────────────────────────────────────────────── */
 function FloodImpactSection({ floodImpact, floodImpactGeojson, coverageFocusDistrict }) {
   const summary = floodImpact.data?.summary || {};
-  const taRows  = floodImpact.data?.ta_breakdown || [];
+  const taRows = useMemo(() => floodImpact.data?.ta_breakdown ?? [], [floodImpact.data]);
   const [floodTaSearch, setFloodTaSearch] = useState("");
   const [floodTaLimit, setFloodTaLimit] = useState(12);
   const [floodTaSort, setFloodTaSort] = useState("students_desc");
@@ -2145,3 +2296,4 @@ function FloodImpactSection({ floodImpact, floodImpactGeojson, coverageFocusDist
 }
 
 export default EducationPage;
+

@@ -39,7 +39,7 @@ function CoverageShapePanel({
   const wrapperRef = useRef(null);
   const [size, setSize] = useState({ width: 0, height: 0 });
   const [hoveredRegion, setHoveredRegion] = useState(null);
-  const features = geojson?.features || [];
+  const features = useMemo(() => geojson?.features ?? [], [geojson]);
 
   const activeColors = useMemo(() => ({
     ...ZONE_COLORS,

@@ -1,3 +1,4 @@
+# import standard libraries
 import json
 import logging
 import os
@@ -10,6 +11,7 @@ from geoalchemy2 import Geometry, WKTElement
 from shapely.geometry import LineString, MultiLineString, shape
 from sqlalchemy import text
 
+# import local modules
 from db_utils import log_etl_run, table_exists
 from ingest import extract_source
 from transform import standardize_schema, validate_schema
@@ -17,6 +19,7 @@ from pipeline_config import DATASET_CONFIG
 
 LOGGER = logging.getLogger('etl.roads')
 
+# Constants for default speeds and access thresholds
 DEFAULT_SPEED_KMH = 30.0
 HEALTH_ACCESS_DISTANCE_KM = 8.0
 HEALTH_ACCESS_TIME_MIN = 60.0
@@ -36,7 +39,7 @@ ROAD_CLASS_SPEEDS = {
     'footway': 5.0,
 }
 
-
+########### Custom exception for road network processing errors #################
 class RoadNetworkError(Exception):
     def __init__(self, user_message, step_name, original_error=None):
         self.user_message = user_message
@@ -63,13 +66,14 @@ def run_step(step_name, user_message_on_error, fn, *args, **kwargs):
     return result
 
 
+# Helper functions for data normalization and parsing
 def _normalize_text(value):
     if value is None or pd.isna(value):
         return None
     text_value = str(value).strip()
     return text_value or None
 
-
+# Speed parsing with support for units and fallback to road class defaults
 def _parse_speed(value, road_class=None):
     if value is not None and not pd.isna(value):
         match = re.search(r'\d+(?:\.\d+)?', str(value))
@@ -84,14 +88,14 @@ def _parse_speed(value, road_class=None):
     normalized_class = str(road_class or '').strip().lower()
     return ROAD_CLASS_SPEEDS.get(normalized_class, DEFAULT_SPEED_KMH)
 
-
+# Oneway parsing to handle various representations of boolean values
 def _parse_oneway(value):
     if value is None or pd.isna(value):
         return False
     normalized = str(value).strip().lower()
     return normalized in {'yes', 'true', '1', 'y', 'oneway', 'forward'}
 
-
+# Geometry explosion to handle MultiLineString and other complex geometries 
 def _explode_lines(geometry):
     if geometry is None or geometry.is_empty:
         return []
@@ -107,7 +111,7 @@ def _explode_lines(geometry):
         ]
     return []
 
-
+# Convert raw DataFrame into standardized GeoDataFrame of road segments
 def transform_road_dataset(df):
     if 'geometry' not in df.columns:
         raise RoadNetworkError(
@@ -149,7 +153,7 @@ def transform_road_dataset(df):
     log_step('transform_road_dataset', f'transformed_road_segments={len(road_gdf)}')
     return road_gdf
 
-
+# Database schema setup and loading functions
 def ensure_routing_schema(session):
     session.execute(text("CREATE EXTENSION IF NOT EXISTS postgis"))
     session.execute(text("CREATE EXTENSION IF NOT EXISTS pgrouting"))
@@ -220,7 +224,7 @@ def ensure_routing_schema(session):
     session.execute(text("CREATE INDEX IF NOT EXISTS idx_beneficiary_facility_travel_facility ON beneficiary_facility_travel(facility_type, facility_id)"))
     session.commit()
 
-
+# Load road segments into PostGIS and prepare routing graph
 def load_roads_to_postgis(session, roads_gdf, source_filename=None):
     ensure_routing_schema(session)
     engine = session.bind
@@ -340,7 +344,7 @@ def load_roads_to_postgis(session, roads_gdf, source_filename=None):
     log_step('load_roads_to_postgis', f'rows_loaded={rows_loaded}, source={source_filename}')
     return rows_loaded
 
-
+# Check if routing prerequisites are available: pgRouting extension, road tables, and valid edges
 def _routing_prerequisites_available(session):
     extension_count = session.execute(
         text("SELECT COUNT(*) FROM pg_extension WHERE extname IN ('postgis', 'pgrouting')")
@@ -354,7 +358,7 @@ def _routing_prerequisites_available(session):
     ).scalar()
     return int(edge_count or 0) > 0
 
-
+# Ensure that every beneficiary has a corresponding row in the indicators table 
 def _ensure_indicator_rows(session):
     if not table_exists(session, 'welfare_beneficiary_indicators'):
         return
@@ -388,7 +392,7 @@ def _ensure_indicator_rows(session):
         )
     )
 
-
+# Generate SQL for facility source based on type (health or school)
 def _facility_source_sql(facility_type):
     if facility_type == 'health':
         return """
@@ -411,6 +415,7 @@ def _facility_source_sql(facility_type):
     raise ValueError(f'Unsupported facility type for routing: {facility_type}')
 
 
+# Compute travel times and distances from beneficiaries to nearest facilities of a given type
 def compute_facility_travel(session, facility_type, candidate_limit=8):
     ensure_routing_schema(session)
     if not _routing_prerequisites_available(session):
@@ -569,7 +574,7 @@ def compute_facility_travel(session, facility_type, candidate_limit=8):
     log_step('compute_facility_travel', f'facility_type={facility_type}, rows_loaded={rows_loaded}')
     return rows_loaded
 
-
+# Update welfare beneficiary indicators based on travel results
 def update_welfare_access_from_travel(session):
     _ensure_indicator_rows(session)
     session.execute(
@@ -622,7 +627,7 @@ def update_welfare_access_from_travel(session):
         'school_access_rows_updated': int(school_update or 0),
     }
 
-
+# Recompute beneficiary travel access
 def recompute_beneficiary_facility_travel(session, facility_types=None, candidate_limit=8, strict=False):
     selected_types = facility_types or ['health', 'school']
     try:
@@ -665,7 +670,7 @@ def recompute_beneficiary_facility_travel(session, facility_types=None, candidat
             'rows_loaded': 0,
         }
 
-
+# Parse district names for clipping, supporting comma-separated strings or lists/tuples
 def _parse_clip_districts(value):
     if not value:
         return []
@@ -673,7 +678,7 @@ def _parse_clip_districts(value):
         return [item for item in value if item]
     return [item.strip() for item in str(value).split(',') if item.strip()]
 
-
+# Fetch and union geometries of specified districts for clipping roads
 def _fetch_district_union_geometry(session, district_names):
     names = _parse_clip_districts(district_names)
     if not names:
@@ -695,7 +700,7 @@ def _fetch_district_union_geometry(session, district_names):
         )
     return shape(json.loads(result))
 
-
+# Clip road geometries to the union of specified district boundaries
 def clip_roads_to_districts(session, road_gdf, district_names):
     if road_gdf is None or road_gdf.empty:
         return road_gdf
@@ -732,7 +737,8 @@ def clip_roads_to_districts(session, road_gdf, district_names):
         )
     return gpd.GeoDataFrame(rows, geometry='geometry', crs=clipped.crs)
 
-
+# Process the roads dataset: extract, standardize, validate, transform, optionally clip to districts
+# load to PostGIS, and recompute travel indicators
 def process_roads_dataset(
     session,
     file_path=None,
@@ -842,6 +848,7 @@ def process_roads_dataset(
     }
 
 
+# Process the routing dataset independently.
 def process_routing_dataset(session, strict=True):
     started_at = datetime.utcnow()
     routing_result = run_step(

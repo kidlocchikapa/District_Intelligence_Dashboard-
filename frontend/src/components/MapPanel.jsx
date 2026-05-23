@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import "leaflet/dist/leaflet.css";
 import L from "leaflet";
 import { GeoJSON, MapContainer, TileLayer, useMap } from "react-leaflet";
@@ -12,14 +12,20 @@ import {
 } from "../lib/geo";
 import { formatNumber, titleizeMetric } from "../lib/format";
 import EmptyState from "./EmptyState";
-
-import { useEffect } from "react";
 import { useDistrict } from "../context/DistrictContext";
 
 const RISK_BAND_COLORS = {
   low: "#16a34a",
   medium: "#f59e0b",
   high: "#dc2626",
+  unknown: "#94a3b8",
+};
+
+const PRIORITY_BAND_COLORS = {
+  critical: "#b91c1c",
+  high: "#f97316",
+  moderate: "#2563eb",
+  watch: "#16a34a",
   unknown: "#94a3b8",
 };
 
@@ -30,6 +36,17 @@ function normalizeRiskCategory(value) {
   if (normalized === "low") return "low";
   if (normalized === "medium") return "medium";
   if (normalized === "high") return "high";
+  return "unknown";
+}
+
+function normalizePriorityBand(value) {
+  const normalized = String(value || "")
+    .trim()
+    .toLowerCase();
+  if (normalized === "critical") return "critical";
+  if (normalized === "high") return "high";
+  if (normalized === "moderate") return "moderate";
+  if (normalized === "watch") return "watch";
   return "unknown";
 }
 
@@ -71,6 +88,43 @@ function MapFitter({ bounds }) {
   return null;
 }
 
+function MapResizeObserver({ watchKey }) {
+  const map = useMap();
+
+  useEffect(() => {
+    const container = map.getContainer();
+    let frameId;
+
+    const refreshSize = () => {
+      frameId = window.requestAnimationFrame(() => {
+        map.invalidateSize({ animate: false });
+      });
+    };
+
+    refreshSize();
+
+    if (typeof ResizeObserver === "undefined" || !container) {
+      return () => {
+        if (frameId) {
+          window.cancelAnimationFrame(frameId);
+        }
+      };
+    }
+
+    const observer = new ResizeObserver(refreshSize);
+    observer.observe(container);
+
+    return () => {
+      observer.disconnect();
+      if (frameId) {
+        window.cancelAnimationFrame(frameId);
+      }
+    };
+  }, [map, watchKey]);
+
+  return null;
+}
+
 function MapPanel({
   geojson,
   metricName,
@@ -86,7 +140,7 @@ function MapPanel({
   palette = "default",
   showLegend = false,
   legendTitle,
-  showLabels = false,
+  outlineOnly = false,
   showZoomControls = true,
   heightClass = "h-[380px]",
   loading = false,
@@ -95,19 +149,52 @@ function MapPanel({
   featureNameResolver,
 }) {
   const { setSelectedDistrict } = useDistrict();
+  const hasHeader = Boolean(title || subtitle);
+  const useStackedLayout = hasHeader || showLegend;
   const [activeGeojson, setActiveGeojson] = useState(geojson);
-  const [activeBounds, setActiveBounds] = useState(
-    getGeoBounds(geojson?.features || []),
-  );
 
   useEffect(() => {
-    if (!loading && geojson) {
-      setActiveGeojson(geojson);
-      setActiveBounds(getGeoBounds(geojson.features || []));
+    if (loading || !geojson || geojson === activeGeojson) {
+      return undefined;
     }
-  }, [geojson, loading]);
 
-  const features = activeGeojson?.features || [];
+    const frameId = window.requestAnimationFrame(() => {
+      setActiveGeojson(geojson);
+    });
+
+    return () => window.cancelAnimationFrame(frameId);
+  }, [activeGeojson, geojson, loading]);
+
+  const features = useMemo(() => activeGeojson?.features ?? [], [activeGeojson]);
+  const bounds = useMemo(() => getGeoBounds(features), [features]);
+  const layerDataKey = useMemo(
+    () =>
+      features
+        .map((feature) => {
+          const properties = feature?.properties || {};
+          const featureName =
+            typeof featureNameResolver === "function"
+              ? featureNameResolver(feature)
+              : properties.admin_unit_name || properties.name || "";
+          const metricValue =
+            metricName && properties[metricName] !== undefined
+              ? properties[metricName]
+              : "";
+          const colorValue =
+            colorByField && properties[colorByField] !== undefined
+              ? properties[colorByField]
+              : "";
+
+          return [
+            feature?.id ?? "",
+            featureName,
+            metricValue,
+            colorValue,
+          ].join(":");
+        })
+        .join("|"),
+    [colorByField, featureNameResolver, features, metricName],
+  );
 
   if (!loading && !features.length) {
     return (
@@ -123,13 +210,15 @@ function MapPanel({
   const hasPointFeatures = features.some(
     (feature) => feature?.geometry?.type === "Point",
   );
+  const hasAreaFeatures = features.some(
+    (feature) => feature?.geometry?.type !== "Point",
+  );
   const isRiskBandPalette = palette === "risk-bands";
+  const isPriorityBandPalette = palette === "priority-bands";
 
   const colorStops =
     CHOROPLETH_PALETTES[palette] || CHOROPLETH_PALETTES.default;
   const legendStops = getLegendStops(range.min, range.max, colorStops);
-  const bounds = activeBounds;
-
   function popupContent(feature) {
     const properties = feature?.properties || {};
     const titleValue =
@@ -185,7 +274,8 @@ function MapPanel({
   }
 
   const styleFeature = (feature) => {
-    if (hasPointFeatures) return {};
+    const isPointFeature = feature?.geometry?.type === "Point";
+    if (isPointFeature) return {};
     const properties = feature?.properties || {};
     const featureName =
       typeof featureNameResolver === "function"
@@ -197,8 +287,25 @@ function MapPanel({
       String(featureName).toLowerCase() ===
         String(selectedFeatureName).toLowerCase();
 
+    if (outlineOnly) {
+      return {
+        fillColor: "transparent",
+        weight: isSelected ? 3 : 1.35,
+        opacity: 1,
+        color: isSelected ? "#111827" : "#5f6d5b",
+        dashArray: isSelected ? "" : "3",
+        fillOpacity: 0,
+      };
+    }
+
     let fillColor;
-    if (isRiskBandPalette) {
+    if (isPriorityBandPalette) {
+      const categoryKey = normalizePriorityBand(
+        feature?.properties?.[colorByField || metricName],
+      );
+      fillColor =
+        PRIORITY_BAND_COLORS[categoryKey] || PRIORITY_BAND_COLORS.unknown;
+    } else if (isRiskBandPalette) {
       const categoryKey = normalizeRiskCategory(
         feature?.properties?.[colorByField || metricName],
       );
@@ -221,18 +328,19 @@ function MapPanel({
   };
 
   const onEachFeatureInteraction = (feature, layer) => {
+    const isPointFeature = feature?.geometry?.type === "Point";
     layer.bindPopup(popupContent(feature));
 
     let tcontent = tooltipContent(feature);
     if (
-      !hasPointFeatures &&
+      !isPointFeature &&
       metricName &&
       feature.properties[metricName] !== undefined
     ) {
       tcontent += `<br/>${titleizeMetric(metricName)}: ${formatNumber(feature.properties[metricName], 1)}`;
     }
 
-    if (tooltipFields.length || (!hasPointFeatures && metricName)) {
+    if (tooltipFields.length || (!isPointFeature && metricName)) {
       layer.bindTooltip(tcontent, {
         direction: "top",
         sticky: true,
@@ -240,15 +348,16 @@ function MapPanel({
       });
     }
 
-    if (!hasPointFeatures) {
+    if (!isPointFeature) {
       layer.on({
         mouseover: (e) => {
           const layer = e.target;
+          const baseStyle = styleFeature(feature);
           layer.setStyle({
-            weight: 3,
-            color: "#666",
+            ...baseStyle,
+            weight: Math.max(Number(baseStyle?.weight || 1.4) + 0.8, 2.2),
+            color: outlineOnly ? "#374151" : "#666",
             dashArray: "",
-            fillOpacity: 0.9,
           });
           layer.bringToFront();
         },
@@ -265,12 +374,24 @@ function MapPanel({
           }
         },
       });
+    } else if (typeof onFeatureClick === "function") {
+      layer.on({
+        click: (e) => {
+          onFeatureClick(feature, e);
+        },
+      });
     }
   };
 
   return (
-    <div className={`${(title || subtitle) ? "space-y-4 h-full flex flex-col" : "h-full w-full"}`}>
-      {(title || subtitle) && (
+    <div
+      className={
+        useStackedLayout
+          ? "flex h-full w-full flex-col min-h-0 space-y-4"
+          : "h-full w-full"
+      }
+    >
+      {hasHeader && (
         <div className="shrink-0 mb-2">
           <h4 className="text-lg font-semibold text-slate">{title}</h4>
           {subtitle ? (
@@ -280,7 +401,7 @@ function MapPanel({
       )}
 
       <div
-        className={`relative isolate ${(title || subtitle) ? `flex-1 ${heightClass}` : heightClass} w-full overflow-hidden rounded-[1.5rem] border border-fog`}
+        className={`relative ${useStackedLayout ? "flex-1 min-h-0" : ""} ${heightClass} w-full overflow-hidden rounded-[1.5rem] border border-fog`}
       >
         <MapContainer
           center={firstCenter}
@@ -294,10 +415,13 @@ function MapPanel({
             attribution="&copy; OpenStreetMap contributors"
             url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
           />
-          {bounds && bounds.minLat !== Infinity && <MapFitter bounds={bounds} />}
+          {bounds && bounds.minLat !== Infinity && (
+            <MapFitter bounds={bounds} />
+          )}
+          <MapResizeObserver watchKey={layerDataKey} />
 
           <GeoJSON
-            key={`${metricName}-${features.length}-${selectedFeatureName || "all"}`}
+            key={`${metricName}-${colorByField || "metric"}-${selectedFeatureName || "all"}-${layerDataKey}`}
             data={activeGeojson}
             style={styleFeature}
             pointToLayer={
@@ -335,9 +459,41 @@ function MapPanel({
         )}
       </div>
 
-      {!hasPointFeatures && showLegend ? (
+      {hasAreaFeatures && showLegend ? (
         <div className="shrink-0 rounded-[1.25rem] border border-fog bg-cream/70 px-4 py-3 mt-4">
-          {isRiskBandPalette ? (
+          {isPriorityBandPalette ? (
+            <>
+              <div className="mb-2 flex items-center justify-between gap-3">
+                <p className="text-sm font-semibold text-slate">
+                  {legendTitle || "Priority Bands"}
+                </p>
+              </div>
+              <div className="grid gap-2 sm:grid-cols-5 flex-wrap">
+                {[
+                  { key: "critical", label: "Critical" },
+                  { key: "high", label: "High" },
+                  { key: "moderate", label: "Moderate" },
+                  { key: "watch", label: "Watch" },
+                  { key: "unknown", label: "Unknown" },
+                ].map((item) => (
+                  <div
+                    key={item.key}
+                    className="flex items-center gap-2 rounded-full bg-white/75 px-3 py-2"
+                  >
+                    <span
+                      className="h-3 w-3 rounded-full border border-slate/10"
+                      style={{
+                        backgroundColor: PRIORITY_BAND_COLORS[item.key],
+                      }}
+                    />
+                    <span className="text-xs text-slate/70 whitespace-nowrap">
+                      {item.label}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </>
+          ) : isRiskBandPalette ? (
             <>
               <div className="mb-2 flex items-center justify-between gap-3">
                 <p className="text-sm font-semibold text-slate">

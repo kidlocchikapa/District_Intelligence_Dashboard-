@@ -1,7 +1,7 @@
-import { BarChart3, HeartPulse, Home, School, ShieldAlert, UploadCloud, Users2, Menu, X, ChevronLeft, ChevronRight, LogIn, LogOut, GraduationCap, Activity, UserCheck, LayoutDashboard, Database } from 'lucide-react';
+import { ShieldAlert, Users2, Menu, X, ChevronLeft, ChevronRight, LogIn, LogOut, GraduationCap, Activity, UserCheck, LayoutDashboard, Database, KeyRound } from 'lucide-react';
 import { useState, useEffect } from 'react';
-import { NavLink, Route, Routes, useNavigate, useLocation } from 'react-router-dom';
-import { Toaster, toast } from 'react-hot-toast';
+import { NavLink, Route, Routes, useNavigate } from 'react-router-dom';
+import { Toaster } from 'react-hot-toast';
 import { setAuthToken, hydrateAuthToken, AUTH_EVENT_NAME } from './lib/api';
 import Login from './Login';
 import { useDistrict } from './context/DistrictContext';
@@ -15,6 +15,7 @@ import PopulationPage from './Pages/PopulationPage';
 import WelfarePage from './Pages/WelfarePage';
 import SuperAdminLayout from './layouts/SuperAdminLayout';
 import PermissionsPage from './Pages/PermissionsPage';
+import ChangePasswordModal from './components/ChangePasswordModal';
 
 const navigation = [
   { to: '/', label: 'Overview', icon: LayoutDashboard },
@@ -38,11 +39,11 @@ function decodeJwtRole(token) {
 function App() {
   const [isCollapsed, setIsCollapsed] = useState(false);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+  const [isChangePasswordOpen, setIsChangePasswordOpen] = useState(false);
   const [isAuthenticated, setIsAuthenticated] = useState(() => Boolean(hydrateAuthToken()));
   const [userRole, setUserRole] = useState(() => decodeJwtRole(hydrateAuthToken()));
   const { selectedDistrict } = useDistrict();
   const navigate = useNavigate();
-  const location = useLocation();
 
   const isSuperAdmin = isAuthenticated && userRole === 'super_admin';
 
@@ -56,10 +57,6 @@ function App() {
     window.addEventListener(AUTH_EVENT_NAME, syncAuthState);
     return () => window.removeEventListener(AUTH_EVENT_NAME, syncAuthState);
   }, []);
-
-  useEffect(() => {
-    setIsMobileMenuOpen(false);
-  }, [location.pathname]);
 
   useEffect(() => {
     function handleResize() {
@@ -86,6 +83,7 @@ function App() {
       setAuthToken(null);
       setIsAuthenticated(false);
       setIsMobileMenuOpen(false);
+      setIsChangePasswordOpen(false);
       navigate('/');
       return;
     }
@@ -96,7 +94,7 @@ function App() {
   const isCompactSidebar = isCollapsed && !isMobileMenuOpen;
 
   return (
-    <div className="min-h-screen overflow-hidden bg-[#F9FAFB] font-sans lg:h-screen">
+    <div className="h-screen overflow-hidden bg-[#F9FAFB] font-sans">
       <Toaster position="top-right" />
       
       <Routes>
@@ -127,7 +125,8 @@ function App() {
             <Login onLogin={(token, role) => {
               setAuthToken(token);
               setIsAuthenticated(Boolean(token));
-              if (role === 'super_admin' || decodeJwtRole(token) === 'super_admin') {
+              const resolvedRole = role || decodeJwtRole(token);
+              if (resolvedRole === 'super_admin') {
                 navigate('/superadmin');
               } else {
                 navigate('/admin');
@@ -207,12 +206,12 @@ function App() {
               )}
 
               <nav className={`flex-1 space-y-1 ${isCompactSidebar ? 'flex flex-col items-center' : ''}`}>
-                {navItems.map(({ to, label, icon: Icon }) => (
+                {navItems.map((item) => (
                   <NavLink
-                    key={to}
-                    to={to}
+                    key={item.to}
+                    to={item.to}
                     onClick={() => setIsMobileMenuOpen(false)}
-                    title={isCompactSidebar ? label : ''}
+                    title={isCompactSidebar ? item.label : ''}
                     className={({ isActive }) =>
                       `flex items-center gap-3 rounded transition-all duration-200 ${isCompactSidebar ? 'p-3 justify-center' : 'px-3 py-2.5 text-[15px]'
                       } font-semibold ${isActive
@@ -221,21 +220,38 @@ function App() {
                       }`
                     }
                   >
-                    <Icon className={`opacity-70 ${isCompactSidebar ? 'h-6 w-6' : 'h-5 w-5'}`} />
-                    {!isCompactSidebar && <span>{label}</span>}
+                    {item.icon ? (
+                      <item.icon
+                        className={`opacity-70 ${isCompactSidebar ? 'h-6 w-6' : 'h-5 w-5'}`}
+                      />
+                    ) : null}
+                    {!isCompactSidebar && <span>{item.label}</span>}
                   </NavLink>
                 ))}
               </nav>
 
               <div className={`mt-auto pt-8 ${isCompactSidebar ? 'flex justify-center' : ''}`}>
-                <button
-                  onClick={handleSessionAction}
-                  title={isCompactSidebar ? (isAuthenticated ? "Sign Out" : "Sign In") : ""}
-                  className={`rounded bg-black text-white transition-all duration-200 hover:bg-gray-800 shadow-lg active:scale-[0.98] ${isCompactSidebar ? 'p-3' : 'w-full px-4 py-3 text-sm font-bold'
-                    }`}
-                >
-                  {isCompactSidebar ? (isAuthenticated ? <LogOut size={20} /> : <LogIn size={20} />) : (isAuthenticated ? "Sign Out" : "Sign In")}
-                </button>
+                <div className={`w-full space-y-2 ${isCompactSidebar ? 'flex flex-col items-center' : ''}`}>
+                  {isAuthenticated ? (
+                    <button
+                      onClick={() => setIsChangePasswordOpen(true)}
+                      title={isCompactSidebar ? "Change Password" : ""}
+                      className={`rounded border border-gray-300 bg-white text-gray-800 transition-all duration-200 hover:bg-gray-100 active:scale-[0.98] ${isCompactSidebar ? 'p-3' : 'w-full px-4 py-3 text-sm font-bold'
+                        }`}
+                    >
+                      {isCompactSidebar ? <KeyRound size={20} /> : "Change Password"}
+                    </button>
+                  ) : null}
+
+                  <button
+                    onClick={handleSessionAction}
+                    title={isCompactSidebar ? (isAuthenticated ? "Sign Out" : "Sign In") : ""}
+                    className={`rounded bg-black text-white transition-all duration-200 hover:bg-gray-800 shadow-lg active:scale-[0.98] ${isCompactSidebar ? 'p-3' : 'w-full px-4 py-3 text-sm font-bold'
+                      }`}
+                  >
+                    {isCompactSidebar ? (isAuthenticated ? <LogOut size={20} /> : <LogIn size={20} />) : (isAuthenticated ? "Sign Out" : "Sign In")}
+                  </button>
+                </div>
               </div>
               </aside>
             </div>
@@ -252,6 +268,11 @@ function App() {
                 <Route path="/admin" element={<AdminPage />} />
               </Routes>
             </main>
+
+            <ChangePasswordModal
+              isOpen={isAuthenticated && isChangePasswordOpen}
+              onClose={() => setIsChangePasswordOpen(false)}
+            />
           </div>
         } />
       </Routes>

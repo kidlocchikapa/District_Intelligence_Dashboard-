@@ -1,4 +1,5 @@
 const express = require("express");
+const path = require("path");
 const router = express.Router();
 const db = require("../db");
 const {
@@ -47,7 +48,9 @@ async function tableExists(tableName) {
 }
 
 function buildRasterSlug(district) {
-  const normalized = String(district || "").trim().toLowerCase();
+  const normalized = String(district || "")
+    .trim()
+    .toLowerCase();
   if (
     normalized === "zomba" ||
     normalized === "zomba city" ||
@@ -58,16 +61,104 @@ function buildRasterSlug(district) {
 
   const values = resolveDistrictFilterValues(district);
   const source = values.length ? values : ["malawi"];
-  return source
-    .map((value) =>
-      String(value || "")
-        .trim()
-        .toLowerCase()
-        .replace(/[^a-z0-9]+/g, "-")
-        .replace(/^-+|-+$/g, ""),
-    )
-    .filter(Boolean)
-    .join("-") || "malawi";
+  return (
+    source
+      .map((value) =>
+        String(value || "")
+          .trim()
+          .toLowerCase()
+          .replace(/[^a-z0-9]+/g, "-")
+          .replace(/^-+|-+$/g, ""),
+      )
+      .filter(Boolean)
+      .join("-") || "malawi"
+  );
+}
+
+function parseRunMetadata(value) {
+  if (!value) {
+    return null;
+  }
+
+  if (typeof value === "object") {
+    return value;
+  }
+
+  if (typeof value === "string") {
+    try {
+      return JSON.parse(value);
+    } catch (error) {
+      return null;
+    }
+  }
+
+  return null;
+}
+
+function normalizePreviewAssetPath(filePath, publicDirName) {
+  if (!filePath) {
+    return null;
+  }
+
+  const value = String(filePath);
+  const marker = `/${publicDirName}/`;
+  const markerIndex = value.indexOf(marker);
+  if (markerIndex >= 0) {
+    return value.slice(markerIndex);
+  }
+
+  const filename = path.basename(value);
+  if (!filename) {
+    return null;
+  }
+
+  return `/${publicDirName}/${filename}`;
+}
+
+async function fetchLatestPreviewAssets(datasetType, districtValues) {
+  const baseQuery = `
+    SELECT run_metadata, completed_at
+    FROM data_load_log
+    WHERE dataset_type = $1
+      AND status = 'Success'
+  `;
+  const orderClause = " ORDER BY completed_at DESC NULLS LAST, id DESC LIMIT 1";
+  let result = null;
+
+  if (Array.isArray(districtValues) && districtValues.length) {
+    result = await db.query(
+      `${baseQuery} AND (run_metadata->'district_names' ?| $2)${orderClause}`,
+      [datasetType, districtValues],
+    );
+  }
+
+  if (!result || !result.rows.length) {
+    result = await db.query(`${baseQuery}${orderClause}`, [datasetType]);
+  }
+
+  const row = result.rows[0] || {};
+  const metadata = parseRunMetadata(row.run_metadata);
+  const previewAssets = metadata?.preview_assets;
+  return {
+    previewAssets: Array.isArray(previewAssets) ? previewAssets : [],
+    completedAt: row.completed_at || null,
+  };
+}
+
+function findPreviewPath(previewPaths, suffix) {
+  return previewPaths.find((value) => String(value).endsWith(suffix)) || null;
+}
+
+function buildHealthRasterAssets(slug) {
+  return {
+    health_buffer_8km: `/health-access/${slug}.health_buffer_8km.preview.json`,
+    health_network_8km: `/health-access/${slug}.health_network_8km.preview.json`,
+    health_travel_time: `/health-access/${slug}.health_travel_time.preview.json`,
+    health_2sfca: `/health-access/${slug}.health_2sfca.preview.json`,
+    health_welfare_vulnerability: `/health-access/${slug}.health_welfare_vulnerability.preview.json`,
+    health_flood_isolation: `/health-access/${slug}.health_flood_isolation.preview.json`,
+    health_school_gap: `/health-access/${slug}.health_school_gap.preview.json`,
+  };
 }
 
 // @route   GET api/v1/dashboard/health
@@ -459,6 +550,9 @@ router.get("/served-population/geojson", async (req, res) => {
                         'health_population_served_pct', ar.health_population_served_pct,
                         'health_population_unserved_total', ar.health_population_unserved_total,
                         'health_population_unserved_pct', ar.health_population_unserved_pct,
+                        'nearest_health_distance_km', nhd.nearest_health_distance_km,
+                        'health_2sfca_access_score', sfca.health_2sfca_access_score,
+                        'health_2sfca_catchment_minutes', sfca.catchment_minutes,
                         'coverage_distance_km', ar.coverage_distance_km,
                         'calculated_at', ar.calculated_at
                     )
@@ -479,6 +573,27 @@ router.get("/served-population/geojson", async (req, res) => {
                     GROUP BY admin_unit_id
                 ) ar
                   ON ar.admin_unit_id = au.id
+                LEFT JOIN (
+                    SELECT
+                        admin_unit_id,
+                        MAX(CASE WHEN metric_name = 'nearest_health_distance_km' THEN metric_value END) AS nearest_health_distance_km
+                    FROM analysis_results
+                    WHERE analysis_type = 'nearest_health_distance'
+                      AND LOWER(admin_unit_type) = LOWER($1)
+                    GROUP BY admin_unit_id
+                ) nhd
+                  ON nhd.admin_unit_id = au.id
+                LEFT JOIN (
+                    SELECT
+                        admin_unit_id,
+                        MAX(CASE WHEN metric_name = 'health_2sfca_access_score' THEN metric_value END) AS health_2sfca_access_score,
+                        MAX((metadata->>'catchment_minutes')::numeric) AS catchment_minutes
+                    FROM analysis_results
+                    WHERE analysis_type = 'health_2sfca_access'
+                      AND LOWER(admin_unit_type) = LOWER($1)
+                    GROUP BY admin_unit_id
+                ) sfca
+                  ON sfca.admin_unit_id = au.id
                 WHERE ${conditions.join(" AND ")}
                 ORDER BY au.name
             ) rowconf;
@@ -661,21 +776,76 @@ router.get("/raster-metadata", async (req, res) => {
   const { district } = req.query;
   const slug = buildRasterSlug(district);
 
-  res.json({
-    status: "success",
-    data: {
-      district: district || null,
-      assets: {
-        health_buffer_8km: `/health-access/${slug}.health_buffer_8km.preview.json`,
-        health_network_8km: `/health-access/${slug}.health_network_8km.preview.json`,
-        health_travel_time: `/health-access/${slug}.health_travel_time.preview.json`,
-        health_2sfca: `/health-access/${slug}.health_2sfca.preview.json`,
-        health_welfare_vulnerability: `/health-access/${slug}.health_welfare_vulnerability.preview.json`,
-        health_flood_isolation: `/health-access/${slug}.health_flood_isolation.preview.json`,
-        health_school_gap: `/health-access/${slug}.health_school_gap.preview.json`,
+  try {
+    const districtValues = resolveDistrictFilterValues(district);
+    const { previewAssets, completedAt } = await fetchLatestPreviewAssets(
+      "health_access",
+      districtValues,
+    );
+    const previewJsons = previewAssets
+      .map((asset) => asset?.json)
+      .filter(Boolean);
+
+    const assets = buildHealthRasterAssets(slug);
+    const bufferUrl = normalizePreviewAssetPath(
+      findPreviewPath(previewJsons, ".health_buffer_8km.preview.json"),
+      "health-access",
+    );
+    const networkUrl = normalizePreviewAssetPath(
+      findPreviewPath(previewJsons, ".health_network_8km.preview.json"),
+      "health-access",
+    );
+    const travelUrl = normalizePreviewAssetPath(
+      findPreviewPath(previewJsons, ".health_travel_time.preview.json"),
+      "health-access",
+    );
+    const sfcaUrl = normalizePreviewAssetPath(
+      findPreviewPath(previewJsons, ".health_2sfca.preview.json"),
+      "health-access",
+    );
+    const vulnUrl = normalizePreviewAssetPath(
+      findPreviewPath(
+        previewJsons,
+        ".health_welfare_vulnerability.preview.json",
+      ),
+      "health-access",
+    );
+    const floodUrl = normalizePreviewAssetPath(
+      findPreviewPath(previewJsons, ".health_flood_isolation.preview.json"),
+      "health-access",
+    );
+    const schoolUrl = normalizePreviewAssetPath(
+      findPreviewPath(previewJsons, ".health_school_gap.preview.json"),
+      "health-access",
+    );
+
+    if (bufferUrl) assets.health_buffer_8km = bufferUrl;
+    if (networkUrl) assets.health_network_8km = networkUrl;
+    if (travelUrl) assets.health_travel_time = travelUrl;
+    if (sfcaUrl) assets.health_2sfca = sfcaUrl;
+    if (vulnUrl) assets.health_welfare_vulnerability = vulnUrl;
+    if (floodUrl) assets.health_flood_isolation = floodUrl;
+    if (schoolUrl) assets.health_school_gap = schoolUrl;
+
+    return res.json({
+      status: "success",
+      data: {
+        district: district || null,
+        assets,
+        completed_at: completedAt,
       },
-    },
-  });
+    });
+  } catch (error) {
+    console.error("Health raster metadata error:", error.message);
+    return res.json({
+      status: "success",
+      data: {
+        district: district || null,
+        assets: buildHealthRasterAssets(slug),
+        completed_at: null,
+      },
+    });
+  }
 });
 
 // @route   GET api/v1/dashboard/health/facility-buffers/geojson

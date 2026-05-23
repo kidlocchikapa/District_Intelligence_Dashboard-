@@ -10,7 +10,6 @@ import {
   AlertTriangle,
 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
-import { toast } from "react-hot-toast";
 import {
   Bar,
   BarChart,
@@ -60,11 +59,46 @@ function getExposureBarColor(value, maxValue) {
   return "#22c55e";
 }
 
+function normalizeEntityKeyPart(value) {
+  return String(value || "")
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, " ")
+    .replace(/[^a-z0-9 ]/g, "");
+}
+
+function buildFacilityDedupKey(row, fallbackName) {
+  const facilityName = normalizeEntityKeyPart(row?.facility_name || fallbackName);
+  const ta = normalizeEntityKeyPart(row?.ta_name || "unknown ta");
+  const district = normalizeEntityKeyPart(row?.district_name || "unknown district");
+  return `${facilityName}|${ta}|${district}`;
+}
+
 const DISASTER_EXPOSURE_CHART_LIMITS = [
   { value: 8, label: "Top 8" },
   { value: 12, label: "Top 12" },
   { value: 0, label: "All" },
 ];
+const RISK_RANK = { high: 3, medium: 2, low: 1 };
+const DISASTER_CHART_SKELETON_HEIGHTS = [28, 34, 52, 61, 44, 37, 57];
+
+function ChartSkeleton() {
+  return (
+    <div className="h-full w-full flex flex-col gap-4 animate-pulse">
+      <div className="flex-1 bg-gray-50 rounded-lg relative overflow-hidden">
+        <div className="absolute inset-0 flex items-end justify-around px-4 pb-4">
+          {DISASTER_CHART_SKELETON_HEIGHTS.map((height, index) => (
+            <div
+              key={index}
+              className="w-8 bg-gray-200 rounded-t"
+              style={{ height: `${height}%` }}
+            />
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
 
 function DisasterPage() {
   const { selectedDistrict, selectedTa, setSelectedTa } = useDistrict();
@@ -75,7 +109,7 @@ function DisasterPage() {
 
   useEffect(() => {
     setSelectedTa("");
-  }, [selectedDistrict]);
+  }, [selectedDistrict, setSelectedTa]);
 
   const disasterDistrictFilter = useMemo(() => {
     const normalized = String(selectedDistrict || "")
@@ -183,6 +217,15 @@ function DisasterPage() {
       district: selectedDistrict,
       ta: selectedTa,
       admin_type: selectedTa ? "TA" : "District",
+    }),
+  );
+  const planningPriorities = useDashboardData(
+    buildDashboardPath("/dashboard/planning-priorities", {
+      district: disasterDistrictFilter || selectedDistrict,
+      ta: selectedTa,
+      admin_type: "TA",
+      department: "disaster",
+      limit: selectedTa ? 1 : 5,
     }),
   );
 
@@ -353,6 +396,12 @@ function DisasterPage() {
         value: formatStat(healthFacilitiesExposed),
       },
     ];
+    const planningRows = (planningPriorities.data?.priorities || []).map((row) => ({
+      area: row.admin_unit_name,
+      priority: row.priority_band,
+      score: formatStat(row.planning_priority_score),
+      action: row.recommended_actions?.[0] || "Prioritize flood resilience and service continuity",
+    }));
 
     await exportDataPdf({
       title: "Disaster Risk Area Analysis",
@@ -373,6 +422,23 @@ function DisasterPage() {
             { key: "value", label: "Value", width: 180 },
           ],
           rows: facilitiesRows,
+        },
+        {
+          title: "Planning Priorities",
+          columns: [
+            { key: "area", label: "Area", width: 140 },
+            { key: "priority", label: "Priority", width: 90 },
+            { key: "score", label: "Score", width: 70 },
+            { key: "action", label: "Recommended Action", width: 280 },
+          ],
+          rows: planningRows.length ? planningRows : [
+            {
+              area: scopeLabel,
+              priority: "N/A",
+              score: "0",
+              action: "No ranked disaster planning priorities are available for this scope yet.",
+            },
+          ],
         },
       ],
     });
@@ -418,22 +484,6 @@ function DisasterPage() {
       icon: Users,
     },
   ];
-
-  const ChartSkeleton = () => (
-    <div className="h-full w-full flex flex-col gap-4 animate-pulse">
-      <div className="flex-1 bg-gray-50 rounded-lg relative overflow-hidden">
-        <div className="absolute inset-0 flex items-end justify-around px-4 pb-4">
-          {[...Array(7)].map((_, index) => (
-            <div
-              key={index}
-              className="w-8 bg-gray-200 rounded-t"
-              style={{ height: `${Math.random() * 55 + 25}%` }}
-            />
-          ))}
-        </div>
-      </div>
-    </div>
-  );
 
   return (
     <div
@@ -923,6 +973,7 @@ function DisasterPage() {
           healthFacilitiesExposed={healthFacilitiesExposed}
           healthFacilitiesTotal={healthFacilitiesTotal}
           scopeLabel={scopeLabel}
+          planningPriorities={planningPriorities}
         />
 
       </div>
@@ -932,39 +983,27 @@ function DisasterPage() {
 
 /* ─── Disaster Recommendations ────────────────────────────────────────── */
 function DisasterRecommendations({
-  disasterSummary,
-  educationFacilityExposureSummary,
-  healthFacilityExposureSummary,
-  educationFacilityExposureDetails,
-  healthFacilityExposureDetails,
-  taFloodExposure,
-  educationFloodImpact,
-  schoolsExposed,
-  schoolsTotal,
-  healthFacilitiesExposed,
-  healthFacilitiesTotal,
-  scopeLabel,
+  disasterSummary, educationFacilityExposureSummary, healthFacilityExposureSummary,
+  educationFacilityExposureDetails, healthFacilityExposureDetails, taFloodExposure,
+  educationFloodImpact, schoolsExposed, schoolsTotal, healthFacilitiesExposed,
+  healthFacilitiesTotal, scopeLabel, planningPriorities,
 }) {
   const [metricPreview, setMetricPreview] = useState(null);
-  const loading =
-    disasterSummary.loading ||
-    educationFacilityExposureSummary.loading ||
-    healthFacilityExposureSummary.loading ||
-    educationFacilityExposureDetails.loading ||
-    healthFacilityExposureDetails.loading ||
-    taFloodExposure.loading ||
-    educationFloodImpact.loading;
+  const loading = disasterSummary.loading || educationFacilityExposureSummary.loading ||
+    healthFacilityExposureSummary.loading || educationFloodImpact.loading || planningPriorities.loading;
+  const rankedPriorities = planningPriorities?.data?.priorities || [];
 
   const summary = disasterSummary.data || {};
   const eduImpact = educationFloodImpact.data?.summary || {};
-  const eduImpactTaBreakdown = educationFloodImpact.data?.ta_breakdown || [];
+  const eduImpactTaBreakdown = useMemo(
+    () => educationFloodImpact.data?.ta_breakdown ?? [],
+    [educationFloodImpact.data],
+  );
   const exposedPop = Number(summary.exposed_population || 0);
   const totalPop = Number(summary.total_population || 0);
   const exposedPct = Number(summary.exposed_population_pct || 0);
   const studentsAtRisk = Number(eduImpact.students_at_risk || 0);
   const highRiskPop = Number(summary.high_risk_population || 0);
-
-  const riskRank = { high: 3, medium: 2, low: 1 };
 
   const educationFacilityRows = useMemo(() => {
     const deduped = new Map();
@@ -975,10 +1014,7 @@ function DisasterRecommendations({
       const ta = row.ta_name || "Unknown TA";
       const district = row.district_name || "Unknown District";
       const floodDepth = Number(row.flood_value || 0);
-      const keyBase =
-        row.facility_id !== null && row.facility_id !== undefined
-          ? `id:${row.facility_id}`
-          : `name:${facilityName.toLowerCase()}|ta:${ta.toLowerCase()}|district:${district.toLowerCase()}`;
+      const keyBase = buildFacilityDedupKey(row, "unnamed school");
       const key = `edu-${keyBase}`;
 
       const candidate = {
@@ -997,8 +1033,8 @@ function DisasterRecommendations({
         return;
       }
 
-      const existingRisk = riskRank[existing.riskClass] || 0;
-      const candidateRisk = riskRank[candidate.riskClass] || 0;
+      const existingRisk = RISK_RANK[existing.riskClass] || 0;
+      const candidateRisk = RISK_RANK[candidate.riskClass] || 0;
       if (
         candidateRisk > existingRisk ||
         (candidateRisk === existingRisk &&
@@ -1010,7 +1046,7 @@ function DisasterRecommendations({
 
     return Array.from(deduped.values()).sort((left, right) => {
       const riskDelta =
-        (riskRank[right.riskClass] || 0) - (riskRank[left.riskClass] || 0);
+        (RISK_RANK[right.riskClass] || 0) - (RISK_RANK[left.riskClass] || 0);
       if (riskDelta !== 0) return riskDelta;
       return right.floodDepth - left.floodDepth;
     });
@@ -1029,10 +1065,7 @@ function DisasterRecommendations({
       const ta = row.ta_name || "Unknown TA";
       const district = row.district_name || "Unknown District";
       const floodDepth = Number(row.flood_value || 0);
-      const keyBase =
-        row.facility_id !== null && row.facility_id !== undefined
-          ? `id:${row.facility_id}`
-          : `name:${facilityName.toLowerCase()}|ta:${ta.toLowerCase()}|district:${district.toLowerCase()}`;
+      const keyBase = buildFacilityDedupKey(row, "unnamed facility");
       const key = `health-${keyBase}`;
 
       const candidate = {
@@ -1051,8 +1084,8 @@ function DisasterRecommendations({
         return;
       }
 
-      const existingRisk = riskRank[existing.riskClass] || 0;
-      const candidateRisk = riskRank[candidate.riskClass] || 0;
+      const existingRisk = RISK_RANK[existing.riskClass] || 0;
+      const candidateRisk = RISK_RANK[candidate.riskClass] || 0;
       if (
         candidateRisk > existingRisk ||
         (candidateRisk === existingRisk &&
@@ -1064,7 +1097,7 @@ function DisasterRecommendations({
 
     return Array.from(deduped.values()).sort((left, right) => {
       const riskDelta =
-        (riskRank[right.riskClass] || 0) - (riskRank[left.riskClass] || 0);
+        (RISK_RANK[right.riskClass] || 0) - (RISK_RANK[left.riskClass] || 0);
       if (riskDelta !== 0) return riskDelta;
       return right.floodDepth - left.floodDepth;
     });
@@ -1111,7 +1144,7 @@ function DisasterRecommendations({
       })),
     ].sort((left, right) => {
       const riskDelta =
-        (riskRank[right.riskClass] || 0) - (riskRank[left.riskClass] || 0);
+        (RISK_RANK[right.riskClass] || 0) - (RISK_RANK[left.riskClass] || 0);
       if (riskDelta !== 0) return riskDelta;
       return right.floodDepth - left.floodDepth;
     });
@@ -1176,10 +1209,19 @@ function DisasterRecommendations({
   const priorityConfig = {
     high: { label: "Immediate Action", classes: "bg-red-50 border-red-200 text-red-700", dot: "bg-red-500" },
     medium: { label: "Short-Term Action", classes: "bg-amber-50 border-amber-200 text-amber-700", dot: "bg-amber-500" },
-    low: { label: "Planning Note", classes: "bg-blue-50 border-blue-200 text-blue-700", dot: "bg-blue-500" },
+    low:    { label: "Planning Note",     classes: "bg-blue-50 border-blue-200 text-blue-700",  dot: "bg-blue-500"   },
   };
 
+  const priorityLedRecommendations = rankedPriorities.slice(0, 2).map((row, index) => ({
+    priority: index === 0 ? "high" : row.priority_band === "Critical" || row.priority_band === "High" ? "high" : "medium",
+    icon: ShieldAlert,
+    title: `${row.admin_unit_name} should anchor the next flood-readiness package`,
+    body: `${row.narrative} Flood exposure is estimated at ${formatNumber(row.flood_exposed_population_pct, 1)}% of the local population, with both service vulnerability and beneficiary concentration reinforcing the need for coordinated preparedness.`,
+    action: row.recommended_actions?.find((action) => /flood|roads|facilities|prepared/i.test(action)) || row.recommended_actions?.[0] || "Use the top-ranked TA as the first flood-readiness intervention zone",
+  }));
+
   const recommendations = [
+    ...priorityLedRecommendations,
     schoolsExposed > 0 && {
       priority: "high",
       icon: School,
@@ -1372,32 +1414,8 @@ function DisasterRecommendations({
       title: "Annual Flood Exposure Re-Analysis",
       body: `Flood risk patterns shift with climate variability. The current analysis is based on the latest available flood raster. Annual re-runs of the flood exposure pipeline after each rainy season will ensure the dashboard reflects current risk and that planning decisions are based on up-to-date data.`,
       action: "Schedule annual flood raster updates and re-run the exposure analysis pipeline each May",
-      metricLinks: [
-        {
-          id: "annual-baseline-exposed-pop",
-          label: "Current Exposed Pop",
-          value: formatNumber(exposedPop, 0),
-          onClick: () =>
-            openMetricPreview({
-              title: "Flood Risk Summary",
-              rows: summaryRows,
-              columns: summaryColumns,
-            }),
-        },
-        {
-          id: "annual-baseline-students",
-          label: "Current Students at Risk",
-          value: formatNumber(studentsAtRisk, 0),
-          onClick: () =>
-            openMetricPreview({
-              title: "Flood Education Impact by TA",
-              rows: educationImpactTaRows,
-              columns: educationImpactColumns,
-            }),
-        },
-      ],
     },
-  ].filter(Boolean);
+  ].filter(Boolean).slice(0, 7);
 
   if (loading) {
     return (

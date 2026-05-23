@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import "leaflet/dist/leaflet.css";
-import { CircleMarker, GeoJSON, ImageOverlay, MapContainer, Tooltip, ZoomControl, useMap } from "react-leaflet";
+import { CircleMarker, GeoJSON, ImageOverlay, MapContainer, Popup, Tooltip, ZoomControl, useMap } from "react-leaflet";
 import { useDistrict } from "../context/DistrictContext";
 import { getGeoBounds } from "../lib/geo";
 import EmptyState from "./EmptyState";
@@ -18,6 +18,20 @@ function MapFitter({ bounds }) {
   return null;
 }
 
+function MapInstanceCapture({ onReady }) {
+  const map = useMap();
+
+  useEffect(() => {
+    onReady?.(map);
+
+    return () => {
+      onReady?.(null);
+    };
+  }, [map, onReady]);
+
+  return null;
+}
+
 function PopulationRasterPanel({
   geojson,
   pointsGeojson,
@@ -26,20 +40,28 @@ function PopulationRasterPanel({
   metadataUrl = DEFAULT_METADATA_URL,
   heightClass = "h-[460px]",
   loading = false,
+  pointLayerLabel,
+  showPointLayerToggle = true,
+  legendPositionClass = "right-2 top-2 sm:right-4 sm:top-4",
+  baseTooltipMetrics,
   onFeatureClick,
   onFeatureHover,
   selectedFeatureName,
   hoveredFeatureName,
   featureNameResolver,
   customTooltipMetrics,
-  pointLayerLabel,
-  showPointLayerToggle = true,
+  onPanelLeave,
 }) {
   const { selectedDistrict, setSelectedDistrict } = useDistrict();
   const [metadata, setMetadata] = useState(null);
   const [hoveredDistrict, setHoveredDistrict] = useState(null);
   const [showPointLayer, setShowPointLayer] = useState(true);
+  const [showRasterLayer, setShowRasterLayer] = useState(true);
+  const [showBoundaryLayer, setShowBoundaryLayer] = useState(true);
+  const [mapInstance, setMapInstance] = useState(null);
   const [error, setError] = useState(null);
+  const [isResetViewActive, setIsResetViewActive] = useState(false);
+  const [selectedPointKey, setSelectedPointKey] = useState(null);
 
   useEffect(() => {
     let ignore = false;
@@ -124,6 +146,21 @@ function PopulationRasterPanel({
       [bounds.maxLat, bounds.maxLon],
     ];
   }, [defaultBounds, features, metadata, selectedFeature]);
+  const mapFitterBounds = useMemo(() => {
+    if (isResetViewActive) {
+      return defaultBounds || activeBounds || null;
+    }
+
+    return activeBounds || defaultBounds || null;
+  }, [activeBounds, defaultBounds, isResetViewActive]);
+
+  useEffect(() => {
+    setIsResetViewActive(false);
+  }, [selectedFeatureName, metadataUrl]);
+
+  useEffect(() => {
+    setSelectedPointKey(null);
+  }, [metadataUrl, pointsGeojson]);
   const pointFeatures = useMemo(() => {
     return (pointsGeojson?.features || []).filter(
       (feature) =>
@@ -176,6 +213,82 @@ function PopulationRasterPanel({
       maximumFractionDigits: digits,
     });
   };
+
+  const formatPointMetric = (value, format = "number", digits = 0) => {
+    if (value === undefined || value === null || value === "") {
+      return null;
+    }
+
+    if (format === "text") {
+      return String(value);
+    }
+
+    const number = Number(value);
+    if (!Number.isFinite(number)) {
+      return null;
+    }
+
+    if (format === "ratio") {
+      return `1:${formatStat(number, digits)}`;
+    }
+
+    return formatStat(number, digits);
+  };
+
+  function getPointDetails(properties) {
+    const hasSchoolFields =
+      properties?.school_name ||
+      properties?.school_id ||
+      properties?.student_enrollment_total !== undefined;
+    const hasHealthFields =
+      properties?.facility_name ||
+      properties?.doctor_count !== undefined ||
+      properties?.nurse_midwife_count !== undefined;
+
+    if (hasSchoolFields) {
+      return [
+        {
+          label: "Enrollment",
+          value: formatPointMetric(properties.student_enrollment_total),
+        },
+        {
+          label: "Teachers",
+          value: formatPointMetric(
+            properties.teacher_count ?? properties.teacher_distribution,
+          ),
+        },
+        {
+          label: "Classrooms",
+          value: formatPointMetric(properties.blocks_count),
+        },
+        {
+          label: "Risk",
+          value: formatPointMetric(properties.risk_category, "text"),
+        },
+      ].filter((item) => item.value !== null);
+    }
+
+    if (hasHealthFields) {
+      return [
+        {
+          label: "Beds",
+          value: formatPointMetric(
+            properties.beds_count ?? properties.bed_capacity,
+          ),
+        },
+        {
+          label: "Doctors",
+          value: formatPointMetric(properties.doctor_count),
+        },
+        {
+          label: "Nurses/Midwives",
+          value: formatPointMetric(properties.nurse_midwife_count),
+        },
+      ].filter((item) => item.value !== null);
+    }
+
+    return [];
+  }
 
   if (error) {
     return <EmptyState title={title} description={error} />;
@@ -265,30 +378,41 @@ function PopulationRasterPanel({
         },
       ];
 
-  const focusFeature = hoveredFeature || selectedFeature;
-  const focusProperties = focusFeature?.properties || {};
-  const legendPositionClass = focusFeature
-    ? "right-2 top-16 sm:right-4 sm:bottom-4 sm:top-auto"
-    : "bottom-2 right-2 sm:right-4 sm:bottom-4";
+  const activeFeature = hoveredFeature || selectedFeature || null;
+  const focusProperties = activeFeature?.properties || {};
   const focusName =
-    (focusFeature ? getFeatureName(focusFeature) : null) ||
+    (activeFeature ? getFeatureName(activeFeature) : null) ||
     hoveredFeatureName ||
+    selectedFeatureName ||
     null;
   const focusLabel = hoveredFeature ? "Hovering Area" : "Selected Area";
-  const baseTooltipMetrics = [
-    {
-      key: "population_total",
-      label: "Population",
-      show: focusProperties.population_total !== undefined,
-    },
-    {
-      key: "population_density",
-      label: "Density",
-      digits: 1,
-      show: focusProperties.population_density !== undefined,
-    },
-  ];
-  const visibleBaseTooltipMetrics = baseTooltipMetrics.filter((metric) => metric.show);
+  const visibleBaseTooltipMetrics = (
+    baseTooltipMetrics || [
+      { key: "population_total", label: "Population" },
+      { key: "school_age_population_total", label: "School-age Pop." },
+      { key: "health_population_served_total", label: "Served Pop." },
+      { key: "health_population_unserved_total", label: "Unserved Pop." },
+    ]
+  ).filter(
+    (metric) =>
+      focusProperties[metric.key] !== undefined &&
+      !tooltipMetrics.some((tooltipMetric) => tooltipMetric.key === metric.key),
+  );
+  const activeFeatureBounds = (() => {
+    if (!activeFeature) {
+      return null;
+    }
+
+    const bounds = getGeoBounds([activeFeature]);
+    if (bounds.minLat === Infinity) {
+      return null;
+    }
+
+    return [
+      [bounds.minLat, bounds.minLon],
+      [bounds.maxLat, bounds.maxLon],
+    ];
+  })();
 
   function legendBackground(colors = []) {
     if (!Array.isArray(colors) || !colors.length) {
@@ -296,6 +420,35 @@ function PopulationRasterPanel({
     }
     return `linear-gradient(90deg, ${colors.join(", ")})`;
   }
+
+  const zoomToBounds = (targetBounds) => {
+    if (!mapInstance || !Array.isArray(targetBounds)) {
+      return;
+    }
+
+    mapInstance.fitBounds(targetBounds, {
+      padding: [18, 18],
+      maxZoom: 13,
+      animate: true,
+      duration: 0.45,
+    });
+  };
+
+  const handleZoomToFocus = () => {
+    if (!activeFeatureBounds) {
+      return;
+    }
+
+    setIsResetViewActive(false);
+    zoomToBounds(activeFeatureBounds);
+  };
+
+  const handleResetView = () => {
+    if (defaultBounds) {
+      setIsResetViewActive(true);
+      zoomToBounds(defaultBounds);
+    }
+  };
 
   return (
     <div className={wrapperClassName}>
@@ -310,9 +463,14 @@ function PopulationRasterPanel({
         </div>
       ) : null}
       <div
-        className={`relative isolate ${heightClass} min-h-0 overflow-hidden rounded-[1.5rem] border border-fog bg-[#f8f8f3] group`}
+        className={`relative ${heightClass} min-h-0 overflow-hidden rounded-[1.5rem] border border-fog bg-[#f8f8f3] group`}
+        onMouseLeave={() => {
+          setHoveredDistrict(null);
+          onFeatureHover?.(null);
+          onPanelLeave?.();
+        }}
       >
-        {showPointLayerToggle && hasPointLayer ? (
+        {showPointLayerToggle && hasPointLayer && !legend ? (
           <div className="absolute left-2 top-2 z-[402] sm:left-4 sm:top-4">
             <button
               type="button"
@@ -333,9 +491,10 @@ function PopulationRasterPanel({
           zoomControl={false}
           attributionControl={false}
         >
-          <MapFitter bounds={activeBounds || defaultBounds} />
+          <MapInstanceCapture onReady={setMapInstance} />
+          <MapFitter bounds={mapFitterBounds} />
           <ZoomControl position="topright" />
-          {imageUrl ? (
+          {imageUrl && showRasterLayer ? (
             <ImageOverlay
               key={imageUrl}
               bounds={defaultBounds}
@@ -343,7 +502,7 @@ function PopulationRasterPanel({
               opacity={0.94}
             />
           ) : null}
-          {features.length ? (
+          {features.length && showBoundaryLayer ? (
             <GeoJSON
               key={`pop-raster-geojson-${features.map((feature) => feature.id || getFeatureName(feature)).join("|")}-${selectedDistrict}-${selectedFeatureName || "all"}-${hoveredFeatureName || "none"}`}
               data={geojson}
@@ -408,6 +567,7 @@ function PopulationRasterPanel({
                   click: (e) => {
                     const featureType = getFeatureType(feature);
                     if (typeof onFeatureClick === "function") {
+                      setIsResetViewActive(false);
                       onFeatureClick(feature, e);
                     } else if (
                       name &&
@@ -425,32 +585,100 @@ function PopulationRasterPanel({
           {hasPointLayer && showPointLayer
             ? pointFeatures.map((f) => {
                 const [lng, lat] = f.geometry.coordinates;
+                const properties = f.properties || {};
                 const name =
-                  f.properties?.school_name ||
-                  f.properties?.facility_name ||
-                  f.properties?.name ||
+                  properties.school_name ||
+                  properties.facility_name ||
+                  properties.name ||
                   "Location";
+                const pointKey = f.id ?? `${lat}-${lng}-${name}`;
+                const pointDetails = getPointDetails(properties);
+                const isSelectedPoint = selectedPointKey === pointKey;
+                const baseMarkerStyle = {
+                  color: isSelectedPoint ? "#111827" : "#ffffff",
+                  weight: isSelectedPoint ? 1.6 : 1.2,
+                  fillColor: "#f59e0b",
+                  fillOpacity: 0.92,
+                  opacity: 1,
+                };
                 return (
                   <CircleMarker
-                    key={f.id ?? `${lat}-${lng}-${name}`}
+                    key={pointKey}
                     center={[lat, lng]}
-                    radius={3.5}
-                    pathOptions={{
-                      color: "#ffffff",
-                      weight: 1.2,
-                      fillColor: "#f59e0b",
-                      fillOpacity: 0.92,
-                      opacity: 1,
+                    radius={isSelectedPoint ? 6.4 : 5.2}
+                    pathOptions={baseMarkerStyle}
+                    interactive
+                    eventHandlers={{
+                      mouseover: (event) => {
+                        const marker = event.target;
+                        marker.setStyle({
+                          ...baseMarkerStyle,
+                          weight: 1.8,
+                        });
+                        marker.setRadius(isSelectedPoint ? 6.8 : 6.2);
+                        marker.bringToFront();
+                        marker.openTooltip();
+                      },
+                      mouseout: (event) => {
+                        const marker = event.target;
+                        marker.setStyle(baseMarkerStyle);
+                        marker.setRadius(isSelectedPoint ? 6.4 : 5.2);
+                      },
+                      click: () =>
+                        setSelectedPointKey((current) =>
+                          current === pointKey ? null : pointKey,
+                        ),
                     }}
                   >
                     <Tooltip
                       direction="top"
                       offset={[0, -6]}
                       opacity={0.96}
+                      sticky
                       className="health-ta-tooltip"
                     >
-                      {name}
+                      <div className="min-w-[170px]">
+                        <p className="text-xs font-extrabold text-black">
+                          {name}
+                        </p>
+                        {pointDetails.length ? (
+                          <div className="mt-1 space-y-0.5 text-[11px] font-semibold text-gray-600">
+                            {pointDetails.map((detail) => (
+                              <p key={`${pointKey}-${detail.label}`}>
+                                {detail.label}: {detail.value}
+                              </p>
+                            ))}
+                          </div>
+                        ) : null}
+                      </div>
                     </Tooltip>
+                    {isSelectedPoint ? (
+                      <Popup
+                        closeButton={false}
+                        autoPan
+                        autoPanPadding={[16, 16]}
+                        className="health-ta-tooltip"
+                      >
+                        <div className="min-w-[180px]">
+                          <p className="text-xs font-extrabold text-black">
+                            {name}
+                          </p>
+                          {pointDetails.length ? (
+                            <div className="mt-1 space-y-0.5 text-[11px] font-semibold text-gray-600">
+                              {pointDetails.map((detail) => (
+                                <p key={`${pointKey}-popup-${detail.label}`}>
+                                  {detail.label}: {detail.value}
+                                </p>
+                              ))}
+                            </div>
+                          ) : (
+                            <p className="mt-1 text-[11px] font-semibold text-gray-500">
+                              No additional point details available.
+                            </p>
+                          )}
+                        </div>
+                      </Popup>
+                    ) : null}
                   </CircleMarker>
                 );
               })
@@ -471,7 +699,7 @@ function PopulationRasterPanel({
 
         {legend ? (
           <div
-            className={`pointer-events-none absolute z-[401] w-[160px] rounded-xl border border-white/80 bg-white/92 px-3 py-2 shadow-md backdrop-blur-md sm:w-[190px] sm:rounded-2xl sm:px-4 sm:py-3 ${legendPositionClass}`}
+            className={`absolute z-[401] w-[185px] max-h-[calc(100%-1rem)] overflow-y-auto rounded-xl border border-white/80 bg-white/92 px-3 py-2 shadow-md backdrop-blur-md sm:w-[220px] sm:rounded-2xl sm:px-4 sm:py-3 ${legendPositionClass}`}
           >
             <p className="text-[10px] font-bold uppercase tracking-[0.15em] text-slate/50">
               Legend
@@ -487,33 +715,100 @@ function PopulationRasterPanel({
               <span>{legend.lowLabel || "Low"}</span>
               <span>{legend.highLabel || "High"}</span>
             </div>
-            {hasPointLayer ? (
-              <div className="mt-3 flex items-center gap-2 border-t border-slate-100 pt-2.5">
-                <span
-                  className="inline-block h-3 w-3 flex-shrink-0 rounded-full border-2 border-white shadow-sm"
-                  style={{
-                    background: "#f59e0b",
-                    opacity: showPointLayer ? 1 : 0.4,
-                  }}
-                />
-                <span className="text-[10px] font-bold uppercase tracking-[0.12em] text-slate/55">
-                  {resolvedPointLayerLabel}
-                </span>
-                <span className="text-[9px] font-bold uppercase tracking-[0.12em] text-slate/45">
-                  {showPointLayer ? "Shown" : "Hidden"}
-                </span>
+            <div className="mt-3 border-t border-slate-100 pt-2.5">
+              <p className="text-[9px] font-bold uppercase tracking-[0.14em] text-slate/45">
+                Layer Controls
+              </p>
+              <div className="mt-2 grid gap-1.5">
+                <button
+                  type="button"
+                  onClick={() => setShowRasterLayer((current) => !current)}
+                  className={`rounded-full border px-2.5 py-1 text-left text-[10px] font-bold uppercase tracking-[0.11em] transition ${
+                    showRasterLayer
+                      ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+                      : "border-gray-200 bg-white text-gray-500"
+                  }`}
+                >
+                  Raster {showRasterLayer ? "On" : "Off"}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setShowBoundaryLayer((current) => !current)}
+                  className={`rounded-full border px-2.5 py-1 text-left text-[10px] font-bold uppercase tracking-[0.11em] transition ${
+                    showBoundaryLayer
+                      ? "border-blue-200 bg-blue-50 text-blue-700"
+                      : "border-gray-200 bg-white text-gray-500"
+                  }`}
+                >
+                  Boundaries {showBoundaryLayer ? "On" : "Off"}
+                </button>
+                {hasPointLayer && showPointLayerToggle ? (
+                  <button
+                    type="button"
+                    onClick={() => setShowPointLayer((current) => !current)}
+                    className={`inline-flex items-center gap-2 rounded-full border px-2.5 py-1 text-left text-[10px] font-bold uppercase tracking-[0.11em] transition ${
+                      showPointLayer
+                        ? "border-amber-200 bg-amber-50 text-amber-700"
+                        : "border-gray-200 bg-white text-gray-500"
+                    }`}
+                  >
+                    <span
+                      className="inline-block h-2.5 w-2.5 flex-shrink-0 rounded-full border border-white shadow-sm"
+                      style={{ background: "#f59e0b" }}
+                    />
+                    {resolvedPointLayerLabel} {showPointLayer ? "On" : "Off"}
+                  </button>
+                ) : null}
               </div>
-            ) : null}
+            </div>
           </div>
         ) : null}
 
-        {focusFeature ? (
-          <div className="pointer-events-none absolute inset-x-2 bottom-2 z-[401] flex items-end justify-start gap-4 sm:inset-x-4 sm:bottom-4">
-            <div className="min-w-[240px] max-w-[320px] rounded-xl border border-white/80 bg-white/92 px-3 py-3 shadow-md backdrop-blur-md sm:rounded-2xl sm:px-5 sm:py-4">
+        {activeFeature ? (
+          <div className="absolute inset-x-3 bottom-3 z-[401] flex max-h-[calc(100%-1.5rem)] items-end justify-start sm:inset-x-4 sm:bottom-4">
+            <div className="max-h-[calc(100%-1rem)] min-w-[240px] overflow-y-auto rounded-2xl border border-white/80 bg-white/92 px-5 py-4 shadow-md backdrop-blur-md">
             <div>
-              <p className="text-[10px] font-bold uppercase tracking-[0.15em] text-slate/50 leading-none mb-2.5">
-                {focusLabel}
-              </p>
+              <div className="mb-2.5 flex flex-wrap items-start justify-between gap-2">
+                <p className="text-[10px] font-bold uppercase tracking-[0.15em] text-slate/50 leading-none">
+                  {focusLabel}
+                </p>
+                <div className="flex flex-wrap items-center justify-end gap-1.5">
+                  <button
+                    type="button"
+                    onClick={handleZoomToFocus}
+                    className="rounded-full border border-gray-200 bg-white px-2 py-0.5 text-[9px] font-bold uppercase tracking-[0.1em] text-gray-600 transition hover:border-gray-300 hover:text-black"
+                  >
+                    Zoom
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleResetView}
+                    className="rounded-full border border-gray-200 bg-white px-2 py-0.5 text-[9px] font-bold uppercase tracking-[0.1em] text-gray-600 transition hover:border-gray-300 hover:text-black"
+                  >
+                    Reset
+                  </button>
+                  {hoveredFeature &&
+                  !selectedFeatureName &&
+                  typeof onFeatureClick === "function" ? (
+                    <button
+                      type="button"
+                      onClick={() => onFeatureClick(hoveredFeature)}
+                      className="rounded-full border border-gray-900 bg-gray-900 px-2 py-0.5 text-[9px] font-bold uppercase tracking-[0.1em] text-white transition hover:bg-black"
+                    >
+                      Lock
+                    </button>
+                  ) : null}
+                  {selectedFeatureName && typeof onFeatureClick === "function" ? (
+                    <button
+                      type="button"
+                      onClick={() => onFeatureClick(null)}
+                      className="rounded-full border border-gray-200 bg-white px-2 py-0.5 text-[9px] font-bold uppercase tracking-[0.1em] text-gray-600 transition hover:border-gray-300 hover:text-black"
+                    >
+                      Clear
+                    </button>
+                  ) : null}
+                </div>
+              </div>
               {focusName ? (
                 <div className="space-y-3">
                   <p className="text-[13px] font-black leading-none text-slate sm:text-[15px]">
@@ -570,4 +865,3 @@ function PopulationRasterPanel({
 }
 
 export default PopulationRasterPanel;
-

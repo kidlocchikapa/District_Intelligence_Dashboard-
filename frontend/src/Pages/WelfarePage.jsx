@@ -1,5 +1,4 @@
 import { useMemo, useState } from "react";
-import { toast } from "react-hot-toast";
 import {
   UserCheck,
   Heart,
@@ -16,6 +15,7 @@ import { formatNumber } from "../lib/format";
 import DataTable from "../components/DataTable";
 import MapPanel from "../components/MapPanel";
 import SharedDistrictSelector from "../components/SharedDistrictSelector";
+import PlanningPriorityPanel from "../components/PlanningPriorityPanel";
 
 function formatMinutes(value) {
   const mins = Number(value);
@@ -51,6 +51,7 @@ const WELFARE_TA_CHART_LIMITS = [
   { value: 12, label: "Top 12" },
   { value: 0, label: "All" },
 ];
+const EMPTY_ROWS = [];
 
 function formatWholeNumber(value) {
   return Number(value || 0).toLocaleString(undefined, {
@@ -131,14 +132,18 @@ function DepartmentCard({ item }) {
   );
 }
 
-function StatCard({ label, value, icon: Icon, helper }) {
+function StatCard({ label, value, icon, helper }) {
+  const IconComponent = icon;
+
   return (
     <div className="border border-gray-100 rounded p-6 shadow-md bg-white group hover:shadow-lg transition-all active:scale-95">
       <div className="flex justify-between items-start">
         <span className="text-[14px] text-gray-500 font-bold group-hover:text-black transition-colors">
           {label}
         </span>
-        <Icon className="h-5 w-5 text-gray-300 group-hover:text-black transition-colors" />
+        {IconComponent ? (
+          <IconComponent className="h-5 w-5 text-gray-300 group-hover:text-black transition-colors" />
+        ) : null}
       </div>
       <div className="mt-4 text-[32px] font-extrabold tracking-tight">
         {value}
@@ -194,15 +199,51 @@ function WelfarePage() {
       district: selectedDistrict,
     }),
   );
+  const planningPriorities = useDashboardData(
+    buildDashboardPath("/dashboard/planning-priorities", {
+      district: selectedDistrict,
+      ta: selectedTa,
+      admin_type: adminType,
+      department: "welfare",
+      limit: adminType === "TA" ? 5 : 3,
+    }),
+  );
 
   const summary = integration.data?.summary || {};
   const departmentSummary = integration.data?.department_summary || [];
-  const programBreakdown = integration.data?.program_breakdown || [];
-  const byArea = integration.data?.by_area || [];
-  const beneficiaryPreview = integration.data?.beneficiary_preview || [];
-  const decisionSignals = integration.data?.decision_signals || [];
+  const programBreakdown = useMemo(
+    () => integration.data?.program_breakdown ?? EMPTY_ROWS,
+    [integration.data],
+  );
+  const byArea = useMemo(
+    () => integration.data?.by_area ?? EMPTY_ROWS,
+    [integration.data],
+  );
+  const beneficiaryPreview = useMemo(
+    () => integration.data?.beneficiary_preview ?? EMPTY_ROWS,
+    [integration.data],
+  );
+  const planningPrioritySignals = (planningPriorities.data?.priorities || [])
+    .slice(0, 3)
+    .map((item) => ({
+      severity:
+        item.priority_band === "Critical"
+          ? "high"
+          : item.priority_band === "High"
+            ? "medium"
+            : "info",
+      title: `${item.admin_unit_name} is a ${item.priority_band.toLowerCase()} integrated priority`,
+      description: item.recommended_actions?.[0] || item.narrative,
+    }));
+  const decisionSignals = [
+    ...(integration.data?.decision_signals || []),
+    ...planningPrioritySignals,
+  ].slice(0, 6);
   const notes = integration.data?.notes || [];
-  const baseByArea = baseIntegration.data?.by_area || [];
+  const baseByArea = useMemo(
+    () => baseIntegration.data?.by_area ?? EMPTY_ROWS,
+    [baseIntegration.data],
+  );
   const programOptions = baseProgramBreakdown;
   const scopeLabel = selectedTa
     ? selectedTa
@@ -215,6 +256,12 @@ function WelfarePage() {
     const rows = Object.entries(currentSummary).map(([key, value]) => ({
       metric: key.replace(/_/g, " "),
       value: formatNumber(value, 0),
+    }));
+    const planningRows = (planningPriorities.data?.priorities || []).map((row) => ({
+      area: row.admin_unit_name,
+      priority: row.priority_band,
+      score: formatNumber(row.planning_priority_score, 1),
+      action: row.recommended_actions?.[0] || "Monitor against district baseline",
     }));
 
     await exportDataPdf({
@@ -233,6 +280,23 @@ function WelfarePage() {
           ],
           rows: rows.length > 0 ? rows : [
             { metric: "Welfare summary", value: "No data available" },
+          ],
+        },
+        {
+          title: "Integrated Planning Priorities",
+          columns: [
+            { key: "area", label: "Area", width: 140 },
+            { key: "priority", label: "Priority", width: 90 },
+            { key: "score", label: "Score", width: 70 },
+            { key: "action", label: "Recommended Action", width: 280 },
+          ],
+          rows: planningRows.length > 0 ? planningRows : [
+            {
+              area: scopeLabel,
+              priority: "N/A",
+              score: "0.0",
+              action: "No integrated planning priorities are available for this scope yet.",
+            },
           ],
         },
       ],
@@ -365,17 +429,13 @@ function WelfarePage() {
     setBeneficiarySearch("");
   };
 
-  const programNamesLabel = useMemo(() => {
-    const names = programBreakdown
-      .map((item) => item.program_name)
-      .filter(Boolean);
-
+  const programNamesLabel = (() => {
+    const names = programBreakdown.map((item) => item.program_name).filter(Boolean);
     if (!names.length) {
       return "No program names available";
     }
-
     return names.join(", ");
-  }, [programBreakdown]);
+  })();
 
   const filteredByArea = useMemo(() => {
     return byArea.filter((row) => {
@@ -407,7 +467,7 @@ function WelfarePage() {
 
       return matchesSearch && matchesTa && matchesRisk && matchesService;
     });
-  }, [adminType, areaSearch, byArea, riskFilter, selectedTa, serviceFilter]);
+  }, [areaSearch, byArea, riskFilter, selectedTa, serviceFilter]);
 
   const filteredBeneficiaryPreview = useMemo(() => {
     return beneficiaryPreview.filter((row) => {
@@ -430,14 +490,13 @@ function WelfarePage() {
         !selectedProgram || programName === selectedProgram.toLowerCase();
       const matchesRisk =
         riskFilter === "all" ||
-        (riskFilter === "flood_only" && Boolean(row.affected_by_flood)) ||
-        (riskFilter === "clear_only" && !Boolean(row.affected_by_flood));
+        (riskFilter === "flood_only" && row.affected_by_flood) ||
+        (riskFilter === "clear_only" && !row.affected_by_flood);
       const matchesService =
         serviceFilter === "all" ||
-        (serviceFilter === "school_limited" &&
-          !Boolean(row.has_school_access)) ||
+        (serviceFilter === "school_limited" && !row.has_school_access) ||
         (serviceFilter === "health_limited" &&
-          !Boolean(row.has_health_facility_access));
+          !row.has_health_facility_access);
 
       return (
         matchesSearch &&
@@ -662,6 +721,12 @@ function WelfarePage() {
                 },
               ].map((item) => <StatCard key={item.label} {...item} />)}
         </div>
+
+        <PlanningPriorityPanel
+          planningPriorities={planningPriorities}
+          scopeLabel={scopeLabel}
+          compact
+        />
 
         {adminType === "TA" ? (
           <div className="grid grid-cols-1 xl:grid-cols-2 gap-8 mb-10">

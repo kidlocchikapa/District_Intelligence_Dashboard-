@@ -1,4 +1,6 @@
 import { X } from 'lucide-react';
+import { useEffect } from "react";
+import { createPortal } from "react-dom";
 
 const MODAL_SIZES = {
   sm: "max-w-lg",
@@ -8,12 +10,36 @@ const MODAL_SIZES = {
 };
 
 export default function Modal({ isOpen, onClose, title, children, size = "sm" }) {
+  useEffect(() => {
+    if (!isOpen || typeof document === "undefined") return undefined;
+
+    const previousBodyOverflow = document.body.style.overflow;
+
+    function handleEscape(event) {
+      if (event.key === "Escape") onClose?.();
+    }
+
+    document.body.style.overflow = "hidden";
+    document.addEventListener("keydown", handleEscape);
+
+    return () => {
+      document.body.style.overflow = previousBodyOverflow;
+      document.removeEventListener("keydown", handleEscape);
+    };
+  }, [isOpen, onClose]);
+
   if (!isOpen) return null;
 
   const maxWidthClass = MODAL_SIZES[size] || MODAL_SIZES.sm;
 
-  return (
-    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-900/40 backdrop-blur-sm p-4">
+  const modalLayer = (
+    <div
+      className="fixed inset-0 z-[200] flex items-center justify-center bg-slate-900/40 backdrop-blur-sm p-4"
+      onClick={onClose}
+      role="dialog"
+      aria-modal="true"
+      aria-label={title}
+    >
       <div 
         className={`flex max-h-[92vh] w-full ${maxWidthClass} flex-col rounded-2xl bg-white shadow-2xl ring-1 ring-slate-200 animate-in fade-in zoom-in duration-200`}
         onClick={(e) => e.stopPropagation()}
@@ -36,4 +62,7 @@ export default function Modal({ isOpen, onClose, title, children, size = "sm" })
       </div>
     </div>
   );
+
+  if (typeof document === "undefined") return null;
+  return createPortal(modalLayer, document.body);
 }
