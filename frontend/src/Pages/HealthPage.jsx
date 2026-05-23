@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useMemo, useState, useRef } from "react";
 import { Activity, HeartPulse, Bed, Users, Download, Building2, CheckCircle2, AlertCircle, Building, Lightbulb, AlertTriangle, TrendingUp } from "lucide-react";
 import { useDashboardData } from "../hooks/useDashboardData";
 import { useDistrict } from "../context/DistrictContext";
@@ -164,6 +164,7 @@ function HealthPage() {
   const [facilityChartLimit, setFacilityChartLimit] = useState(20);
   const [facilityChartSort, setFacilityChartSort] = useState("facilities_desc");
   const { contentRef, exportDataPdf } = usePdfExport("Health_Report.pdf");
+  const mapRef = useRef(null);
   const districtScope = selectedDistrict || "Zomba";
   const activeTaPreview = selectedTa || hoveredTa;
   const activeHealthRasterLayer =
@@ -434,6 +435,7 @@ function HealthPage() {
           ],
         },
       ],
+      mapNode: mapRef.current?.querySelector('.leaflet-container'),
     });
   };
 
@@ -1055,7 +1057,7 @@ function HealthPage() {
                 ? `TA boundary and facilities are focused on ${selectedTa}. Hospitals are one provider type alongside clinics, dispensaries, and health centres.`
                 : "TA boundaries and facility markers are interactive. Click a boundary or marker to focus that TA."}
             </p>
-            <div className="flex-1 rounded overflow-hidden relative border border-gray-50 bg-gray-50">
+            <div ref={mapRef} className="flex-1 rounded overflow-hidden relative border border-gray-50 bg-gray-50">
               <MapPanel
                 geojson={healthServiceMapGeojson}
                 pointColor="#c56a3d"

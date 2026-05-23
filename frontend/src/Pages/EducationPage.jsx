@@ -14,7 +14,7 @@ import {
   ShieldAlert,
   Lightbulb,
 } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useMemo, useState, useRef } from "react";
 import DataTable from "../components/DataTable";
 import { useDashboardData } from "../hooks/useDashboardData";
 import { useDistrict } from "../context/DistrictContext";
@@ -318,6 +318,7 @@ function EducationPage() {
   const [riskTableSort, setRiskTableSort] = useState({ key: "teacher_ratio", dir: "desc" });
   const [schoolRiskPreview, setSchoolRiskPreview] = useState(null);
   const { contentRef, exportDataPdf } = usePdfExport("Education_Report.pdf");
+  const mapRef = useRef(null);
   const activeEducationRasterLayer =
     EDUCATION_RASTER_LAYERS.find(
       (layer) => layer.key === activeEducationRasterKey,
@@ -480,6 +481,7 @@ function EducationPage() {
           ],
         },
       ],
+      mapNode: mapRef.current?.querySelector('.leaflet-container'),
     });
   };
 
@@ -1304,7 +1306,7 @@ function EducationPage() {
               })}
             </div>
 
-            <div className="flex-1 rounded overflow-hidden relative border border-gray-50 bg-gray-50">
+            <div ref={mapRef} className="flex-1 rounded overflow-hidden relative border border-gray-50 bg-gray-50">
               {schoolLocations.loading ? (
                 <div className="absolute inset-0 flex items-center justify-center animate-pulse">
                   <span className="text-gray-400 font-bold uppercase tracking-widest">

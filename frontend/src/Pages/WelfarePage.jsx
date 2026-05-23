@@ -1,10 +1,7 @@
-import { useMemo, useState } from "react";
+import { useMemo, useState, useRef } from "react";
 import {
   UserCheck,
   Heart,
-  ShieldAlert,
-  Activity,
-  GraduationCap,
   Download,
 } from "lucide-react";
 import { useDashboardData } from "../hooks/useDashboardData";
@@ -15,7 +12,6 @@ import { formatNumber } from "../lib/format";
 import DataTable from "../components/DataTable";
 import MapPanel from "../components/MapPanel";
 import SharedDistrictSelector from "../components/SharedDistrictSelector";
-import PlanningPriorityPanel from "../components/PlanningPriorityPanel";
 
 function formatMinutes(value) {
   const mins = Number(value);
@@ -51,16 +47,19 @@ const WELFARE_TA_CHART_LIMITS = [
   { value: 12, label: "Top 12" },
   { value: 0, label: "All" },
 ];
+const WELFARE_SUMMARY_KEYS = [
+  "total_beneficiaries",
+  "beneficiary_count",
+  "total_households",
+  "estimated_household_population",
+  "beneficiary_records_under_18",
+];
 const EMPTY_ROWS = [];
 
 function formatWholeNumber(value) {
   return Number(value || 0).toLocaleString(undefined, {
     maximumFractionDigits: 0,
   });
-}
-
-function formatPercent(value) {
-  return `${Number(value || 0).toFixed(1)}%`;
 }
 
 function formatTaAxisLabel(value) {
@@ -88,50 +87,6 @@ function getTaBarColor(value, maxValue) {
   return "#22c55e";
 }
 
-function renderBooleanPill(value, yesLabel = "Yes", noLabel = "No") {
-  const isTrue = Boolean(value);
-  return (
-    <span
-      className={`inline-flex items-center rounded-full px-2.5 py-1 text-[11px] font-bold ${
-        isTrue
-          ? "bg-green-50 text-green-700 border border-green-100"
-          : "bg-gray-50 text-gray-500 border border-gray-100"
-      }`}
-    >
-      {isTrue ? yesLabel : noLabel}
-    </span>
-  );
-}
-
-function DepartmentCard({ item }) {
-  const metrics = Object.entries(item.metrics || {});
-
-  return (
-    <div className="border border-gray-100 rounded p-6 shadow-sm bg-white">
-      <div className="flex items-center justify-between gap-3 mb-4">
-        <h3 className="text-[15px] font-extrabold tracking-tight text-black">
-          {item.label}
-        </h3>
-        <span className="text-[10px] uppercase tracking-[0.18em] font-bold text-gray-400">
-          Department
-        </span>
-      </div>
-      <div className="space-y-3">
-        {metrics.map(([key, value]) => (
-          <div key={key} className="flex items-center justify-between gap-3">
-            <span className="text-[12px] font-semibold text-gray-500">
-              {key.replace(/_/g, " ")}
-            </span>
-            <span className="text-[14px] font-black text-black">
-              {key.includes("pct") ? formatPercent(value) : formatWholeNumber(value)}
-            </span>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-}
-
 function StatCard({ label, value, icon, helper }) {
   const IconComponent = icon;
 
@@ -157,13 +112,12 @@ function StatCard({ label, value, icon, helper }) {
 
 function WelfarePage() {
   const { selectedDistrict, selectedTa, setSelectedTa } = useDistrict();
-  const { contentRef, exportDataPdf } = usePdfExport("Welfare_Integration_Report.pdf");
+  const { contentRef, exportDataPdf } = usePdfExport("Welfare_Report.pdf");
+  const mapRef = useRef(null);
   const [adminType, setAdminType] = useState("TA");
   const [areaSearch, setAreaSearch] = useState("");
   const [beneficiarySearch, setBeneficiarySearch] = useState("");
   const [selectedProgram, setSelectedProgram] = useState("");
-  const [riskFilter, setRiskFilter] = useState("all");
-  const [serviceFilter, setServiceFilter] = useState("all");
   const [taChartSearch, setTaChartSearch] = useState("");
   const [taChartLimit, setTaChartLimit] = useState(12);
   const [taChartSort, setTaChartSort] = useState("beneficiaries_desc");
@@ -199,18 +153,7 @@ function WelfarePage() {
       district: selectedDistrict,
     }),
   );
-  const planningPriorities = useDashboardData(
-    buildDashboardPath("/dashboard/planning-priorities", {
-      district: selectedDistrict,
-      ta: selectedTa,
-      admin_type: adminType,
-      department: "welfare",
-      limit: adminType === "TA" ? 5 : 3,
-    }),
-  );
-
   const summary = integration.data?.summary || {};
-  const departmentSummary = integration.data?.department_summary || [];
   const programBreakdown = useMemo(
     () => integration.data?.program_breakdown ?? EMPTY_ROWS,
     [integration.data],
@@ -223,23 +166,6 @@ function WelfarePage() {
     () => integration.data?.beneficiary_preview ?? EMPTY_ROWS,
     [integration.data],
   );
-  const planningPrioritySignals = (planningPriorities.data?.priorities || [])
-    .slice(0, 3)
-    .map((item) => ({
-      severity:
-        item.priority_band === "Critical"
-          ? "high"
-          : item.priority_band === "High"
-            ? "medium"
-            : "info",
-      title: `${item.admin_unit_name} is a ${item.priority_band.toLowerCase()} integrated priority`,
-      description: item.recommended_actions?.[0] || item.narrative,
-    }));
-  const decisionSignals = [
-    ...(integration.data?.decision_signals || []),
-    ...planningPrioritySignals,
-  ].slice(0, 6);
-  const notes = integration.data?.notes || [];
   const baseByArea = useMemo(
     () => baseIntegration.data?.by_area ?? EMPTY_ROWS,
     [baseIntegration.data],
@@ -253,16 +179,12 @@ function WelfarePage() {
 
   const handleDownloadReport = async () => {
     const currentSummary = summary || {};
-    const rows = Object.entries(currentSummary).map(([key, value]) => ({
-      metric: key.replace(/_/g, " "),
-      value: formatNumber(value, 0),
-    }));
-    const planningRows = (planningPriorities.data?.priorities || []).map((row) => ({
-      area: row.admin_unit_name,
-      priority: row.priority_band,
-      score: formatNumber(row.planning_priority_score, 1),
-      action: row.recommended_actions?.[0] || "Monitor against district baseline",
-    }));
+    const rows = WELFARE_SUMMARY_KEYS
+      .filter((key) => Object.prototype.hasOwnProperty.call(currentSummary, key))
+      .map((key) => ({
+        metric: key.replace(/_/g, " "),
+        value: formatNumber(currentSummary[key], 0),
+      }));
 
     await exportDataPdf({
       title: "Social Welfare Area Analysis",
@@ -282,24 +204,8 @@ function WelfarePage() {
             { metric: "Welfare summary", value: "No data available" },
           ],
         },
-        {
-          title: "Integrated Planning Priorities",
-          columns: [
-            { key: "area", label: "Area", width: 140 },
-            { key: "priority", label: "Priority", width: 90 },
-            { key: "score", label: "Score", width: 70 },
-            { key: "action", label: "Recommended Action", width: 280 },
-          ],
-          rows: planningRows.length > 0 ? planningRows : [
-            {
-              area: scopeLabel,
-              priority: "N/A",
-              score: "0.0",
-              action: "No integrated planning priorities are available for this scope yet.",
-            },
-          ],
-        },
       ],
+      mapNode: mapRef.current?.querySelector('.leaflet-container'),
     });
   };
 
@@ -334,9 +240,6 @@ function WelfarePage() {
           ta: row.admin_unit_name,
           beneficiaries: Number(row.beneficiary_count || 0),
           householdReach: Number(row.estimated_household_population || 0),
-          healthAccess: Number(row.health_access_count || 0),
-          schoolAccess: Number(row.school_access_count || 0),
-          floodAffected: Number(row.flood_affected_count || 0),
         }))
         .sort((left, right) => right.beneficiaries - left.beneficiaries),
     [baseByArea],
@@ -354,14 +257,6 @@ function WelfarePage() {
     rows.sort((left, right) => {
       if (taChartSort === "beneficiaries_asc") {
         return Number(left.beneficiaries || 0) - Number(right.beneficiaries || 0);
-      }
-
-      if (taChartSort === "flood_desc") {
-        return Number(right.floodAffected || 0) - Number(left.floodAffected || 0);
-      }
-
-      if (taChartSort === "health_desc") {
-        return Number(right.healthAccess || 0) - Number(left.healthAccess || 0);
       }
 
       if (taChartSort === "name_asc") {
@@ -410,9 +305,6 @@ function WelfarePage() {
             admin_unit_name: name,
             beneficiary_count: metrics.beneficiaries || 0,
             estimated_household_population: metrics.householdReach || 0,
-            health_access_count: metrics.healthAccess || 0,
-            school_access_count: metrics.schoolAccess || 0,
-            flood_affected_count: metrics.floodAffected || 0,
           },
         };
       });
@@ -450,24 +342,10 @@ function WelfarePage() {
         !selectedTa ||
         String(row.admin_unit_name || "").toLowerCase() ===
           selectedTa.toLowerCase();
-      const matchesRisk =
-        riskFilter === "all" ||
-        (riskFilter === "flood_only" &&
-          Number(row.flood_affected_count || 0) > 0) ||
-        (riskFilter === "clear_only" &&
-          Number(row.flood_affected_count || 0) === 0);
-      const matchesService =
-        serviceFilter === "all" ||
-        (serviceFilter === "school_limited" &&
-          Number(row.school_access_count || 0) <
-            Number(row.beneficiary_count || 0)) ||
-        (serviceFilter === "health_limited" &&
-          Number(row.health_access_count || 0) <
-            Number(row.beneficiary_count || 0));
 
-      return matchesSearch && matchesTa && matchesRisk && matchesService;
+      return matchesSearch && matchesTa;
     });
-  }, [areaSearch, byArea, riskFilter, selectedTa, serviceFilter]);
+  }, [areaSearch, byArea, selectedTa]);
 
   const filteredBeneficiaryPreview = useMemo(() => {
     return beneficiaryPreview.filter((row) => {
@@ -488,31 +366,18 @@ function WelfarePage() {
         !selectedTa || taName === selectedTa.toLowerCase();
       const matchesProgram =
         !selectedProgram || programName === selectedProgram.toLowerCase();
-      const matchesRisk =
-        riskFilter === "all" ||
-        (riskFilter === "flood_only" && row.affected_by_flood) ||
-        (riskFilter === "clear_only" && !row.affected_by_flood);
-      const matchesService =
-        serviceFilter === "all" ||
-        (serviceFilter === "school_limited" && !row.has_school_access) ||
-        (serviceFilter === "health_limited" &&
-          !row.has_health_facility_access);
 
       return (
         matchesSearch &&
         matchesTa &&
-        matchesProgram &&
-        matchesRisk &&
-        matchesService
+        matchesProgram
       );
     });
   }, [
     beneficiaryPreview,
     beneficiarySearch,
-    riskFilter,
     selectedProgram,
     selectedTa,
-    serviceFilter,
   ]);
 
   const areaColumns = [
@@ -532,36 +397,6 @@ function WelfarePage() {
     {
       key: "estimated_household_population",
       label: "Household Reach",
-      digits: 0,
-    },
-    {
-      key: "school_access_count",
-      label: "School Access",
-      digits: 0,
-    },
-    {
-      key: "school_age_population_unenrolled",
-      label: "Area Unenrolled",
-      digits: 0,
-    },
-    {
-      key: "health_access_count",
-      label: "Health Access",
-      digits: 0,
-    },
-    {
-      key: "public_hospital_access_count",
-      label: "Public Hospital Reach",
-      digits: 0,
-    },
-    {
-      key: "private_hospital_access_count",
-      label: "Private Hospital Reach",
-      digits: 0,
-    },
-    {
-      key: "flood_affected_count",
-      label: "Flood Affected",
       digits: 0,
     },
   ];
@@ -584,53 +419,6 @@ function WelfarePage() {
       key: "district_name",
       label: "District",
     },
-    {
-      key: "affected_by_flood",
-      label: "Flood",
-      render: (value) => renderBooleanPill(value, "Affected", "Clear"),
-    },
-    {
-      key: "has_school_access",
-      label: "School Access",
-      render: (value) => renderBooleanPill(value, "Nearby", "Limited"),
-    },
-    {
-      key: "has_health_facility_access",
-      label: "Health Access",
-      render: (value) => renderBooleanPill(value, "Nearby", "Limited"),
-    },
-    {
-      key: "nearest_facility_name",
-      label: "Nearest Facility",
-      render: (value, row) =>
-        value
-          ? `${value} (${formatDistanceKm(row.nearest_facility_distance_km)})`
-          : "N/A",
-    },
-    {
-      key: "nearest_health_travel_time_min",
-      label: "Health Road Travel",
-      render: (value, row) =>
-        row.nearest_health_routing_status === "routed"
-          ? `${formatMinutes(value)} (${formatDistanceKm(row.nearest_health_network_distance_km)})`
-          : "N/A",
-    },
-    {
-      key: "nearest_school_travel_time_min",
-      label: "School Road Travel",
-      render: (value, row) =>
-        row.nearest_school_routing_status === "routed"
-          ? `${formatMinutes(value)} (${formatDistanceKm(row.nearest_school_network_distance_km)})`
-          : "N/A",
-    },
-    {
-      key: "nearest_hospital_name",
-      label: "Nearest Hospital",
-      render: (value, row) =>
-        value
-          ? `${value} (${formatDistanceKm(row.nearest_hospital_distance_km)})`
-          : "N/A",
-    },
   ];
 
   const StatCardSkeleton = () => (
@@ -648,17 +436,17 @@ function WelfarePage() {
       <div className="flex items-center gap-3 border-b border-gray-200 px-4 py-5 sm:gap-4 sm:px-6 sm:py-6 lg:px-8 lg:py-8">
         <UserCheck className="h-8 w-8 text-black" />
         <h1 className="text-xl font-extrabold tracking-tight sm:text-[28px]">
-          SOCIAL WELFARE INTEGRATION
+          SOCIAL WELFARE
         </h1>
       </div>
 
       <div className="mt-6 px-4 sm:mt-8 sm:px-6 lg:px-8">
         <p className="text-[14px] font-semibold text-gray-500 mb-6">
           {selectedDistrict
-            ? `Integrated welfare view for ${selectedTa || selectedDistrict}`
+            ? `Social welfare view for ${selectedTa || selectedDistrict}`
             : selectedTa
-              ? `Integrated welfare view for ${selectedTa}`
-              : "Integrated welfare decision-support across linked departments"}
+              ? `Social welfare view for ${selectedTa}`
+              : "Social welfare beneficiaries and program participation"}
         </p>
 
         <div className="mb-8 flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center sm:gap-4">
@@ -689,9 +477,9 @@ function WelfarePage() {
 
         </div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-6 mb-10">
+        <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-6 mb-10">
           {integration.loading
-            ? [...Array(4)].map((_, index) => <StatCardSkeleton key={index} />)
+            ? [...Array(3)].map((_, index) => <StatCardSkeleton key={index} />)
             : [
                 {
                   label: "Total Beneficiaries",
@@ -708,25 +496,13 @@ function WelfarePage() {
                   helper: `${formatWholeNumber(summary.beneficiary_records_under_18)} beneficiary records under 18 in ${scopeLabel}`,
                 },
                 {
-                  label: "Health Access Coverage",
-                  value: formatPercent(summary.health_access_pct),
-                  icon: Activity,
-                  helper: `${formatWholeNumber(summary.public_hospital_access_count)} within public hospital reach in ${scopeLabel}`,
-                },
-                {
-                  label: "Flood-Affected Beneficiaries",
-                  value: formatWholeNumber(summary.flood_affected_count),
-                  icon: ShieldAlert,
-                  helper: `${formatPercent(summary.flood_affected_pct)} of ${scopeLabel}`,
+                  label: "Programs",
+                  value: formatWholeNumber(programBreakdown.length),
+                  icon: Heart,
+                  helper: programNamesLabel,
                 },
               ].map((item) => <StatCard key={item.label} {...item} />)}
         </div>
-
-        <PlanningPriorityPanel
-          planningPriorities={planningPriorities}
-          scopeLabel={scopeLabel}
-          compact
-        />
 
         {adminType === "TA" ? (
           <div className="grid grid-cols-1 xl:grid-cols-2 gap-8 mb-10">
@@ -743,7 +519,7 @@ function WelfarePage() {
                   </p>
                 </div>
               </div>
-              <div className="flex-1 rounded overflow-hidden relative border border-gray-50 bg-gray-50">
+              <div ref={mapRef} className="flex-1 rounded overflow-hidden relative border border-gray-50 bg-gray-50">
                 <MapPanel
                   geojson={taMapGeojson}
                   metricName="beneficiary_count"
@@ -755,14 +531,13 @@ function WelfarePage() {
                       key: "estimated_household_population",
                       label: "Household Reach",
                     },
-                    { key: "school_access_count", label: "School Access" },
-                    { key: "health_access_count", label: "Health Access" },
-                    { key: "flood_affected_count", label: "Flood Affected" },
                   ]}
                   tooltipFields={[
                     { key: "beneficiary_count", label: "Beneficiaries" },
-                    { key: "health_access_count", label: "Health Access" },
-                    { key: "flood_affected_count", label: "Flood Affected" },
+                    {
+                      key: "estimated_household_population",
+                      label: "Household Reach",
+                    },
                   ]}
                   selectedFeatureName={selectedTa}
                   onFeatureClick={(feature) =>
@@ -811,8 +586,6 @@ function WelfarePage() {
                   >
                     <option value="beneficiaries_desc">Highest beneficiaries</option>
                     <option value="beneficiaries_asc">Lowest beneficiaries</option>
-                    <option value="flood_desc">Most flood affected</option>
-                    <option value="health_desc">Highest health access</option>
                     <option value="name_asc">Name A-Z</option>
                   </select>
                   <input
@@ -927,59 +700,7 @@ function WelfarePage() {
           </div>
         ) : null}
 
-        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-6 mb-10">
-          {departmentSummary.map((item) => (
-            <DepartmentCard key={item.department} item={item} />
-          ))}
-        </div>
-
-        <div className="grid grid-cols-1 xl:grid-cols-[1.15fr_0.85fr] gap-8 mb-10">
-          <div className="border border-gray-100 rounded p-8 shadow-sm bg-white">
-            <h3 className="text-[16px] font-extrabold mb-6">
-              Decision Signals for {scopeLabel}
-            </h3>
-            <div className="space-y-4">
-              {integration.loading ? (
-                [...Array(3)].map((_, index) => (
-                  <div
-                    key={index}
-                    className="h-20 rounded border border-gray-100 bg-gray-50 animate-pulse"
-                  />
-                ))
-              ) : decisionSignals.length === 0 ? (
-                <div className="rounded border border-dashed border-gray-200 bg-gray-50 px-4 py-5 text-sm font-semibold text-gray-500">
-                  No decision signals are available for the current filters.
-                </div>
-              ) : (
-                decisionSignals.map((signal, index) => (
-                  <div
-                    key={`${signal.title}-${index}`}
-                    className={`rounded border px-5 py-4 ${
-                      signal.severity === "high"
-                        ? "border-red-100 bg-red-50"
-                        : signal.severity === "medium"
-                          ? "border-amber-100 bg-amber-50"
-                          : "border-blue-100 bg-blue-50"
-                    }`}
-                  >
-                    <div className="flex items-center justify-between gap-3">
-                      <span className="text-[10px] font-bold uppercase tracking-[0.18em] text-gray-500">
-                        {signal.severity}
-                      </span>
-                      <ShieldAlert className="h-4 w-4 text-gray-400" />
-                    </div>
-                    <h4 className="mt-2 text-[15px] font-extrabold text-black">
-                      {signal.title}
-                    </h4>
-                    <p className="mt-2 text-[13px] leading-6 text-gray-600">
-                      {signal.description}
-                    </p>
-                  </div>
-                ))
-              )}
-            </div>
-          </div>
-
+        <div className="mb-10">
           <div className="border border-gray-100 rounded p-8 shadow-sm bg-white">
             <h3 className="text-[16px] font-extrabold mb-6">
               Program Participation Breakdown
@@ -1068,24 +789,6 @@ function WelfarePage() {
                   </option>
                 ))}
               </select>
-              <select
-                value={riskFilter}
-                onChange={(event) => setRiskFilter(event.target.value)}
-                className="min-w-[170px] rounded border border-gray-200 px-3 py-2 text-[13px] font-bold text-gray-700"
-              >
-                <option value="all">All Risk States</option>
-                <option value="flood_only">Flood Affected Only</option>
-                <option value="clear_only">Not Flood Affected</option>
-              </select>
-              <select
-                value={serviceFilter}
-                onChange={(event) => setServiceFilter(event.target.value)}
-                className="min-w-[190px] rounded border border-gray-200 px-3 py-2 text-[13px] font-bold text-gray-700"
-              >
-                <option value="all">All Service States</option>
-                <option value="school_limited">Limited School Access</option>
-                <option value="health_limited">Limited Health Access</option>
-              </select>
             </div>
             <p className="mt-3 text-[12px] font-semibold text-gray-500">
               Showing {formatWholeNumber(filteredByArea.length)} {selectedTa ? `record for ${selectedTa}` : "TA records"} after filtering.
@@ -1094,8 +797,8 @@ function WelfarePage() {
           <DataTable
             rows={filteredByArea}
             columns={areaColumns}
-            title={selectedTa ? `${selectedTa} Decision View` : "TA Decision View"}
-            subtitle={`Previewing linked social welfare, education, health, and disaster indicators for ${scopeLabel}.`}
+            title={selectedTa ? `${selectedTa} Welfare View` : "TA Welfare View"}
+            subtitle={`Social welfare beneficiary totals for ${scopeLabel}.`}
           />
         </div>
 
@@ -1145,28 +848,8 @@ function WelfarePage() {
             rows={filteredBeneficiaryPreview}
             columns={beneficiaryColumns}
             title={selectedTa ? `Beneficiary Preview for ${selectedTa}` : "Beneficiary Preview"}
-            subtitle={`A record-level sample showing program membership, residence, nearby services, and flood context for ${scopeLabel}.`}
+            subtitle={`A record-level sample showing welfare program membership and residence for ${scopeLabel}.`}
           />
-        </div>
-
-        <div className="border border-gray-100 rounded p-8 shadow-sm bg-white">
-          <h3 className="text-[16px] font-extrabold mb-5 flex items-center gap-3">
-            <GraduationCap className="h-5 w-5 text-black" />
-            Integration Notes
-          </h3>
-          <div className="space-y-3">
-            {notes.length ? (
-              notes.map((note, index) => (
-                <p key={index} className="text-[13px] leading-6 text-gray-600">
-                  {note}
-                </p>
-              ))
-            ) : (
-              <p className="rounded border border-dashed border-gray-200 bg-gray-50 px-4 py-4 text-sm font-semibold text-gray-500">
-                No integration notes are available for the current filters.
-              </p>
-            )}
-          </div>
         </div>
       </div>
     </div>
