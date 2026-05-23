@@ -723,17 +723,13 @@ function HealthPage() {
         {/* Stats Row */}
         <div className="grid grid-cols-2 gap-6 mb-10 md:grid-cols-3 xl:grid-cols-6">
           {healthLocations.loading
-            ? [...Array(6)].map((_, i) => <StatCardSkeleton key={i} />)
+            ? [...Array(5)].map((_, i) => <StatCardSkeleton key={i} />)
             : [
                 {
                   label: "Health Providers",
                   value: formatStat(totalFacilities),
                   icon: HeartPulse,
-                },
-                {
-                  label: "Hospitals",
-                  value: formatStat(hospitalFacilities),
-                  icon: Building2,
+                  helper: `Includes ${formatStat(hospitalFacilities)} hospitals and ${formatStat(nonHospitalProviders)} non-hospital providers`,
                 },
                 {
                   label: "Non-hospital Providers",
@@ -769,6 +765,11 @@ function HealthPage() {
                   <div className="mt-4 text-[32px] font-extrabold tracking-tight">
                     {stat.value}
                   </div>
+                  {stat.helper ? (
+                    <p className="mt-2 text-[11px] font-semibold leading-5 text-gray-400">
+                      {stat.helper}
+                    </p>
+                  ) : null}
                 </div>
               ))}
         </div>

@@ -735,13 +735,7 @@ function OverviewPage() {
       label: "Health Providers",
       value: formatStat(overviewHealthProviderCount),
       icon: HeartPulse,
-      helper: scopeLabel,
-    },
-    {
-      label: "Hospitals",
-      value: formatStat(overviewHospitalCount),
-      icon: HeartPulse,
-      helper: "Hospital-classified providers only",
+      helper: `${scopeLabel} - includes ${formatStat(overviewHospitalCount)} hospitals`,
     },
     {
       label: "Welfare Beneficiaries",
@@ -992,7 +986,7 @@ function OverviewPage() {
 
         <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-6 mb-10">
           {loadingAnyTopCard
-            ? [...Array(7)].map((_, index) => (
+            ? [...Array(6)].map((_, index) => (
                 <div
                   key={index}
                   className="border border-gray-100 rounded p-6 shadow-md bg-white animate-pulse"
