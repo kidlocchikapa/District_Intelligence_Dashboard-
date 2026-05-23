@@ -1,11 +1,11 @@
 import { ChevronDown } from "lucide-react";
 import { useDistrict } from "../context/DistrictContext";
-import { useDistrictOptions } from "../hooks/useDistrictOptions";
+
+const DISTRICT_OPTIONS = [{ label: "Zomba", value: "Zomba" }];
 
 function SharedDistrictSelector() {
   const { selectedDistrict, setSelectedDistrict, selectedTa, setSelectedTa } =
     useDistrict();
-  const districts = useDistrictOptions();
 
   return (
     <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:items-center sm:gap-3">
@@ -20,8 +20,10 @@ function SharedDistrictSelector() {
           value={selectedDistrict}
           onChange={(event) => setSelectedDistrict(event.target.value)}
         >
-          <option value="">All Districts</option>
-          {districts.options?.map((option) => (
+          <option value="" disabled>
+            Select district
+          </option>
+          {DISTRICT_OPTIONS.map((option) => (
             <option key={option.value} value={option.value}>
               {option.label}
             </option>
