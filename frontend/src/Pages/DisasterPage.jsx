@@ -110,6 +110,7 @@ function DisasterPage() {
   const [exposureChartSearch, setExposureChartSearch] = useState("");
   const [exposureChartLimit, setExposureChartLimit] = useState(12);
   const [exposureChartSort, setExposureChartSort] = useState("exposed_desc");
+  const [floodRasterMetadataUrl, setFloodRasterMetadataUrl] = useState(null);
 
   useEffect(() => {
     setSelectedTa("");
@@ -134,6 +135,43 @@ function DisasterPage() {
 
     return selectedDistrict;
   }, [selectedDistrict]);
+
+  useEffect(() => {
+    let ignore = false;
+    const fallbackDistrictSlug = disasterDistrictFilter
+      ? disasterDistrictFilter.toLowerCase().replace(/ /g, "_").replace(/[()]/g, "")
+      : "zomba";
+    const fallbackUrl = `/worldpop/flood_risk_${fallbackDistrictSlug}.preview.json`;
+
+    async function loadRasterMetadataUrl() {
+      try {
+        const response = await fetch(
+          buildDashboardPath("/dashboard/disaster/flood/raster-metadata", {
+            district: disasterDistrictFilter || undefined,
+          }),
+        );
+        if (!response.ok) {
+          throw new Error("Failed to load flood raster metadata.");
+        }
+
+        const payload = await response.json();
+        const nextUrl = payload?.data?.asset_url || fallbackUrl;
+        if (!ignore) {
+          setFloodRasterMetadataUrl(nextUrl);
+        }
+      } catch (error) {
+        if (!ignore) {
+          setFloodRasterMetadataUrl(fallbackUrl);
+        }
+      }
+    }
+
+    loadRasterMetadataUrl();
+
+    return () => {
+      ignore = true;
+    };
+  }, [disasterDistrictFilter]);
 
   const scopeLabel = selectedDistrict ? selectedDistrict : "Zomba + Zomba City";
 
@@ -632,11 +670,7 @@ function DisasterPage() {
                   title="High-Resolution Flood Risk Map"
                   subtitle="Rasterized surface detailing flood exposure intensity across the district."
                   heightClass="h-full w-full"
-                  metadataUrl={
-                    disasterDistrictFilter
-                      ? `/worldpop/flood_risk_${disasterDistrictFilter.toLowerCase().replace(/ /g, "_").replace(/[()]/g, "")}.preview.json`
-                      : "/worldpop/flood_risk_zomba.preview.json"
-                  }
+                  metadataUrl={floodRasterMetadataUrl || "/worldpop/flood_risk_zomba.preview.json"}
                   loading={
                     floodRiskZones.loading ||
                     educationFacilityExposureSummaryTA.loading ||

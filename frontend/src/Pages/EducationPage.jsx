@@ -14,7 +14,7 @@ import {
   ShieldAlert,
   Lightbulb,
 } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import DataTable from "../components/DataTable";
 import { useDashboardData } from "../hooks/useDashboardData";
 import { useDistrict } from "../context/DistrictContext";
@@ -2201,6 +2201,7 @@ function FloodBarTooltip({ active, payload }) {
 
 /* ─── Flood map: raster base + coloured school points ─────────────────── */
 function FloodImpactMap({ geojson, loading, coverageFocusDistrict }) {
+  const [rasterMetadataUrl, setRasterMetadataUrl] = useState(null);
   const taGeojson = useMemo(() => {
     const features = (geojson?.features || []).filter(
       (f) => f.properties?.feature_kind === "ta",
@@ -2215,12 +2216,43 @@ function FloodImpactMap({ geojson, loading, coverageFocusDistrict }) {
     return { type: "FeatureCollection", features };
   }, [geojson]);
 
-  const districtSlug = (coverageFocusDistrict || "zomba")
-    .toLowerCase()
-    .replace(/ /g, "_")
-    .replace(/[()]/g, "");
+  useEffect(() => {
+    let ignore = false;
+    const fallbackDistrictSlug = (coverageFocusDistrict || "zomba")
+      .toLowerCase()
+      .replace(/ /g, "_")
+      .replace(/[()]/g, "");
+    const fallbackUrl = `/worldpop/flood_risk_${fallbackDistrictSlug}.preview.json`;
 
-  const rasterMetadataUrl = `/worldpop/flood_risk_${districtSlug}.preview.json`;
+    async function loadRasterMetadataUrl() {
+      try {
+        const response = await fetch(
+          buildDashboardPath("/dashboard/disaster/flood/raster-metadata", {
+            district: coverageFocusDistrict || undefined,
+          }),
+        );
+        if (!response.ok) {
+          throw new Error("Failed to load flood raster metadata.");
+        }
+
+        const payload = await response.json();
+        const nextUrl = payload?.data?.asset_url || fallbackUrl;
+        if (!ignore) {
+          setRasterMetadataUrl(nextUrl);
+        }
+      } catch (error) {
+        if (!ignore) {
+          setRasterMetadataUrl(fallbackUrl);
+        }
+      }
+    }
+
+    loadRasterMetadataUrl();
+
+    return () => {
+      ignore = true;
+    };
+  }, [coverageFocusDistrict]);
 
   return (
     <div className="h-[420px] rounded overflow-hidden border border-gray-100">
