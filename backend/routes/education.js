@@ -139,8 +139,33 @@ async function fetchLatestPreviewAssets(datasetType, districtValues) {
   };
 }
 
-function findPreviewPath(previewPaths, suffix) {
-  return previewPaths.find((value) => String(value).endsWith(suffix)) || null;
+function findPreviewAssetPath(
+  previewAssets,
+  assetKey,
+  publicDirName,
+  extension,
+  fallbackPattern = null,
+) {
+  const asset = Array.isArray(previewAssets)
+    ? previewAssets.find((entry) => entry?.key === assetKey)
+    : null;
+
+  if (asset?.[extension]) {
+    return normalizePreviewAssetPath(asset[extension], publicDirName);
+  }
+
+  const fallbackPaths = (previewAssets || [])
+    .map((entry) => entry?.[extension])
+    .filter(Boolean);
+  const fallbackPath =
+    fallbackPaths.find((value) => {
+      const normalized = String(value);
+      return fallbackPattern
+        ? normalized.includes(fallbackPattern)
+        : normalized.includes(`.${assetKey}.preview.`);
+    }) ||
+    null;
+  return normalizePreviewAssetPath(fallbackPath, publicDirName);
 }
 
 function buildEducationRasterAssets(slug, coverageDistanceKm) {
@@ -927,35 +952,25 @@ router.get("/raster-metadata", async (req, res) => {
       "education_access",
       districtValues,
     );
-    const previewJsons = previewAssets
-      .map((asset) => asset?.json)
-      .filter(Boolean);
-
-    const bufferPreview = findPreviewPath(
-      previewJsons,
-      `.education_buffer_${coverageDistanceKm}km.preview.json`,
-    );
-    const networkPreview = findPreviewPath(
-      previewJsons,
-      ".education_network_distance.preview.json",
-    );
-    const travelPreview = findPreviewPath(
-      previewJsons,
-      ".education_travel_time.preview.json",
-    );
-
     const assets = buildEducationRasterAssets(slug, coverageDistanceKm);
-    const bufferUrl = normalizePreviewAssetPath(
-      bufferPreview,
+    const bufferUrl = findPreviewAssetPath(
+      previewAssets,
+      "education_buffer_coverage",
       "education-access",
+      "json",
+      `.education_buffer_${coverageDistanceKm}km.preview`,
     );
-    const networkUrl = normalizePreviewAssetPath(
-      networkPreview,
+    const networkUrl = findPreviewAssetPath(
+      previewAssets,
+      "education_network_distance",
       "education-access",
+      "json",
     );
-    const travelUrl = normalizePreviewAssetPath(
-      travelPreview,
+    const travelUrl = findPreviewAssetPath(
+      previewAssets,
+      "education_travel_time",
       "education-access",
+      "json",
     );
 
     if (bufferUrl) {

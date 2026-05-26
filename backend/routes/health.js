@@ -145,8 +145,22 @@ async function fetchLatestPreviewAssets(datasetType, districtValues) {
   };
 }
 
-function findPreviewPath(previewPaths, suffix) {
-  return previewPaths.find((value) => String(value).endsWith(suffix)) || null;
+function findPreviewAssetPath(previewAssets, assetKey, publicDirName, extension) {
+  const asset = Array.isArray(previewAssets)
+    ? previewAssets.find((entry) => entry?.key === assetKey)
+    : null;
+
+  if (asset?.[extension]) {
+    return normalizePreviewAssetPath(asset[extension], publicDirName);
+  }
+
+  const fallbackPaths = (previewAssets || [])
+    .map((entry) => entry?.[extension])
+    .filter(Boolean);
+  const fallbackPath =
+    fallbackPaths.find((value) => String(value).includes(`.${assetKey}.preview.`)) ||
+    null;
+  return normalizePreviewAssetPath(fallbackPath, publicDirName);
 }
 
 function buildHealthRasterAssets(slug) {
@@ -746,41 +760,48 @@ router.get("/raster-metadata", async (req, res) => {
       "health_access",
       districtValues,
     );
-    const previewJsons = previewAssets
-      .map((asset) => asset?.json)
-      .filter(Boolean);
-
     const assets = buildHealthRasterAssets(slug);
-    const bufferUrl = normalizePreviewAssetPath(
-      findPreviewPath(previewJsons, ".health_buffer_8km.preview.json"),
+    const bufferUrl = findPreviewAssetPath(
+      previewAssets,
+      "health_buffer_8km",
       "health-access",
+      "json",
     );
-    const networkUrl = normalizePreviewAssetPath(
-      findPreviewPath(previewJsons, ".health_network_8km.preview.json"),
+    const networkUrl = findPreviewAssetPath(
+      previewAssets,
+      "health_network_8km",
       "health-access",
+      "json",
     );
-    const travelUrl = normalizePreviewAssetPath(
-      findPreviewPath(previewJsons, ".health_travel_time.preview.json"),
+    const travelUrl = findPreviewAssetPath(
+      previewAssets,
+      "health_travel_time",
       "health-access",
+      "json",
     );
-    const sfcaUrl = normalizePreviewAssetPath(
-      findPreviewPath(previewJsons, ".health_2sfca.preview.json"),
+    const sfcaUrl = findPreviewAssetPath(
+      previewAssets,
+      "health_2sfca",
       "health-access",
+      "json",
     );
-    const vulnUrl = normalizePreviewAssetPath(
-      findPreviewPath(
-        previewJsons,
-        ".health_welfare_vulnerability.preview.json",
-      ),
+    const vulnUrl = findPreviewAssetPath(
+      previewAssets,
+      "health_welfare_vulnerability",
       "health-access",
+      "json",
     );
-    const floodUrl = normalizePreviewAssetPath(
-      findPreviewPath(previewJsons, ".health_flood_isolation.preview.json"),
+    const floodUrl = findPreviewAssetPath(
+      previewAssets,
+      "health_flood_isolation",
       "health-access",
+      "json",
     );
-    const schoolUrl = normalizePreviewAssetPath(
-      findPreviewPath(previewJsons, ".health_school_gap.preview.json"),
+    const schoolUrl = findPreviewAssetPath(
+      previewAssets,
+      "health_school_gap",
       "health-access",
+      "json",
     );
 
     if (bufferUrl) assets.health_buffer_8km = bufferUrl;
