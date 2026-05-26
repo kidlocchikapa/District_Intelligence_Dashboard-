@@ -826,7 +826,7 @@ def process_flood_dataset(
         max_attempts=worldpop_max_attempts,
     )
 
-    processed_count = run_step(
+    flood_result = run_step(
         step_name='flood_run_exposure_analysis',
         user_message_on_error='Flood exposure computation failed. Check raster/data inputs and retry.',
         fn=run_flood_exposure_analysis,
@@ -837,6 +837,7 @@ def process_flood_dataset(
         district_names=district_names,
         analysis_date=effective_date,
     )
+    processed_count = int(flood_result.get('processed_count', 0))
 
     metadata = {
         'flood_raster_path': flood_raster_path,
@@ -845,6 +846,7 @@ def process_flood_dataset(
         'district_name': district_name,
         'district_names': district_names or [],
         'analysis_date': effective_date.isoformat(),
+        'preview_assets': flood_result.get('preview_assets', []),
     }
 
     run_step(
@@ -854,7 +856,7 @@ def process_flood_dataset(
         session=session,
         filename=os.path.basename(flood_raster_path),
         source_type='file',
-        dataset_type='analysis',
+        dataset_type='flood',
         table_name='flood_zones',
         rows_read=processed_count,
         rows_processed=processed_count,
