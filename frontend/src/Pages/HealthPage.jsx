@@ -175,6 +175,7 @@ function HealthPage() {
       district: districtScope,
       ta: selectedTa,
       admin_type: selectedTa ? "TA" : "District",
+      buffer_km: 8,
     }),
   );
 
@@ -203,6 +204,7 @@ function HealthPage() {
     buildDashboardPath("/dashboard/health/served-population", {
       district: districtScope,
       admin_type: "TA",
+      buffer_km: 8,
     }),
   );
   const healthAccessZones = useDashboardData(
@@ -223,6 +225,7 @@ function HealthPage() {
     buildDashboardPath("/dashboard/health/served-population/geojson", {
       district: districtScope,
       admin_type: "TA",
+      buffer_km: 8,
     }),
   );
   const healthRasterMetadata = useDashboardData(
@@ -2274,4 +2277,3 @@ function HealthRecommendations({
 }
 
 export default HealthPage;
-
