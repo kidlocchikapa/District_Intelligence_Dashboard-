@@ -62,6 +62,7 @@ const DEFAULT_OVERPASS_QUERY =
     ");",
     "out geom;",
   ].join("\n");
+const DEFAULT_HEALTH_COVERAGE_DISTANCE_KM = 8;
 
 // Helper function to build ETL arguments based on task type and parameters
 const presetTaskDefinitions = {
@@ -134,7 +135,7 @@ const presetTaskDefinitions = {
   health_insights: {
     label: "Recalculate health insights",
     description:
-      "Runs facility summary, service coverage, population served, 2SFCA, and distance analyses.",
+      "Runs facility summary, service coverage, population served, 2SFCA, distance analyses, and refreshes health raster previews.",
     stages: ({ worldpopYear, adminLevel, coverageDistanceKm }) => [
       {
         label: "Health analysis",
@@ -149,7 +150,17 @@ const presetTaskDefinitions = {
             "health_service_coverage",
           ],
           adminLevel,
-          coverageDistanceKm,
+          coverageDistanceKm: coverageDistanceKm === 5 ? 8 : coverageDistanceKm,
+        }),
+      },
+      {
+        label: "Health access rasters",
+        args: buildEtlArgs({
+          type: "health_access",
+          sourceType: "worldpop",
+          districtGroup: "zomba_all",
+          worldpopYear,
+          coverageDistanceKm: coverageDistanceKm === 5 ? 8 : coverageDistanceKm,
         }),
       },
     ],
@@ -290,7 +301,7 @@ const presetTaskDefinitions = {
             "health_service_coverage",
           ],
           adminLevel,
-          coverageDistanceKm,
+          coverageDistanceKm: coverageDistanceKm === 5 ? 8 : coverageDistanceKm,
         }),
       },
       {
@@ -301,7 +312,7 @@ const presetTaskDefinitions = {
           apiUrl,
           districtGroup: "zomba_all",
           worldpopYear,
-          coverageDistanceKm,
+          coverageDistanceKm: coverageDistanceKm === 5 ? 8 : coverageDistanceKm,
         }),
       },
       {
@@ -2086,7 +2097,7 @@ router.post("/sync", auth, async (req, res) => {
     childClassMax = 15,
     analysisTypes,
     adminLevel,
-    coverageDistanceKm = 5,
+    coverageDistanceKm = DEFAULT_HEALTH_COVERAGE_DISTANCE_KM,
   } = req.body;
 
   if (!type) {
@@ -2179,7 +2190,7 @@ router.post("/run-task", auth, async (req, res) => {
     schoolAgeMax = 17,
     childClassMax = 15,
     adminLevel = "District",
-    coverageDistanceKm = 5,
+    coverageDistanceKm = DEFAULT_HEALTH_COVERAGE_DISTANCE_KM,
     overpassUrl = DEFAULT_OVERPASS_URL,
     overpassQuery = DEFAULT_OVERPASS_QUERY,
     overpassTimeout = DEFAULT_OVERPASS_TIMEOUT,
