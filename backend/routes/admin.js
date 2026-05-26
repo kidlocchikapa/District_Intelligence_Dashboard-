@@ -224,7 +224,7 @@ const presetTaskDefinitions = {
   planning_refresh: {
     label: "Run full planning refresh",
     description:
-      "Refreshes population inputs first, then recalculates education, health, and disaster insights.",
+      "Refreshes population inputs first, then recalculates education, health, raster previews, and disaster insights.",
     stages: ({
       apiUrl,
       worldpopYear,
@@ -288,6 +288,28 @@ const presetTaskDefinitions = {
             "health_service_coverage",
           ],
           adminLevel,
+          coverageDistanceKm,
+        }),
+      },
+      {
+        label: "Health access rasters",
+        args: buildEtlArgs({
+          type: "health_access",
+          sourceType: "worldpop",
+          apiUrl,
+          districtGroup: "zomba_all",
+          worldpopYear,
+          coverageDistanceKm,
+        }),
+      },
+      {
+        label: "Education access rasters",
+        args: buildEtlArgs({
+          type: "education_access",
+          sourceType: "worldpop",
+          apiUrl,
+          districtGroup: "zomba_all",
+          worldpopYear,
           coverageDistanceKm,
         }),
       },
