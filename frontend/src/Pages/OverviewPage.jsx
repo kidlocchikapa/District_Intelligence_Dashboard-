@@ -952,7 +952,7 @@ function OverviewPage() {
       title: "Selected Area Sector Analysis",
       selectedArea: selectedAreaName,
       sections,
-      mapNode: mapRef.current,
+      mapNode: mapRef.current?.querySelector("[data-map-export]"),
     });
   };
 
