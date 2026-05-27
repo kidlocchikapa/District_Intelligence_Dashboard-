@@ -225,17 +225,28 @@ export function usePdfExport(filename = 'district-report.pdf') {
       // If a map DOM node is provided, render it into the PDF before the sections.
       if (mapNode) {
         try {
-          const mapImgData = await toJpeg(mapNode, { quality: 1.0, pixelRatio: 2, backgroundColor: '#ffffff' });
+          const mapImgData = await toJpeg(mapNode, {
+            cacheBust: true,
+            quality: 1.0,
+            pixelRatio: 2,
+            backgroundColor: '#ffffff',
+          });
           const imgSize = await loadImageSize(mapImgData);
           const pageWidth = pdf.internal.pageSize.width;
           const availableWidth = pageWidth - margin * 2;
-          const scale = Math.min(1, availableWidth / imgSize.width);
+          const maxMapHeight = 280;
+          const scale = Math.min(
+            1,
+            availableWidth / imgSize.width,
+            maxMapHeight / imgSize.height,
+          );
           const drawWidth = imgSize.width * scale;
           const drawHeight = imgSize.height * scale;
+          const drawX = margin + (availableWidth - drawWidth) / 2;
 
           // Add image on current page and advance Y position.
-          pdf.addImage(mapImgData, 'JPEG', margin, y, drawWidth, drawHeight);
-          y += drawHeight + 12;
+          pdf.addImage(mapImgData, 'JPEG', drawX, y, drawWidth, drawHeight);
+          y += drawHeight + 18;
         } catch (err) {
           // If map capture fails, continue without it.
           console.warn('Failed to capture map for PDF export', err);
