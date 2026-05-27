@@ -1,2 +1,2 @@
-﻿name,type,ownership,status,bed_capacity,doctor_count,nurse_midwife_count,patient_visits_total,district_name,ward_name,latitude,longitude
-Zomba Central Clinic,Clinic,Government,Operational,45,3,12,18500,Zomba,Matawale,-15.3864,35.3191
+code,name,common_name,type,ownership,capacity_persons,zone,status,doctor_count,nurse_midwife_count,bed_capacity,beds_count,patient_visits_total,services_offered,district_name,ward_name,village_name,longitude,latitude,coordinates
+HF-ZBA-001,Zomba Central Clinic,Zomba Central,Clinic,Government,500,Zomba Urban,Operational,3,12,45,42,18500,"outpatient,maternity,immunization",Zomba,Matawale,Chimwankhunda,35.3191,-15.3864,
