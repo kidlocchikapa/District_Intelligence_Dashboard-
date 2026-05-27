@@ -2354,9 +2354,6 @@ function HealthRecommendations({
 }
 
 export default HealthPage;
-<<<<<<< HEAD
-=======
 
 
 
->>>>>>> bf09a442cafeaa1ce5c2b826218b7b36401d51a4

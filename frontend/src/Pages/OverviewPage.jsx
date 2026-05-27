@@ -636,6 +636,12 @@ function OverviewPage() {
     : [];
   const welfareSummary = welfareIntegration.data?.summary || {};
   const educationData = educationSummary.data || {};
+  const educationOutOfSchoolTotal = Number(
+    educationData.child_population_unenrolled ||
+      educationData.school_age_population_unenrolled ||
+      educationData.not_in_school_total ||
+      0,
+  );
   const educationInsightRows = useMemo(
     () => educationInsights.data?.districts ?? [],
     [educationInsights.data],
@@ -709,7 +715,7 @@ function OverviewPage() {
     {
       title: "Education",
       primary: `${formatStat(overviewSchoolCount)} schools`,
-      secondary: `${formatStat(educationData.not_in_school_total || 0)} learners likely out of school`,
+      secondary: `${formatStat(educationOutOfSchoolTotal)} learners likely out of school`,
       surfaceClass: "border-amber-100 bg-amber-50/45",
       titleClass: "text-amber-700",
       valueClass: "text-amber-800",
@@ -902,7 +908,7 @@ function OverviewPage() {
           },
           {
             metric: "Out-of-School Population",
-            value: formatStat(educationData.not_in_school_total || 0),
+            value: formatStat(educationOutOfSchoolTotal),
           },
         ],
       },
@@ -1073,7 +1079,7 @@ function OverviewPage() {
                     summary.data?.total_estimated_population ||
                     0,
                   schools: overviewSchoolCount,
-                  not_in_school: educationData.not_in_school_total || 0,
+                  not_in_school: educationOutOfSchoolTotal,
                 },
               },
               {
@@ -1256,17 +1262,11 @@ function OverviewPage() {
                 selectedFeatureName={selectedTa}
                 customTooltipMetrics={[
                   { key: "schools_count", label: "Schools" },
-<<<<<<< HEAD
-                  {
-                    key: "health_facilities_count",
-                    label: "Health Facilities",
-=======
                   { key: "health_facilities_count", label: "Health Providers" },
                   { key: "hospitals_count", label: "Hospitals in Providers" },
                   {
                     key: "non_hospital_providers_count",
                     label: "Non-Hospital Providers",
->>>>>>> bf09a442cafeaa1ce5c2b826218b7b36401d51a4
                   },
                   { key: "beneficiaries_count", label: "Beneficiaries" },
                   { key: "exposed_population", label: "Flood Exposed" },
