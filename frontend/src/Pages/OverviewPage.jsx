@@ -126,6 +126,7 @@ function DistrictBoundaryMap({
   scopeLabel,
 }) {
   const [hoveredFeature, setHoveredFeature] = useState(null);
+  const [showTaNames, setShowTaNames] = useState(true);
   const features = useMemo(() => geojson?.features || [], [geojson]);
   const width = 1000;
   const height = 620;
@@ -180,7 +181,7 @@ function DistrictBoundaryMap({
             const isHovered =
               hoveredName && name && normalizeName(name) === normalizeName(hoveredName);
             const fillColor = isSelected
-              ? "#111827"
+              ? "#ffffff"
               : isHovered
                 ? "#dbeafe"
                 : index % 2 === 0
@@ -198,7 +199,7 @@ function DistrictBoundaryMap({
                   fill={fillColor}
                   stroke={isSelected ? "#111827" : "#64745f"}
                   strokeWidth={isSelected ? 3.2 : isHovered ? 2.4 : 1.4}
-                  opacity={isSelected ? 0.94 : 0.9}
+                  opacity={isSelected ? 1 : 0.9}
                   className="cursor-pointer transition"
                   onMouseEnter={() => setHoveredFeature(feature)}
                   onFocus={() => setHoveredFeature(feature)}
@@ -207,7 +208,7 @@ function DistrictBoundaryMap({
                   role="button"
                   aria-label={`Select ${name}`}
                 />
-                {labelPosition ? (
+                {showTaNames && labelPosition ? (
                   <text
                     x={labelPosition.x}
                     y={labelPosition.y}
@@ -248,13 +249,26 @@ function DistrictBoundaryMap({
             <span>Traditional Authority area</span>
           </div>
           <div className="flex items-center gap-3">
-            <span className="h-4 w-7 rounded-sm border-2 border-[#111827] bg-[#111827]" />
+            <span className="h-4 w-7 rounded-sm border-2 border-[#111827] bg-white" />
             <span>Selected TA</span>
           </div>
           <div className="flex items-center gap-3">
             <span className="h-4 w-7 rounded-sm border-2 border-[#64745f] bg-[#dbeafe]" />
             <span>Hovered TA</span>
           </div>
+        </div>
+        <div className="mt-4 rounded border border-gray-200 bg-gray-50 p-3">
+          <p className="text-[10px] font-bold uppercase tracking-[0.14em] text-gray-400">
+            Label Visibility
+          </p>
+          <button
+            type="button"
+            onClick={() => setShowTaNames((current) => !current)}
+            className="mt-2 w-full rounded border border-gray-300 bg-white px-3 py-2 text-[11px] font-bold uppercase tracking-[0.12em] text-gray-700 transition hover:bg-gray-100"
+            aria-pressed={showTaNames}
+          >
+            {showTaNames ? "Hide TA names" : "Show TA names"}
+          </button>
         </div>
         <div className="mt-5 rounded bg-gray-50 p-3">
           <p className="text-[10px] font-bold uppercase tracking-[0.14em] text-gray-400">
@@ -1511,5 +1525,3 @@ function OverviewPage() {
 }
 
 export default OverviewPage;
-
-
