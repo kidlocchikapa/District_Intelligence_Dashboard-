@@ -36,6 +36,53 @@ const datasetTypes = [
   "flood",
 ];
 
+const departmentDatasetTypes = {
+  education: ["education"],
+  health: ["health"],
+  social_welfare: ["social_welfare", "roads"],
+  disaster: ["disaster", "flood"],
+};
+
+const uploadTemplateFiles = {
+  education: {
+    url: "/upload-templates/education_template.csv",
+    filename: "education_template.csv",
+    description: "School records template (CSV).",
+  },
+  health: {
+    url: "/upload-templates/health_template.csv",
+    filename: "health_template.csv",
+    description: "Health facility records template (CSV).",
+  },
+  social_welfare: {
+    url: "/upload-templates/social_welfare_template.csv",
+    filename: "social_welfare_template.csv",
+    description: "Welfare beneficiary summary template (CSV).",
+  },
+  roads: {
+    url: "/upload-templates/roads_template.geojson",
+    filename: "roads_template.geojson",
+    description: "Road network template (GeoJSON LineString).",
+  },
+  disaster: {
+    url: "/upload-templates/disaster_template.csv",
+    filename: "disaster_template.csv",
+    description: "Disaster exposure sample template (CSV).",
+  },
+  flood: {
+    url: "/upload-templates/flood_template.txt",
+    filename: "flood_template.txt",
+    description: "Flood raster upload guide template.",
+  },
+};
+
+function resolveDepartmentDatasetTypes(department) {
+  if (!department) {
+    return [];
+  }
+  return departmentDatasetTypes[department] || datasetTypes;
+}
+
 const taskDescriptions = {
   worldpop_totals: {
     badge: "Population",
@@ -171,6 +218,14 @@ function AdminPage() {
   const availableDepartments = useMemo(
     () => Object.keys(departmentConfig),
     [],
+  );
+  const availableDatasetTypes = useMemo(
+    () => resolveDepartmentDatasetTypes(selectedDepartment),
+    [selectedDepartment],
+  );
+  const selectedTemplate = useMemo(
+    () => uploadTemplateFiles[uploadFormState.type] || null,
+    [uploadFormState.type],
   );
   const isGlobalAdmin = useMemo(
     () =>
@@ -331,6 +386,23 @@ function AdminPage() {
         "Upload failed: " + (error.response?.data?.message || error.message),
       );
     }
+  }
+
+  function handleDownloadTemplate() {
+    if (!selectedTemplate) {
+      setStatus(
+        `No template is configured for dataset type "${uploadFormState.type}".`,
+      );
+      return;
+    }
+
+    const link = document.createElement("a");
+    link.href = selectedTemplate.url;
+    link.download = selectedTemplate.filename;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    setStatus(`Template downloaded: ${selectedTemplate.filename}`);
   }
 
   async function handleRunTask(task) {
@@ -504,23 +576,11 @@ function AdminPage() {
                       }
                     >
                       {selectedDepartment
-                        ? datasetTypes
-                            .filter((t) => {
-                              if (selectedDepartment === "education")
-                                return t === "education";
-                              if (selectedDepartment === "social_welfare")
-                                return t === "social_welfare" || t === "roads";
-                              if (selectedDepartment === "disaster")
-                                return t === "disaster" || t === "flood";
-                              if (selectedDepartment === "health")
-                                return t === "health";
-                              return true;
-                            })
-                            .map((t) => (
-                              <option key={t} value={t}>
-                                {t.replace("_", " ")}
-                              </option>
-                            ))
+                        ? availableDatasetTypes.map((t) => (
+                            <option key={t} value={t}>
+                              {t.replace("_", " ")}
+                            </option>
+                          ))
                         : (
                           <option value="">
                             No department access
@@ -530,21 +590,36 @@ function AdminPage() {
                   </label>
                   <label className="block text-sm font-bold text-slate-700">
                     Source File
-                    <input
-                      type="file"
-                      disabled={
-                        !selectedDepartment ||
-                        selectedDepartment === "education" ||
-                        selectedDepartment === "health"
-                      }
-                      className="mt-2 w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl outline-none"
-                      onChange={(e) =>
-                        setUploadFormState((s) => ({
-                          ...s,
-                          file: e.target.files?.[0],
-                        }))
-                      }
-                    />
+                    <div className="mt-2 flex flex-col gap-2 sm:flex-row sm:items-center">
+                      <input
+                        type="file"
+                        disabled={
+                          !selectedDepartment ||
+                          selectedDepartment === "education" ||
+                          selectedDepartment === "health"
+                        }
+                        className="w-full flex-1 px-4 py-2.5 bg-white border border-slate-200 rounded-xl outline-none"
+                        onChange={(e) =>
+                          setUploadFormState((s) => ({
+                            ...s,
+                            file: e.target.files?.[0],
+                          }))
+                        }
+                      />
+                      <button
+                        type="button"
+                        onClick={handleDownloadTemplate}
+                        disabled={!selectedDepartment || !selectedTemplate}
+                        className="shrink-0 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-xs font-bold text-slate-700 transition-all hover:border-slate-300 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        Download template file
+                      </button>
+                    </div>
+                    {selectedTemplate && (
+                      <p className="mt-2 text-xs font-medium text-slate-500">
+                        {selectedTemplate.description}
+                      </p>
+                    )}
                   </label>
                 </div>
                 <button className="flex w-full items-center justify-center gap-2 rounded-xl bg-slate-900 py-3 font-bold text-white transition-all hover:bg-slate-800">
