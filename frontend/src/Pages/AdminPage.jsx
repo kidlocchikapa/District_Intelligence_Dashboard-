@@ -39,7 +39,7 @@ const datasetTypes = [
 const departmentDatasetTypes = {
   education: ["education"],
   health: ["health"],
-  social_welfare: ["social_welfare", "roads"],
+  social_welfare: ["welfare_beneficiary", "roads"],
   disaster: ["disaster", "flood"],
 };
 
@@ -54,10 +54,10 @@ const uploadTemplateFiles = {
     filename: "health_template.csv",
     description: "Health facility records template (CSV).",
   },
-  social_welfare: {
-    url: "/upload-templates/social_welfare_template.csv",
-    filename: "social_welfare_template.csv",
-    description: "Welfare beneficiary summary template (CSV).",
+  welfare_beneficiary: {
+    url: "/upload-templates/welfare_beneficiary_template.csv",
+    filename: "welfare_beneficiary_template.csv",
+    description: "Individual welfare beneficiary records template (CSV).",
   },
   roads: {
     url: "/upload-templates/roads_template.geojson",
@@ -346,7 +346,7 @@ function AdminPage() {
     if (selectedDepartment === "education") {
       setUploadFormState((s) => ({ ...s, type: "education" }));
     } else if (selectedDepartment === "social_welfare") {
-      setUploadFormState((s) => ({ ...s, type: "social_welfare" }));
+      setUploadFormState((s) => ({ ...s, type: "welfare_beneficiary" }));
     } else if (selectedDepartment === "disaster") {
       setUploadFormState((s) => ({ ...s, type: "disaster" }));
     } else if (selectedDepartment === "health") {
@@ -365,12 +365,8 @@ function AdminPage() {
       setStatus("Please select a file first");
       return;
     }
-    const selectedType =
-      uploadFormState.type === "social_welfare"
-        ? "welfare"
-        : uploadFormState.type;
     const formData = new FormData();
-    formData.append("type", selectedType);
+    formData.append("type", uploadFormState.type);
     formData.append("file", uploadFormState.file);
     try {
       setStatus(`Starting ${uploadFormState.type} upload...`);
