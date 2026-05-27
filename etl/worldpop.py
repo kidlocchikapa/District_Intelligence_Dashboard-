@@ -26,7 +26,7 @@ DEFAULT_WORLDPOP_STATS_URL = 'https://api.worldpop.org/v1/services/stats'
 DEFAULT_WORLDPOP_TASKS_URL = 'https://api.worldpop.org/v1/tasks'
 DEFAULT_WORLDPOP_DATASET = 'wpgppop'
 DEFAULT_WORLDPOP_AGE_SEX_DATASET = 'wpgpas'
-DEFAULT_SCHOOL_AGE_MIN = 5
+DEFAULT_SCHOOL_AGE_MIN = 2
 DEFAULT_SCHOOL_AGE_MAX = 17
 DEFAULT_CHILD_CLASS_MAX = 15
 DEFAULT_WORLDPOP_MAX_GEOJSON_CHARS = 12000
@@ -448,11 +448,15 @@ def parse_age_band(age_label):
     if not text_value:
         return None, None
 
-    match = re.match(r'(?P<start>\d+)\s+to\s+(?P<end>\d+)', text_value)
+    match = re.match(r'(?P<start>\d+)\s*(?:to|-)\s*(?P<end>\d+)', text_value)
     if match:
         return int(match.group('start')), int(match.group('end'))
 
     match = re.match(r'(?P<start>\d+)\s+and\s+over', text_value)
+    if match:
+        return int(match.group('start')), 120
+
+    match = re.match(r'(?P<start>\d+)\s*\+', text_value)
     if match:
         return int(match.group('start')), 120
 
@@ -461,6 +465,18 @@ def parse_age_band(age_label):
         return start, start + 1
 
     return None, None
+
+
+def parse_age_start(age_value):
+    text_value = str(age_value or '').strip().lower()
+    if not text_value:
+        return None
+
+    match = re.match(r'(?P<start>\d+)', text_value)
+    if match:
+        return int(match.group('start'))
+
+    return None
 
 
 ## Function to aggregate school-age population from a WorldPop age pyramid
@@ -499,9 +515,11 @@ def aggregate_child_population_from_classes(agesex_pyramid, max_class=DEFAULT_CH
     female_total = 0.0
 
     for bucket in agesex_pyramid or []:
-        try:
-            class_value = int(bucket.get('class'))
-        except (TypeError, ValueError):
+        class_value = parse_age_start(bucket.get('class'))
+        if class_value is None:
+            class_value = parse_age_start(bucket.get('age'))
+
+        if class_value is None:
             continue
 
         if class_value > max_class:
