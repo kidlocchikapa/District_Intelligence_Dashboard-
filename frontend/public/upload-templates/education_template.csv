@@ -1,2 +1,2 @@
-school_name,status,operator,student_enrollment_total,student_classroom_ratio,special_needs_students,teacher_distribution,teacher_count,blocks_count,water_equipment_facility_count,toilets_count,classroom_pressure,teacher_pressure,district_name,ward_name,village_name,longitude,latitude,coordinates
-Chilomoni Primary School,Operational,Government,820,68.3,12,16,16,12,2,18,1.2,1.1,Zomba,Matawale,Chimwankhunda,35.3180,-15.3852,
+school_name,district,operator,status,student_enrollment_total,student_classroom_ratio,special_needs_students,teacher_distribution,teacher_count,blocks_count,water_equipment_facility_count,toilets_count,classroom_pressure,teacher_pressure,x_coordinate,y_coordinate,ta_id,district_id,is_active
+Chilomoni Primary School,Zomba,Government,Operational,820,68.3,12,16,16,12,2,18,1.2,1.1,35.3180,-15.3852,,,true
