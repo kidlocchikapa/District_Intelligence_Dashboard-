@@ -1,2 +1,2 @@
-﻿event_type,risk_level,district_name,ward_name,facility_name,facility_type,latitude,longitude,notes
-flood,High,Zomba,Matawale,Matawale Primary School,education,-15.3878,35.3204,Sample exposure record
+event_type,risk_level,population_at_risk,geometry_geojson,is_active
+flood,High,1250,"{""type"":""Polygon"",""coordinates"":[[[35.318,-15.386],[35.322,-15.386],[35.322,-15.390],[35.318,-15.390],[35.318,-15.386]]]}",true
