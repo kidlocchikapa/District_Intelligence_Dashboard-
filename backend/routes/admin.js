@@ -115,18 +115,33 @@ const presetTaskDefinitions = {
   },
   education_insights: {
     label: "Recalculate education insights",
-    description: "Runs school planning and education access analyses.",
-    stages: ({ adminLevel, coverageDistanceKm }) => [
+    description:
+      "Runs school planning, education access analyses, and access preview rasters.",
+    stages: ({ apiUrl, worldpopYear, adminLevel, coverageDistanceKm }) => [
       {
         label: "Education analysis",
         args: buildEtlArgs({
           type: "analysis",
+          apiUrl,
+          worldpopYear,
           analysisTypes: [
             "education_summary",
             "nearest_school_distance",
             "school_service_coverage",
+            "school_population_buffer",
           ],
           adminLevel,
+          coverageDistanceKm,
+        }),
+      },
+      {
+        label: "Education access rasters",
+        args: buildEtlArgs({
+          type: "education_access",
+          sourceType: "worldpop",
+          apiUrl,
+          districtGroup: "zomba_all",
+          worldpopYear,
           coverageDistanceKm,
         }),
       },
@@ -138,7 +153,7 @@ const presetTaskDefinitions = {
       "Runs facility summary, service coverage, population served, 2SFCA, distance analyses, and refreshes health raster previews.",
     stages: ({ worldpopYear, adminLevel, coverageDistanceKm }) => [
       {
-        label: "Health analysis",
+        label: "Health analysis (District)",
         args: buildEtlArgs({
           type: "analysis",
           worldpopYear,
@@ -149,7 +164,23 @@ const presetTaskDefinitions = {
             "nearest_health_distance",
             "health_service_coverage",
           ],
-          adminLevel,
+          adminLevel: "District",
+          coverageDistanceKm: coverageDistanceKm === 5 ? 8 : coverageDistanceKm,
+        }),
+      },
+      {
+        label: "Health analysis (TA)",
+        args: buildEtlArgs({
+          type: "analysis",
+          worldpopYear,
+          analysisTypes: [
+            "health_summary",
+            "health_population_served",
+            "health_2sfca_access",
+            "nearest_health_distance",
+            "health_service_coverage",
+          ],
+          adminLevel: "TA",
           coverageDistanceKm: coverageDistanceKm === 5 ? 8 : coverageDistanceKm,
         }),
       },
@@ -279,17 +310,20 @@ const presetTaskDefinitions = {
         label: "Education analysis",
         args: buildEtlArgs({
           type: "analysis",
+          apiUrl,
+          worldpopYear,
           analysisTypes: [
             "education_summary",
             "nearest_school_distance",
             "school_service_coverage",
+            "school_population_buffer",
           ],
           adminLevel,
           coverageDistanceKm,
         }),
       },
       {
-        label: "Health analysis",
+        label: "Health analysis (District)",
         args: buildEtlArgs({
           type: "analysis",
           worldpopYear,
@@ -300,7 +334,23 @@ const presetTaskDefinitions = {
             "nearest_health_distance",
             "health_service_coverage",
           ],
-          adminLevel,
+          adminLevel: "District",
+          coverageDistanceKm: coverageDistanceKm === 5 ? 8 : coverageDistanceKm,
+        }),
+      },
+      {
+        label: "Health analysis (TA)",
+        args: buildEtlArgs({
+          type: "analysis",
+          worldpopYear,
+          analysisTypes: [
+            "health_summary",
+            "health_population_served",
+            "health_2sfca_access",
+            "nearest_health_distance",
+            "health_service_coverage",
+          ],
+          adminLevel: "TA",
           coverageDistanceKm: coverageDistanceKm === 5 ? 8 : coverageDistanceKm,
         }),
       },

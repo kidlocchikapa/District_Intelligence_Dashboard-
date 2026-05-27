@@ -44,6 +44,7 @@ const RECOMPUTE_DEFINITION = {
       "education_summary",
       "nearest_school_distance",
       "school_service_coverage",
+      "school_population_buffer",
     ],
   },
   health: {

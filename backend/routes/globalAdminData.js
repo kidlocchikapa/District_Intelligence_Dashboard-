@@ -14,6 +14,7 @@ const ANALYSIS_TYPE_OPTIONS = [
   "nearest_school_distance",
   "nearest_health_distance",
   "school_service_coverage",
+  "school_population_buffer",
   "health_service_coverage",
   "education_standards_compliance",
   "education_catchment_access",
