@@ -1231,6 +1231,8 @@ function OverviewPage() {
                 geojson={populationMapGeojson}
                 title={null}
                 subtitle={null}
+                exportTitle="Population Context Map"
+                exportSubtitle="Population raster with TA boundaries, service indicators, and flood exposure context."
                 heightClass="h-full w-full"
                 loading={densityMap.loading}
                 metadataUrl="/worldpop/zomba_ppp_2020.preview.json"

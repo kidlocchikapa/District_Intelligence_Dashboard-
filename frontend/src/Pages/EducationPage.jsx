@@ -1322,6 +1322,9 @@ function EducationPage() {
               ) : (
                 <MapPanel
                   geojson={schoolLocationsForMap}
+                  exportTitle="School Locations and Risk"
+                  exportSubtitle="School points coloured by classroom and teacher pressure."
+                  pointExportLabel="Schools"
                   loading={schoolLocations.loading}
                   pointColor={SCHOOL_RISK_COLORS["OK"]}
                   pointColorResolver={(feature) =>

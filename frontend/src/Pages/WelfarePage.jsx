@@ -664,6 +664,8 @@ function WelfarePage() {
                   geojson={taMapGeojson}
                   metricName="beneficiary_count"
                   title=""
+                  exportTitle="Welfare Beneficiaries by TA"
+                  exportSubtitle="TA areas shaded by welfare beneficiary count for the selected scope."
                   pointColor="#2563eb"
                   popupFields={[
                     { key: "beneficiary_count", label: "Beneficiaries" },

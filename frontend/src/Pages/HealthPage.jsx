@@ -1070,6 +1070,9 @@ function HealthPage() {
             <div ref={mapRef} className="flex-1 rounded overflow-hidden relative border border-gray-50 bg-gray-50">
               <MapPanel
                 geojson={healthServiceMapGeojson}
+                exportTitle="Health Services Map"
+                exportSubtitle="TA boundaries with health provider locations for the selected scope."
+                pointExportLabel="Health providers"
                 pointColor="#c56a3d"
                 outlineOnly
                 selectedFeatureName={selectedTa}
