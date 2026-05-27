@@ -216,6 +216,15 @@ function WelfarePage() {
       district: selectedDistrict,
     }),
   );
+  const planningPriorities = useDashboardData(
+    buildDashboardPath("/dashboard/planning-priorities", {
+      district: selectedDistrict,
+      ta: selectedTa,
+      admin_type: "TA",
+      department: "welfare",
+      limit: selectedTa ? 1 : 5,
+    }),
+  );
   const summary = integration.data?.summary || {};
   const programBreakdown = useMemo(
     () => integration.data?.program_breakdown ?? EMPTY_ROWS,
