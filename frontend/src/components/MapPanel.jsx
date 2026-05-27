@@ -401,6 +401,7 @@ function MapPanel({
       )}
 
       <div
+        data-map-export
         className={`relative ${useStackedLayout ? "flex-1 min-h-0" : ""} ${heightClass} w-full overflow-hidden rounded-[1.5rem] border border-fog`}
       >
         <MapContainer
