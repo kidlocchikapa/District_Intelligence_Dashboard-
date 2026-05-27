@@ -59,6 +59,7 @@ services:
       - 8.8.8.8
     volumes:
       - ./uploads:/app/uploads
+      - ./frontend/public:/app/frontend/public
     command: ["sh", "-c", "cd /app/backend && node init-db.js && npm run dev"]
     develop:
       watch:
@@ -103,7 +104,11 @@ services:
     ports:
       - "5433:5432"
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-district_user} -d ${DB_NAME:-district_intelligence}"]
+      test:
+        [
+          "CMD-SHELL",
+          "pg_isready -U ${DB_USER:-district_user} -d ${DB_NAME:-district_intelligence}",
+        ]
       interval: 5s
       timeout: 5s
       retries: 12
