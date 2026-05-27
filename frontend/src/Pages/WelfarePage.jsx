@@ -4,6 +4,9 @@ import {
   Heart,
   Download,
   Lightbulb,
+  Activity,
+  ShieldAlert,
+  GraduationCap,
 } from "lucide-react";
 import { useDashboardData } from "../hooks/useDashboardData";
 import { useDistrict } from "../context/DistrictContext";
@@ -207,6 +210,15 @@ function WelfarePage() {
       ta: selectedTa,
       program_id: selectedProgramId || undefined,
       preview_limit: 15,
+    }),
+  );
+  const planningPriorities = useDashboardData(
+    buildDashboardPath("/dashboard/planning-priorities", {
+      district: selectedDistrict,
+      ta: selectedTa,
+      admin_type: selectedTa ? "TA" : "District",
+      department: "welfare",
+      limit: selectedTa ? 1 : 5,
     }),
   );
 
@@ -1054,5 +1066,3 @@ function WelfarePage() {
 }
 
 export default WelfarePage;
-
-

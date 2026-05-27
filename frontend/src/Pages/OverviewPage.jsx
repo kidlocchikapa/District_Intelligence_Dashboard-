@@ -637,9 +637,9 @@ function OverviewPage() {
   const welfareSummary = welfareIntegration.data?.summary || {};
   const educationData = educationSummary.data || {};
   const educationOutOfSchoolTotal = Number(
-    educationData.child_population_unenrolled ||
-      educationData.school_age_population_unenrolled ||
-      educationData.not_in_school_total ||
+    educationData.school_age_population_unenrolled ??
+      educationData.not_in_school_total ??
+      educationData.child_population_unenrolled ??
       0,
   );
   const educationInsightRows = useMemo(

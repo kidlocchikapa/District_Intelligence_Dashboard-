@@ -392,14 +392,14 @@ function EducationPage() {
       district: coverageFocusDistrict,
     }),
   );
-  const schoolPopulationBufferGeojson = useDashboardData(
+  const schoolServiceCoverageGeojson = useDashboardData(
     buildDashboardPath("/dashboard/analysis/geojson", {
-      analysis_type: "school_population_buffer",
+      analysis_type: "school_service_coverage",
       admin_type: "TA",
+      metric_name: "school_service_coverage_pct",
       district: coverageFocusDistrict,
     }),
   );
-
   const floodImpact = useDashboardData(
     buildDashboardPath("/dashboard/education/flood-impact", {
       district: coverageFocusDistrict,
@@ -484,12 +484,11 @@ function EducationPage() {
       {
         metric: "Out-of-School Population",
         value: formatStat(
-          selectedInsightRow.child_population_unenrolled ||
-            selectedInsightRow.school_age_population_unenrolled ||
-            selectedInsightRow.not_in_school_total ||
-            educationSummary.data?.child_population_unenrolled ||
-            educationSummary.data?.school_age_population_unenrolled ||
-            educationSummary.data?.not_in_school_total ||
+          selectedInsightRow.school_age_population_unenrolled ??
+            selectedInsightRow.not_in_school_total ??
+            educationSummary.data?.school_age_population_unenrolled ??
+            educationSummary.data?.not_in_school_total ??
+            educationSummary.data?.child_population_unenrolled ??
             0,
         ),
       },
@@ -558,9 +557,9 @@ function EducationPage() {
   const sourceInsightRows = allInsightRows.length
     ? allInsightRows
     : insightRows;
-  const schoolPopulationBufferLookup = useMemo(() => {
-    const bufferFeatures = schoolPopulationBufferGeojson.data?.features || [];
-    return bufferFeatures.reduce((lookup, feature) => {
+  const schoolServiceCoverageLookup = useMemo(() => {
+    const coverageFeatures = schoolServiceCoverageGeojson.data?.features || [];
+    return coverageFeatures.reduce((lookup, feature) => {
       const properties = feature?.properties || {};
       const key = getEducationUnitKey(properties, feature);
       const metricName = properties.metric_name;
@@ -572,7 +571,7 @@ function EducationPage() {
       lookup[key][metricName] = Number(properties.metric_value || 0);
       return lookup;
     }, {});
-  }, [schoolPopulationBufferGeojson.data]);
+  }, [schoolServiceCoverageGeojson.data]);
   const selectedInsight = selectedTa
     ? sourceInsightRows.find(
         (row) =>
@@ -820,9 +819,6 @@ function EducationPage() {
         const properties = feature?.properties || {};
         const key = getEducationUnitKey(properties, feature);
         const insight = insightLookup[key];
-        const bufferMetrics = schoolPopulationBufferLookup[key] || {};
-        const hasBufferMetrics =
-          Object.keys(bufferMetrics).length > 0;
         const schoolAgePopulationTotal = Number(
           insight?.school_age_population_total ??
             properties.school_age_population_total ??
@@ -833,10 +829,19 @@ function EducationPage() {
             properties.student_enrollment_total ??
             0,
         );
-        const populationServedTotal =
-          bufferMetrics.school_population_served_total;
-        const outsideBufferPopulation =
-          bufferMetrics.school_population_unserved_total;
+        const coveragePct = Number(
+          schoolServiceCoverageLookup[key]?.school_service_coverage_pct ?? 0,
+        );
+        const populationServedTotal = Math.max(
+          schoolAgePopulationTotal * (coveragePct / 100),
+          0,
+        );
+        const outsideBufferPopulation = Math.max(
+          schoolAgePopulationTotal - populationServedTotal,
+          0,
+        );
+        const hasBufferMetrics =
+          schoolAgePopulationTotal > 0 || coveragePct > 0;
 
         if (!insight && !hasBufferMetrics) {
           return feature;
@@ -859,7 +864,7 @@ function EducationPage() {
     };
   }, [
     educationCoverageTaGeojson.data,
-    schoolPopulationBufferLookup,
+    schoolServiceCoverageLookup,
     sourceInsightRows,
   ]);
 
@@ -1050,12 +1055,11 @@ function EducationPage() {
                 {
                   label: "Not in School",
                   value: formatStat(
-                    selectedInsight?.child_population_unenrolled ||
-                    selectedInsight?.school_age_population_unenrolled ||
-                      selectedInsight?.not_in_school_total ||
-                      educationSummary.data?.child_population_unenrolled ||
-                      educationSummary.data?.school_age_population_unenrolled ||
-                      educationSummary.data?.not_in_school_total ||
+                    selectedInsight?.school_age_population_unenrolled ??
+                      selectedInsight?.not_in_school_total ??
+                      educationSummary.data?.school_age_population_unenrolled ??
+                      educationSummary.data?.not_in_school_total ??
+                      educationSummary.data?.child_population_unenrolled ??
                       0,
                   ),
                   icon: UserRoundX,
@@ -1865,9 +1869,9 @@ function PlanningRecommendations({
   const teacherTotal = Number(eduSummary.teacher_count_total || 0);
   const schoolAgeTotal = Number(eduSummary.school_age_population_total || 0);
   const outOfSchoolTotal = Number(
-    eduSummary.child_population_unenrolled ||
-      eduSummary.school_age_population_unenrolled ||
-      eduSummary.not_in_school_total ||
+    eduSummary.school_age_population_unenrolled ??
+      eduSummary.not_in_school_total ??
+      eduSummary.child_population_unenrolled ??
       0,
   );
   const teacherRatio =
@@ -1949,7 +1953,12 @@ function PlanningRecommendations({
       id: `oos-${row.admin_unit_id || row.admin_unit_name || index}`,
       ta: row.admin_unit_name || "Unknown TA",
       district: row.district || selectedDistrict || "Unknown District",
-      outOfSchool: Number(row.not_in_school_total || 0),
+      outOfSchool: Number(
+        row.school_age_population_unenrolled ??
+          row.not_in_school_total ??
+          row.child_population_unenrolled ??
+          0,
+      ),
       schoolAgePopulation: Number(row.school_age_population_total || 0),
       schoolsPer10k: Number(row.schools_per_10k || 0),
       studentsPerSchool: Number(row.students_per_school || 0),
