@@ -885,6 +885,10 @@ def _save_preview_metadata(output_json, image_name, bounds, legend_label, low_la
     with open(output_json, "w", encoding="utf-8") as handle:
         json.dump(metadata, handle, indent=2)
 
+
+def _build_preview_version_token():
+    return dt.datetime.now(dt.timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+
 # Convert the bounding box of the union geometry into Leaflet's expected format [[south, west], [north, east]]
 def _leaflet_bounds_from_union(union_geom):
     minx, miny, maxx, maxy = union_geom.bounds
@@ -898,8 +902,10 @@ def generate_flood_risk_previews(flood_raster_path, district_name, boundaries):
     os.makedirs(output_dir, exist_ok=True)
     
     district_slug = district_name.lower().replace(" ", "_").replace("(", "").replace(")", "")
-    png_name = f"flood_risk_{district_slug}.png"
-    json_name = f"flood_risk_{district_slug}.preview.json"
+    version_token = _build_preview_version_token()
+    base_name = f"flood_risk_{district_slug}.preview"
+    png_name = f"{base_name}.{version_token}.png"
+    json_name = f"{base_name}.{version_token}.json"
     
     with rasterio.open(flood_raster_path) as src:
         district_geom = boundaries["district_geom"]
@@ -932,6 +938,11 @@ def generate_flood_risk_previews(flood_raster_path, district_name, boundaries):
         ["#16a34a", "#f59e0b", "#dc2626"],
     )
     log_step('previews', 'completed raster preview generation')
+    return {
+        "key": "flood_risk_surface",
+        "png": os.path.join(output_dir, png_name),
+        "json": os.path.join(output_dir, json_name),
+    }
 
 # Comptute flood exposure stats for the specified district or TA
 def run_flood_exposure_analysis(
@@ -1052,7 +1063,7 @@ def run_flood_exposure_analysis(
         rows=rows,
     )
 
-    run_step(
+    preview_asset = run_step(
         step_name='generate_previews',
         user_message_on_error='Could not generate flood risk raster previews.',
         fn=generate_flood_risk_previews,
@@ -1061,7 +1072,10 @@ def run_flood_exposure_analysis(
         boundaries=boundaries,
     )
 
-    return processed_count
+    return {
+        "processed_count": processed_count,
+        "preview_assets": [preview_asset] if preview_asset else [],
+    }
 
 # Resolve the WorldPop raster path, either using the provided path or fetching it via API if not provided
 def resolve_population_raster_path(worldpop_raster_path, worldpop_year, download_timeout=900, max_attempts=3):

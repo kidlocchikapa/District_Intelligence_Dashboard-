@@ -184,7 +184,7 @@ function isErrorLogEntry(log) {
     return false;
   }
 
-  if (log.level === "error" || log.level === "stderr") {
+  if (log.level === "error") {
     return true;
   }
 
@@ -348,7 +348,7 @@ function AdminPage() {
     } else if (selectedDepartment === "social_welfare") {
       setUploadFormState((s) => ({ ...s, type: "welfare_beneficiary" }));
     } else if (selectedDepartment === "disaster") {
-      setUploadFormState((s) => ({ ...s, type: "disaster" }));
+      setUploadFormState((s) => ({ ...s, type: "flood" }));
     } else if (selectedDepartment === "health") {
       setUploadFormState((s) => ({ ...s, type: "health" }));
     }
@@ -371,7 +371,12 @@ function AdminPage() {
     try {
       setStatus(`Starting ${uploadFormState.type} upload...`);
       const response = await uploadForm("/admin/upload", formData);
-      setStatus(response.message || "Upload started.");
+      const activeFloodRasterPath = response.data?.active_flood_raster_path;
+      setStatus(
+        activeFloodRasterPath
+          ? `${response.message || "Upload started."} Active flood raster: ${activeFloodRasterPath}`
+          : response.message || "Upload started.",
+      );
       if (response.data?.job_id) {
         setSelectedJobId(response.data.job_id);
         setActiveTab("logs");
@@ -572,11 +577,23 @@ function AdminPage() {
                       }
                     >
                       {selectedDepartment
-                        ? availableDatasetTypes.map((t) => (
-                            <option key={t} value={t}>
-                              {t.replace("_", " ")}
-                            </option>
-                          ))
+                        ? datasetTypes
+                            .filter((t) => {
+                              if (selectedDepartment === "education")
+                                return t === "education";
+                              if (selectedDepartment === "social_welfare")
+                                return t === "social_welfare" || t === "roads";
+                              if (selectedDepartment === "disaster")
+                                return t === "disaster" || t === "flood";
+                              if (selectedDepartment === "health")
+                                return t === "health";
+                              return true;
+                            })
+                            .map((t) => (
+                              <option key={t} value={t}>
+                                {t.replace("_", " ")}
+                              </option>
+                            ))
                         : (
                           <option value="">
                             No department access

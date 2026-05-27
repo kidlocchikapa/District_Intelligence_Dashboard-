@@ -3,7 +3,9 @@ import time
 
 import geopandas as gpd
 import pandas as pd
+from pyproj import Transformer
 from shapely.ops import unary_union
+from shapely.ops import transform as shapely_transform
 from sqlalchemy import text
 from sqlalchemy.exc import OperationalError
 
@@ -51,6 +53,7 @@ ANALYSIS_TYPES = {
     'nearest_school_distance',
     'nearest_health_distance',
     'school_service_coverage',
+    'school_population_buffer',
     'health_service_coverage',
     'education_standards_compliance',
     'education_catchment_access',
@@ -245,6 +248,34 @@ def get_row_geometry(row):
             return row['geom']
     return getattr(row, 'geometry', getattr(row, 'geom', None))
 
+
+def _geometry_looks_projected(geometry):
+    if geometry is None:
+        return False
+
+    try:
+        minx, miny, maxx, maxy = geometry.bounds
+    except Exception:
+        return False
+
+    return (
+        abs(minx) > 180
+        or abs(maxx) > 180
+        or abs(miny) > 90
+        or abs(maxy) > 90
+    )
+
+
+def normalize_geometry_to_wgs84(geometry):
+    if geometry is None:
+        return None
+
+    if _geometry_looks_projected(geometry):
+        transformer = Transformer.from_crs("EPSG:3857", "EPSG:4326", always_xy=True)
+        geometry = shapely_transform(transformer.transform, geometry)
+
+    return geometry
+
 # Calculate the 2SFCA access score for health facilities for each administrative unit
 def compute_health_2sfca_access(
     session,
@@ -423,13 +454,14 @@ def compute_nearest_facility_distance(admin_units_gdf, facilities_gdf, analysis_
     facility_union = unary_union(facilities_proj.geometry.tolist())
     records = []
 
-    for _, row in admin_proj.iterrows():
+    for idx, row in admin_proj.iterrows():
         centroid = row['centroid']
         distance_km = centroid.distance(facility_union) / 1000
+        admin_row = admin_units.loc[idx]
         records.append(
             analysis_record(
                 analysis_type=analysis_type,
-                admin_row=row,
+                admin_row=admin_row,
                 metric_name=metric_name,
                 metric_value=float(distance_km),
                 metric_unit='km',
@@ -440,7 +472,8 @@ def compute_nearest_facility_distance(admin_units_gdf, facilities_gdf, analysis_
 
 # Calculate the percentage of each administrative unit's area that is covered by facilities within a specified distance
 def compute_service_coverage(admin_units_gdf, facilities_gdf, analysis_type, metric_name, coverage_distance_km=5.0):
-    admin_proj = admin_units_gdf.to_crs('EPSG:3857')
+    admin_units = admin_units_gdf.copy()
+    admin_proj = admin_units.to_crs('EPSG:3857')
     facilities_proj = facilities_gdf.to_crs('EPSG:3857')
 
     if facilities_proj.empty:
@@ -450,21 +483,112 @@ def compute_service_coverage(admin_units_gdf, facilities_gdf, analysis_type, met
     records = []
     admin_geom_col = admin_proj.geometry.name
 
-    for _, row in admin_proj.iterrows():
+    for idx, row in admin_proj.iterrows():
         row_geom = row.get(admin_geom_col)
         area = row_geom.area if row_geom is not None else 0
         covered = row_geom.intersection(buffer_union).area if row_geom is not None and not row_geom.is_empty else 0
         coverage_pct = (covered / area * 100) if area else 0
+        admin_row = admin_units.loc[idx]
         records.append(
             analysis_record(
                 analysis_type=analysis_type,
-                admin_row=row,
+                admin_row=admin_row,
                 metric_name=metric_name,
                 metric_value=float(coverage_pct),
                 metric_unit='percent',
                 metadata={'coverage_distance_km': coverage_distance_km},
             )
         )
+
+    return pd.DataFrame(records)
+
+
+def compute_school_population_buffer(
+    admin_units_gdf,
+    schools_gdf,
+    raster_path,
+    coverage_distance_km=5.0,
+):
+    if schools_gdf.empty:
+        raise ValueError('No schools available for school_population_buffer')
+    if not raster_path:
+        raise ValueError('A WorldPop raster path is required for school_population_buffer')
+
+    admin_units = admin_units_gdf.copy()
+    admin_proj = admin_units.to_crs('EPSG:3857')
+    schools_proj = schools_gdf.to_crs('EPSG:3857')
+    buffer_union = unary_union(schools_proj.buffer(coverage_distance_km * 1000).tolist())
+
+    served_indices = []
+    served_polygons = []
+    admin_geom_col = admin_proj.geometry.name
+
+    for _, admin_row in admin_proj.iterrows():
+        admin_geom = admin_row.get(admin_geom_col)
+        served_geom = admin_geom.intersection(buffer_union) if admin_geom is not None and not admin_geom.is_empty else None
+        if served_geom is None or served_geom.is_empty:
+            continue
+        served_indices.append(admin_row['id'])
+        served_polygons.append(served_geom)
+
+    served_lookup = {}
+    if served_polygons:
+        served_gdf = gpd.GeoDataFrame(
+            {'admin_unit_id': served_indices},
+            geometry=served_polygons,
+            crs='EPSG:3857',
+        ).to_crs('EPSG:4326')
+        served_stats = get_zonal_stats(raster_path, served_gdf, stat='sum')
+        served_lookup = {
+            admin_id: float(value)
+            for admin_id, value in zip(served_indices, served_stats)
+        }
+
+    total_gdf = admin_proj[['id', admin_geom_col]].copy()
+    total_gdf = gpd.GeoDataFrame(total_gdf, geometry=admin_geom_col, crs='EPSG:3857').to_crs('EPSG:4326')
+    total_stats = get_zonal_stats(raster_path, total_gdf, stat='sum')
+    total_lookup = {
+        admin_id: float(value)
+        for admin_id, value in zip(total_gdf['id'].tolist(), total_stats)
+    }
+
+    records = []
+    for idx, admin_row in admin_proj.iterrows():
+        admin_population_total = float(admin_row.get('population_total') or 0)
+        raster_population_total = max(total_lookup.get(admin_row['id'], 0.0), 0.0)
+        population_total = raster_population_total or admin_population_total
+        served_population = min(
+            max(served_lookup.get(admin_row['id'], 0.0), 0.0),
+            population_total,
+        )
+        unserved_population = max(population_total - served_population, 0.0)
+        served_pct = (served_population * 100 / population_total) if population_total else 0.0
+        unserved_pct = (unserved_population * 100 / population_total) if population_total else 0.0
+        admin_row_4326 = admin_units.loc[idx]
+
+        metrics = {
+            'school_population_served_total': (served_population, 'people'),
+            'school_population_served_pct': (served_pct, 'percent'),
+            'school_population_unserved_total': (unserved_population, 'people'),
+            'school_population_unserved_pct': (unserved_pct, 'percent'),
+        }
+
+        for metric_name, (metric_value, metric_unit) in metrics.items():
+            records.append(
+                analysis_record(
+                    analysis_type='school_population_buffer',
+                    admin_row=admin_row_4326,
+                    metric_name=metric_name,
+                    metric_value=float(metric_value),
+                    metric_unit=metric_unit,
+                    metadata={
+                        'coverage_distance_km': coverage_distance_km,
+                        'population_denominator': 'worldpop_raster',
+                        'raster_population_total': float(raster_population_total),
+                        'admin_population_total': float(admin_population_total),
+                    },
+                )
+            )
 
     return pd.DataFrame(records)
 
@@ -687,7 +811,8 @@ def compute_health_population_served(admin_units_gdf, health_gdf, raster_path, c
     if not raster_path:
         raise ValueError('A WorldPop raster path is required for health_population_served')
 
-    admin_proj = admin_units_gdf.to_crs('EPSG:3857')
+    admin_units = admin_units_gdf.copy()
+    admin_proj = admin_units.to_crs('EPSG:3857')
     health_proj = health_gdf.to_crs('EPSG:3857')
     buffer_union = unary_union(health_proj.buffer(coverage_distance_km * 1000).tolist())
 
@@ -715,13 +840,27 @@ def compute_health_population_served(admin_units_gdf, health_gdf, raster_path, c
         served_stats = get_zonal_stats(raster_path, served_gdf, stat='sum')
         served_lookup = {admin_id: float(value) for admin_id, value in zip(served_indices, served_stats)}
 
+    total_gdf = admin_proj[['id', admin_geom_col]].copy()
+    total_gdf = gpd.GeoDataFrame(total_gdf, geometry=admin_geom_col, crs='EPSG:3857').to_crs('EPSG:4326')
+    total_stats = get_zonal_stats(raster_path, total_gdf, stat='sum')
+    total_lookup = {
+        admin_id: float(value)
+        for admin_id, value in zip(total_gdf['id'].tolist(), total_stats)
+    }
+
     records = []
-    for _, admin_row in admin_proj.iterrows():
-        population_total = float(admin_row.get('population_total') or 0)
-        served_population = served_lookup.get(admin_row['id'], 0.0)
+    for idx, admin_row in admin_proj.iterrows():
+        admin_population_total = float(admin_row.get('population_total') or 0)
+        raster_population_total = max(total_lookup.get(admin_row['id'], 0.0), 0.0)
+        population_total = raster_population_total or admin_population_total
+        served_population = min(
+            max(served_lookup.get(admin_row['id'], 0.0), 0.0),
+            population_total,
+        )
         unserved_population = max(population_total - served_population, 0.0)
         served_pct = (served_population * 100 / population_total) if population_total else 0.0
-        unserved_pct = max(100.0 - served_pct, 0.0) if population_total else 0.0
+        unserved_pct = (unserved_population * 100 / population_total) if population_total else 0.0
+        admin_row_4326 = admin_units.loc[idx]
 
         metrics = {
             'health_population_served_total': (served_population, 'people'),
@@ -734,11 +873,16 @@ def compute_health_population_served(admin_units_gdf, health_gdf, raster_path, c
             records.append(
                 analysis_record(
                     analysis_type='health_population_served',
-                    admin_row=admin_row,
+                    admin_row=admin_row_4326,
                     metric_name=metric_name,
                     metric_value=float(metric_value),
                     metric_unit=metric_unit,
-                    metadata={'coverage_distance_km': coverage_distance_km},
+                    metadata={
+                        'coverage_distance_km': coverage_distance_km,
+                        'population_denominator': 'worldpop_raster',
+                        'raster_population_total': float(raster_population_total),
+                        'admin_population_total': float(admin_population_total),
+                    },
                 )
             )
 
@@ -808,7 +952,7 @@ def analysis_record(analysis_type, admin_row, metric_name, metric_value, metric_
         'metric_name': metric_name,
         'metric_value': metric_value,
         'metric_unit': metric_unit,
-        'geom': get_row_geometry(admin_row),
+        'geom': normalize_geometry_to_wgs84(get_row_geometry(admin_row)),
         'metadata': metadata or {},
     }
 
@@ -975,7 +1119,8 @@ def compute_education_standards_compliance(admin_units_gdf, schools_gdf, admin_l
 # the catchment areas of primary and secondary schools
 def compute_education_catchment_access(admin_units_gdf, schools_gdf):
     # Coverage calculation using specific thresholds
-    admin_proj = admin_units_gdf.to_crs('EPSG:3857')
+    admin_units = admin_units_gdf.copy()
+    admin_proj = admin_units.to_crs('EPSG:3857')
     schools_proj = schools_gdf.to_crs('EPSG:3857')
     
     if schools_proj.empty:
@@ -1001,7 +1146,7 @@ def compute_education_catchment_access(admin_units_gdf, schools_gdf):
     records = []
     admin_geom_col = admin_proj.geometry.name
     
-    for _, row in admin_proj.iterrows():
+    for idx, row in admin_proj.iterrows():
         row_geom = row.get(admin_geom_col)
         area = row_geom.area if row_geom is not None else 0
         if not area:
@@ -1016,10 +1161,11 @@ def compute_education_catchment_access(admin_units_gdf, schools_gdf):
             metrics['secondary_catchment_coverage_pct'] = (covered / area * 100, 'percent')
             
         for metric_name, (metric_value, metric_unit) in metrics.items():
+            admin_row = admin_units.loc[idx]
             records.append(
                 analysis_record(
                     analysis_type='education_catchment_access',
-                    admin_row=row,
+                    admin_row=admin_row,
                     metric_name=metric_name,
                     metric_value=float(metric_value),
                     metric_unit=metric_unit,
@@ -1252,6 +1398,7 @@ def run_spatial_analyses(session, analysis_types=None, admin_level=None, coverag
             'education_summary' in selected_types 
             or 'nearest_school_distance' in selected_types 
             or 'school_service_coverage' in selected_types
+            or 'school_population_buffer' in selected_types
             or 'education_standards_compliance' in selected_types
             or 'education_catchment_access' in selected_types
             or 'education_flood_isolation' in selected_types
@@ -1318,6 +1465,18 @@ def run_spatial_analyses(session, analysis_types=None, admin_level=None, coverag
                         facilities_gdf=schools,
                         analysis_type='school_service_coverage',
                         metric_name='school_service_coverage_pct',
+                        coverage_distance_km=coverage_distance_km,
+                    )
+                )
+            if 'school_population_buffer' in selected_types:
+                outputs.append(
+                    run_step(
+                        step_name='compute_school_population_buffer',
+                        user_message_on_error='Could not compute school buffer population metrics.',
+                        fn=compute_school_population_buffer,
+                        admin_units_gdf=admin_units_gdf,
+                        schools_gdf=schools,
+                        raster_path=raster_path,
                         coverage_distance_km=coverage_distance_km,
                     )
                 )

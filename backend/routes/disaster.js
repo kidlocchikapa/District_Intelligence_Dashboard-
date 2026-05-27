@@ -1,7 +1,11 @@
 const express = require("express");
+const path = require("path");
 const router = express.Router();
 const db = require("../db");
-const { appendDistrictNameCondition } = require("./queryFilters");
+const {
+  appendDistrictNameCondition,
+  resolveDistrictFilterValues,
+} = require("./queryFilters");
 
 function normalizeAdminType(adminType = "District") {
   const normalized = String(adminType || "District")
@@ -33,6 +37,113 @@ function appendOptionalTaCondition(
   params.push(taName);
   conditions.push(`LOWER(${taColumnExpression}) = LOWER($${params.length})`);
 }
+
+function parseRunMetadata(value) {
+  if (!value) {
+    return null;
+  }
+
+  if (typeof value === "object") {
+    return value;
+  }
+
+  if (typeof value === "string") {
+    try {
+      return JSON.parse(value);
+    } catch (error) {
+      return null;
+    }
+  }
+
+  return null;
+}
+
+function normalizePreviewAssetPath(filePath, publicDirName) {
+  if (!filePath) {
+    return null;
+  }
+
+  const value = String(filePath);
+  const marker = `/${publicDirName}/`;
+  const markerIndex = value.indexOf(marker);
+  if (markerIndex >= 0) {
+    return value.slice(markerIndex);
+  }
+
+  const filename = path.basename(value);
+  if (!filename) {
+    return null;
+  }
+
+  return `/${publicDirName}/${filename}`;
+}
+
+async function fetchLatestFloodPreviewAsset(districtValues) {
+  const baseQuery = `
+    SELECT run_metadata, completed_at
+    FROM data_load_log
+    WHERE dataset_type = 'flood'
+      AND status = 'Success'
+  `;
+  const orderClause = " ORDER BY completed_at DESC NULLS LAST, id DESC LIMIT 1";
+  let result = null;
+
+  if (Array.isArray(districtValues) && districtValues.length) {
+    result = await db.query(
+      `${baseQuery} AND (run_metadata->'district_names' ?| $1)${orderClause}`,
+      [districtValues],
+    );
+  }
+
+  if (!result || !result.rows.length) {
+    result = await db.query(`${baseQuery}${orderClause}`);
+  }
+
+  const row = result.rows[0] || {};
+  const metadata = parseRunMetadata(row.run_metadata);
+  const previewAssets = Array.isArray(metadata?.preview_assets)
+    ? metadata.preview_assets
+    : [];
+  const previewAsset =
+    previewAssets.find((asset) => asset?.key === "flood_risk_surface") ||
+    previewAssets[0] ||
+    null;
+
+  return {
+    assetUrl: normalizePreviewAssetPath(previewAsset?.json, "worldpop"),
+    completedAt: row.completed_at || null,
+  };
+}
+
+router.get("/flood/raster-metadata", async (req, res) => {
+  const { district } = req.query;
+
+  try {
+    const districtValues = resolveDistrictFilterValues(district);
+    const { assetUrl, completedAt } = await fetchLatestFloodPreviewAsset(
+      districtValues,
+    );
+
+    return res.json({
+      status: "success",
+      data: {
+        district: district || null,
+        asset_url: assetUrl,
+        completed_at: completedAt,
+      },
+    });
+  } catch (error) {
+    console.error("Disaster raster metadata error:", error.message);
+    return res.json({
+      status: "success",
+      data: {
+        district: district || null,
+        asset_url: null,
+        completed_at: null,
+      },
+    });
+  }
+});
 
 async function getFloodGeoJson(req, res) {
   const { district, ta, admin_type: adminType = "District" } = req.query;

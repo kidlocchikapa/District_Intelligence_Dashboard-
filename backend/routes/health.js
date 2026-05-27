@@ -1,4 +1,5 @@
 const express = require("express");
+const fs = require("fs");
 const path = require("path");
 const router = express.Router();
 const db = require("../db");
@@ -145,8 +146,22 @@ async function fetchLatestPreviewAssets(datasetType, districtValues) {
   };
 }
 
-function findPreviewPath(previewPaths, suffix) {
-  return previewPaths.find((value) => String(value).endsWith(suffix)) || null;
+function findPreviewAssetPath(previewAssets, assetKey, publicDirName, extension) {
+  const asset = Array.isArray(previewAssets)
+    ? previewAssets.find((entry) => entry?.key === assetKey)
+    : null;
+
+  if (asset?.[extension] && fs.existsSync(path.resolve(String(asset[extension])))) {
+    return normalizePreviewAssetPath(asset[extension], publicDirName);
+  }
+
+  const fallbackPaths = (previewAssets || [])
+    .map((entry) => entry?.[extension])
+    .filter(Boolean);
+  const fallbackPath =
+    fallbackPaths.find((value) => String(value).includes(`.${assetKey}.preview.`)) ||
+    null;
+  return normalizePreviewAssetPath(fallbackPath, publicDirName);
 }
 
 function buildHealthRasterAssets(slug) {
@@ -344,15 +359,23 @@ router.get("/summary", async (req, res) => {
  *         description: Served population metrics
  */
 router.get("/served-population", async (req, res) => {
-  const { admin_type: adminType = "District", district, ta } = req.query;
+  const {
+    admin_type: adminType = "District",
+    district,
+    ta,
+    buffer_km: bufferKmParam,
+  } = req.query;
   const normalizedAdminType = normalizeAdminType(adminType);
+  const parsedBufferKm = Number(bufferKmParam);
+  const bufferKm =
+    Number.isFinite(parsedBufferKm) && parsedBufferKm > 0 ? parsedBufferKm : 8;
 
   try {
     const conditions = [
       "analysis_type = 'health_population_served'",
       "LOWER(admin_unit_type) = LOWER($1)",
     ];
-    const params = [normalizedAdminType];
+    const params = [normalizedAdminType, bufferKm];
     if (normalizedAdminType === "TA") {
       appendOptionalTaCondition(conditions, params, "admin_unit_name", ta);
       const districtConditions = [];
@@ -384,6 +407,31 @@ router.get("/served-population", async (req, res) => {
 
     const result = await db.query(
       `
+            WITH ranked_results AS (
+                SELECT
+                    admin_unit_id,
+                    admin_unit_code,
+                    admin_unit_name,
+                    admin_unit_type,
+                    metric_name,
+                    metric_value,
+                    metric_unit,
+                    metadata,
+                    calculated_at,
+                    ROW_NUMBER() OVER (
+                        PARTITION BY admin_unit_id, metric_name
+                        ORDER BY
+                            CASE
+                              WHEN COALESCE((metadata->>'coverage_distance_km')::numeric, 8) = $2
+                                THEN 0
+                              ELSE 1
+                            END,
+                            calculated_at DESC NULLS LAST,
+                            id DESC
+                    ) AS row_num
+                FROM analysis_results
+                WHERE ${conditions.filter((condition) => !condition.includes("coverage_distance_km")).join(" AND ")}
+            )
             SELECT
                 admin_unit_id,
                 admin_unit_code,
@@ -394,8 +442,8 @@ router.get("/served-population", async (req, res) => {
                 metric_unit,
                 metadata,
                 calculated_at
-            FROM analysis_results
-            WHERE ${conditions.join(" AND ")}
+            FROM ranked_results
+            WHERE row_num = 1
             ORDER BY admin_unit_name, metric_name
             `,
       params,
@@ -500,11 +548,18 @@ router.get("/service-coverage", async (req, res) => {
  *         description: Served population GeoJSON
  */
 router.get("/served-population/geojson", async (req, res) => {
-  const { admin_type: adminType = "District", district } = req.query;
+  const {
+    admin_type: adminType = "District",
+    district,
+    buffer_km: bufferKmParam,
+  } = req.query;
   const normalizedAdminType = normalizeAdminType(adminType);
+  const parsedBufferKm = Number(bufferKmParam);
+  const bufferKm =
+    Number.isFinite(parsedBufferKm) && parsedBufferKm > 0 ? parsedBufferKm : 8;
 
   try {
-    const params = [normalizedAdminType];
+    const params = [normalizedAdminType, bufferKm];
     const conditions = ["au.geom IS NOT NULL", "LOWER(au.type) = LOWER($1)"];
     appendDistrictGeometryCondition(conditions, params, "au.geom", district);
 
@@ -559,6 +614,28 @@ router.get("/served-population/geojson", async (req, res) => {
                 ) AS feature
                 FROM admin_units au
                 JOIN (
+                    WITH ranked_coverage AS (
+                        SELECT
+                            admin_unit_id,
+                            metric_name,
+                            metric_value,
+                            metadata,
+                            calculated_at,
+                            ROW_NUMBER() OVER (
+                                PARTITION BY admin_unit_id, metric_name
+                                ORDER BY
+                                    CASE
+                                      WHEN COALESCE((metadata->>'coverage_distance_km')::numeric, 8) = $2
+                                        THEN 0
+                                      ELSE 1
+                                    END,
+                                    calculated_at DESC NULLS LAST,
+                                    id DESC
+                            ) AS row_num
+                        FROM analysis_results
+                        WHERE analysis_type = 'health_population_served'
+                          AND LOWER(admin_unit_type) = LOWER($1)
+                    )
                     SELECT
                         admin_unit_id,
                         MAX(CASE WHEN metric_name = 'health_population_served_total' THEN metric_value END) AS health_population_served_total,
@@ -567,9 +644,8 @@ router.get("/served-population/geojson", async (req, res) => {
                         MAX(CASE WHEN metric_name = 'health_population_unserved_pct' THEN metric_value END) AS health_population_unserved_pct,
                         MAX((metadata->>'coverage_distance_km')::numeric) AS coverage_distance_km,
                         MAX(calculated_at) AS calculated_at
-                    FROM analysis_results
-                    WHERE analysis_type = 'health_population_served'
-                      AND LOWER(admin_unit_type) = LOWER($1)
+                    FROM ranked_coverage
+                    WHERE row_num = 1
                     GROUP BY admin_unit_id
                 ) ar
                   ON ar.admin_unit_id = au.id
@@ -782,41 +858,48 @@ router.get("/raster-metadata", async (req, res) => {
       "health_access",
       districtValues,
     );
-    const previewJsons = previewAssets
-      .map((asset) => asset?.json)
-      .filter(Boolean);
-
     const assets = buildHealthRasterAssets(slug);
-    const bufferUrl = normalizePreviewAssetPath(
-      findPreviewPath(previewJsons, ".health_buffer_8km.preview.json"),
+    const bufferUrl = findPreviewAssetPath(
+      previewAssets,
+      "health_buffer_8km",
       "health-access",
+      "json",
     );
-    const networkUrl = normalizePreviewAssetPath(
-      findPreviewPath(previewJsons, ".health_network_8km.preview.json"),
+    const networkUrl = findPreviewAssetPath(
+      previewAssets,
+      "health_network_8km",
       "health-access",
+      "json",
     );
-    const travelUrl = normalizePreviewAssetPath(
-      findPreviewPath(previewJsons, ".health_travel_time.preview.json"),
+    const travelUrl = findPreviewAssetPath(
+      previewAssets,
+      "health_travel_time",
       "health-access",
+      "json",
     );
-    const sfcaUrl = normalizePreviewAssetPath(
-      findPreviewPath(previewJsons, ".health_2sfca.preview.json"),
+    const sfcaUrl = findPreviewAssetPath(
+      previewAssets,
+      "health_2sfca",
       "health-access",
+      "json",
     );
-    const vulnUrl = normalizePreviewAssetPath(
-      findPreviewPath(
-        previewJsons,
-        ".health_welfare_vulnerability.preview.json",
-      ),
+    const vulnUrl = findPreviewAssetPath(
+      previewAssets,
+      "health_welfare_vulnerability",
       "health-access",
+      "json",
     );
-    const floodUrl = normalizePreviewAssetPath(
-      findPreviewPath(previewJsons, ".health_flood_isolation.preview.json"),
+    const floodUrl = findPreviewAssetPath(
+      previewAssets,
+      "health_flood_isolation",
       "health-access",
+      "json",
     );
-    const schoolUrl = normalizePreviewAssetPath(
-      findPreviewPath(previewJsons, ".health_school_gap.preview.json"),
+    const schoolUrl = findPreviewAssetPath(
+      previewAssets,
+      "health_school_gap",
       "health-access",
+      "json",
     );
 
     if (bufferUrl) assets.health_buffer_8km = bufferUrl;
@@ -1386,13 +1469,34 @@ router.get("/drilldown", async (req, res) => {
         GROUP BY a3.id, a3.name, d.name, a3.population_total
       ),
       coverage AS (
+        WITH ranked_coverage AS (
+          SELECT
+            admin_unit_id,
+            metric_name,
+            metric_value,
+            metadata,
+            calculated_at,
+            ROW_NUMBER() OVER (
+              PARTITION BY admin_unit_id, metric_name
+              ORDER BY
+                CASE
+                  WHEN COALESCE((metadata->>'coverage_distance_km')::numeric, 8) = 8
+                    THEN 0
+                  ELSE 1
+                END,
+                calculated_at DESC NULLS LAST,
+                id DESC
+            ) AS row_num
+          FROM analysis_results
+          WHERE analysis_type = 'health_population_served'
+            AND LOWER(admin_unit_type) = LOWER('TA')
+        )
         SELECT
           admin_unit_id,
           MAX(CASE WHEN metric_name = 'health_population_served_total' THEN metric_value END) AS health_population_served_total,
           MAX(CASE WHEN metric_name = 'health_population_served_pct' THEN metric_value END) AS health_population_served_pct
-        FROM analysis_results
-        WHERE analysis_type = 'health_population_served'
-          AND LOWER(admin_unit_type) = LOWER('TA')
+        FROM ranked_coverage
+        WHERE row_num = 1
         GROUP BY admin_unit_id
       ),
       ta_metrics AS (

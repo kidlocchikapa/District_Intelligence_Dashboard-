@@ -25,8 +25,10 @@ const { hashPassword } = require("../helpers/authHelpers");
 
 const router = express.Router();
 const uploadDirectory = path.resolve(__dirname, "../../uploads");
+const floodRasterUploadDirectory = path.join(uploadDirectory, "flood-rasters");
 
 fs.mkdirSync(uploadDirectory, { recursive: true });
+fs.mkdirSync(floodRasterUploadDirectory, { recursive: true });
 
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {
@@ -60,6 +62,7 @@ const DEFAULT_OVERPASS_QUERY =
     ");",
     "out geom;",
   ].join("\n");
+const DEFAULT_HEALTH_COVERAGE_DISTANCE_KM = 8;
 
 // Helper function to build ETL arguments based on task type and parameters
 const presetTaskDefinitions = {
@@ -112,18 +115,33 @@ const presetTaskDefinitions = {
   },
   education_insights: {
     label: "Recalculate education insights",
-    description: "Runs school planning and education access analyses.",
-    stages: ({ adminLevel, coverageDistanceKm }) => [
+    description:
+      "Runs school planning, education access analyses, and access preview rasters.",
+    stages: ({ apiUrl, worldpopYear, adminLevel, coverageDistanceKm }) => [
       {
         label: "Education analysis",
         args: buildEtlArgs({
           type: "analysis",
+          apiUrl,
+          worldpopYear,
           analysisTypes: [
             "education_summary",
             "nearest_school_distance",
             "school_service_coverage",
+            "school_population_buffer",
           ],
           adminLevel,
+          coverageDistanceKm,
+        }),
+      },
+      {
+        label: "Education access rasters",
+        args: buildEtlArgs({
+          type: "education_access",
+          sourceType: "worldpop",
+          apiUrl,
+          districtGroup: "zomba_all",
+          worldpopYear,
           coverageDistanceKm,
         }),
       },
@@ -132,10 +150,10 @@ const presetTaskDefinitions = {
   health_insights: {
     label: "Recalculate health insights",
     description:
-      "Runs facility summary, service coverage, population served, 2SFCA, and distance analyses.",
+      "Runs facility summary, service coverage, population served, 2SFCA, distance analyses, and refreshes health raster previews.",
     stages: ({ worldpopYear, adminLevel, coverageDistanceKm }) => [
       {
-        label: "Health analysis",
+        label: "Health analysis (District)",
         args: buildEtlArgs({
           type: "analysis",
           worldpopYear,
@@ -146,8 +164,34 @@ const presetTaskDefinitions = {
             "nearest_health_distance",
             "health_service_coverage",
           ],
-          adminLevel,
-          coverageDistanceKm,
+          adminLevel: "District",
+          coverageDistanceKm: coverageDistanceKm === 5 ? 8 : coverageDistanceKm,
+        }),
+      },
+      {
+        label: "Health analysis (TA)",
+        args: buildEtlArgs({
+          type: "analysis",
+          worldpopYear,
+          analysisTypes: [
+            "health_summary",
+            "health_population_served",
+            "health_2sfca_access",
+            "nearest_health_distance",
+            "health_service_coverage",
+          ],
+          adminLevel: "TA",
+          coverageDistanceKm: coverageDistanceKm === 5 ? 8 : coverageDistanceKm,
+        }),
+      },
+      {
+        label: "Health access rasters",
+        args: buildEtlArgs({
+          type: "health_access",
+          sourceType: "worldpop",
+          districtGroup: "zomba_all",
+          worldpopYear,
+          coverageDistanceKm: coverageDistanceKm === 5 ? 8 : coverageDistanceKm,
         }),
       },
     ],
@@ -224,7 +268,7 @@ const presetTaskDefinitions = {
   planning_refresh: {
     label: "Run full planning refresh",
     description:
-      "Refreshes population inputs first, then recalculates education, health, and disaster insights.",
+      "Refreshes population inputs first, then recalculates education, health, raster previews, and disaster insights.",
     stages: ({
       apiUrl,
       worldpopYear,
@@ -234,6 +278,8 @@ const presetTaskDefinitions = {
       childClassMax,
       adminLevel,
       coverageDistanceKm,
+      floodRasterPath,
+      analysisDate,
     }) => [
       {
         label: "WorldPop totals",
@@ -264,17 +310,20 @@ const presetTaskDefinitions = {
         label: "Education analysis",
         args: buildEtlArgs({
           type: "analysis",
+          apiUrl,
+          worldpopYear,
           analysisTypes: [
             "education_summary",
             "nearest_school_distance",
             "school_service_coverage",
+            "school_population_buffer",
           ],
           adminLevel,
           coverageDistanceKm,
         }),
       },
       {
-        label: "Health analysis",
+        label: "Health analysis (District)",
         args: buildEtlArgs({
           type: "analysis",
           worldpopYear,
@@ -285,7 +334,45 @@ const presetTaskDefinitions = {
             "nearest_health_distance",
             "health_service_coverage",
           ],
-          adminLevel,
+          adminLevel: "District",
+          coverageDistanceKm: coverageDistanceKm === 5 ? 8 : coverageDistanceKm,
+        }),
+      },
+      {
+        label: "Health analysis (TA)",
+        args: buildEtlArgs({
+          type: "analysis",
+          worldpopYear,
+          analysisTypes: [
+            "health_summary",
+            "health_population_served",
+            "health_2sfca_access",
+            "nearest_health_distance",
+            "health_service_coverage",
+          ],
+          adminLevel: "TA",
+          coverageDistanceKm: coverageDistanceKm === 5 ? 8 : coverageDistanceKm,
+        }),
+      },
+      {
+        label: "Health access rasters",
+        args: buildEtlArgs({
+          type: "health_access",
+          sourceType: "worldpop",
+          apiUrl,
+          districtGroup: "zomba_all",
+          worldpopYear,
+          coverageDistanceKm: coverageDistanceKm === 5 ? 8 : coverageDistanceKm,
+        }),
+      },
+      {
+        label: "Education access rasters",
+        args: buildEtlArgs({
+          type: "education_access",
+          sourceType: "worldpop",
+          apiUrl,
+          districtGroup: "zomba_all",
+          worldpopYear,
           coverageDistanceKm,
         }),
       },
@@ -339,6 +426,115 @@ async function ensureUsersTable() {
       updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     )
   `);
+}
+
+async function ensureSystemFileRegistryTable() {
+  await ensureUsersTable();
+  await db.query(`
+    CREATE TABLE IF NOT EXISTS system_file_registry (
+      registry_key VARCHAR(100) PRIMARY KEY,
+      file_path TEXT NOT NULL,
+      original_filename TEXT,
+      content_type TEXT,
+      uploaded_by_user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+      metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
+      created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+    )
+  `);
+}
+
+function sanitizeFilenamePart(value) {
+  return String(value || "")
+    .trim()
+    .replace(/[^a-zA-Z0-9._-]+/g, "-")
+    .replace(/-+/g, "-")
+    .replace(/^-+|-+$/g, "");
+}
+
+function buildFloodRasterStoredFilename(originalName) {
+  const parsed = path.parse(String(originalName || "flood-raster.tif"));
+  const ext = parsed.ext || ".tif";
+  const base = sanitizeFilenamePart(parsed.name) || "flood-raster";
+  return `${Date.now()}-${base}${ext}`;
+}
+
+function persistUploadedFloodRaster(file) {
+  const storedFilename = buildFloodRasterStoredFilename(file?.originalname);
+  const targetPath = path.join(floodRasterUploadDirectory, storedFilename);
+  fs.renameSync(path.resolve(file.path), targetPath);
+  return targetPath;
+}
+
+async function registerSystemFile({
+  registryKey,
+  filePath,
+  originalFilename,
+  contentType,
+  uploadedByUserId,
+  metadata = {},
+}) {
+  await ensureSystemFileRegistryTable();
+  const result = await db.query(
+    `
+      INSERT INTO system_file_registry (
+        registry_key,
+        file_path,
+        original_filename,
+        content_type,
+        uploaded_by_user_id,
+        metadata,
+        created_at,
+        updated_at
+      )
+      VALUES ($1, $2, $3, $4, $5, $6::jsonb, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+      ON CONFLICT (registry_key)
+      DO UPDATE SET
+        file_path = EXCLUDED.file_path,
+        original_filename = EXCLUDED.original_filename,
+        content_type = EXCLUDED.content_type,
+        uploaded_by_user_id = EXCLUDED.uploaded_by_user_id,
+        metadata = EXCLUDED.metadata,
+        updated_at = CURRENT_TIMESTAMP
+      RETURNING registry_key, file_path, original_filename, updated_at
+    `,
+    [
+      registryKey,
+      path.resolve(filePath),
+      originalFilename || null,
+      contentType || null,
+      uploadedByUserId || null,
+      JSON.stringify(metadata || {}),
+    ],
+  );
+  return result.rows[0] || null;
+}
+
+async function resolveRegisteredSystemFile(registryKey) {
+  await ensureSystemFileRegistryTable();
+  const result = await db.query(
+    `
+      SELECT registry_key, file_path, original_filename, updated_at, metadata
+      FROM system_file_registry
+      WHERE registry_key = $1
+      LIMIT 1
+    `,
+    [registryKey],
+  );
+  return result.rows[0] || null;
+}
+
+async function resolveFloodRasterPath(explicitPath) {
+  if (explicitPath) {
+    return path.resolve(explicitPath);
+  }
+
+  const registered = await resolveRegisteredSystemFile("active_flood_raster");
+  if (registered?.file_path && fs.existsSync(path.resolve(registered.file_path))) {
+    return path.resolve(registered.file_path);
+  }
+
+  return path.resolve(DEFAULT_FLOOD_RASTER_PATH);
 }
 
 function getAuthUser(req) {
@@ -1217,7 +1413,11 @@ function terminateJob(job) {
   if (!job.process) {
     job.terminateRequested = true;
     job.status = "terminating";
-    appendJobLog(job, "Termination requested. Waiting for the active process handle.", "error");
+    appendJobLog(
+      job,
+      "Termination requested. Waiting for the active process handle.",
+      "error",
+    );
     return {
       ok: true,
       message: "Termination requested for the active job.",
@@ -1227,11 +1427,19 @@ function terminateJob(job) {
   if (job.status !== "terminating") {
     job.status = "terminating";
     job.terminateRequested = true;
-    appendJobLog(job, "Termination requested. Sending SIGTERM to the ETL process.", "error");
+    appendJobLog(
+      job,
+      "Termination requested. Sending SIGTERM to the ETL process.",
+      "error",
+    );
     job.process.kill("SIGTERM");
     setTimeout(() => {
       if (job.process && !job.process.killed) {
-        appendJobLog(job, "Process did not exit after SIGTERM. Sending SIGKILL.", "error");
+        appendJobLog(
+          job,
+          "Process did not exit after SIGTERM. Sending SIGKILL.",
+          "error",
+        );
         job.process.kill("SIGKILL");
       }
     }, 5000);
@@ -1367,7 +1575,11 @@ function queueWorkflow(job, stages) {
 
       job.status = "failed";
       job.finishedAt = new Date().toISOString();
-      appendJobLog(job, error.message || "Unexpected workflow failure.", "error");
+      appendJobLog(
+        job,
+        error.message || "Unexpected workflow failure.",
+        "error",
+      );
     });
   });
 }
@@ -1512,6 +1724,43 @@ router.get("/task-presets", auth, async (req, res) => {
     return res.status(500).json({
       status: "error",
       message: "Unable to load task presets",
+    });
+  }
+});
+
+router.get("/flood-raster", auth, async (req, res) => {
+  try {
+    const allowed = await requireDepartmentCapability(
+      req,
+      res,
+      "disaster",
+      "read",
+    );
+    if (!allowed) {
+      return;
+    }
+
+    const registryEntry = await resolveRegisteredSystemFile("active_flood_raster");
+    const resolvedPath = registryEntry?.file_path
+      ? path.resolve(registryEntry.file_path)
+      : path.resolve(DEFAULT_FLOOD_RASTER_PATH);
+    const exists = fs.existsSync(resolvedPath);
+
+    return res.json({
+      status: "success",
+      data: {
+        path: resolvedPath,
+        exists,
+        source: registryEntry ? "registry" : "default",
+        original_filename: registryEntry?.original_filename || null,
+        updated_at: registryEntry?.updated_at || null,
+      },
+    });
+  } catch (error) {
+    console.error("Flood raster lookup error:", error.message);
+    return res.status(500).json({
+      status: "error",
+      message: "Unable to load the active flood raster",
     });
   }
 });
@@ -1775,10 +2024,37 @@ router.post("/upload", [auth, upload.single("file")], async (req, res) => {
     return;
   }
 
+  let resolvedFilePath = path.resolve(file.path);
+  let activeFloodRaster = null;
+  if (type === "flood") {
+    try {
+      const persistedFloodRasterPath = persistUploadedFloodRaster(file);
+      activeFloodRaster = await registerSystemFile({
+        registryKey: "active_flood_raster",
+        filePath: persistedFloodRasterPath,
+        originalFilename: file.originalname,
+        contentType: file.mimetype,
+        uploadedByUserId: getAuthUser(req).id,
+        metadata: {
+          source: "admin_upload",
+          upload_field: "file",
+          uploaded_at: new Date().toISOString(),
+        },
+      });
+      resolvedFilePath = path.resolve(persistedFloodRasterPath);
+    } catch (error) {
+      console.error("Flood raster upload persistence error:", error.message);
+      return res.status(500).json({
+        status: "error",
+        message: "Unable to persist the uploaded flood raster",
+      });
+    }
+  }
+
   const args = buildEtlArgs({
     type,
     sourceType: type === "worldpop" ? "worldpop" : sourceType,
-    filePath: path.resolve(file.path),
+    filePath: resolvedFilePath,
     gazetteerPath,
     district,
     programId,
@@ -1806,10 +2082,15 @@ router.post("/upload", [auth, upload.single("file")], async (req, res) => {
 
   return res.json({
     status: "success",
-    message: "Dataset upload queued and processing in the background.",
+    message:
+      type === "flood"
+        ? "Flood raster uploaded, registered as active, and queued for processing."
+        : "Dataset upload queued and processing in the background.",
     data: {
       job_id: job.id,
       label: job.label,
+      active_flood_raster_path:
+        type === "flood" ? activeFloodRaster?.file_path || resolvedFilePath : null,
     },
   });
 });
@@ -1854,7 +2135,7 @@ router.post("/sync", auth, async (req, res) => {
     childClassMax = 15,
     analysisTypes,
     adminLevel,
-    coverageDistanceKm = 5,
+    coverageDistanceKm = DEFAULT_HEALTH_COVERAGE_DISTANCE_KM,
   } = req.body;
 
   if (!type) {
@@ -1947,12 +2228,12 @@ router.post("/run-task", auth, async (req, res) => {
     schoolAgeMax = 17,
     childClassMax = 15,
     adminLevel = "District",
-    coverageDistanceKm = 5,
+    coverageDistanceKm = DEFAULT_HEALTH_COVERAGE_DISTANCE_KM,
     overpassUrl = DEFAULT_OVERPASS_URL,
     overpassQuery = DEFAULT_OVERPASS_QUERY,
     overpassTimeout = DEFAULT_OVERPASS_TIMEOUT,
     roadClipDistricts = DEFAULT_OVERPASS_DISTRICTS,
-    floodRasterPath = DEFAULT_FLOOD_RASTER_PATH,
+    floodRasterPath: requestedFloodRasterPath,
     analysisDate,
   } = req.body;
 
@@ -1983,6 +2264,8 @@ router.post("/run-task", auth, async (req, res) => {
     }
   }
 
+  const floodRasterPath = await resolveFloodRasterPath(requestedFloodRasterPath);
+
   const stages = definition.stages({
     apiUrl,
     worldpopYear,
@@ -2001,7 +2284,10 @@ router.post("/run-task", auth, async (req, res) => {
   });
 
   const includesFloodStage = stages.some(
-    (stage) => Array.isArray(stage.args) && stage.args.includes("--type") && stage.args.includes("flood"),
+    (stage) =>
+      Array.isArray(stage.args) &&
+      stage.args.includes("--type") &&
+      stage.args.includes("flood"),
   );
 
   if (includesFloodStage && !fs.existsSync(path.resolve(floodRasterPath))) {
@@ -2028,6 +2314,7 @@ router.post("/run-task", auth, async (req, res) => {
       job_id: job.id,
       label: job.label,
       task,
+      flood_raster_path: includesFloodStage ? floodRasterPath : null,
     },
   });
 });

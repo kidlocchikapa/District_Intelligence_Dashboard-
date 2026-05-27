@@ -1088,6 +1088,14 @@ def _save_preview_metadata(output_json, image_name, bounds, legend_label, low_la
     with open(output_json, "w", encoding="utf-8") as handle:
         json.dump(metadata, handle, indent=2)
 
+
+def _build_preview_version_token():
+    return datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+
+
+def _build_versioned_asset_name(base_name, version_token):
+    return f"{base_name}.{version_token}"
+
 # Helper function to compute leaflet bounds from the union of district geometries for map preview
 def _leaflet_bounds_from_union(union_gdf):
     wgs84 = union_gdf.to_crs("EPSG:4326")
@@ -1291,8 +1299,10 @@ def generate_health_access_previews(
                     s_surface = _gaussian_smooth_masked(s_surface, district_mask, sigma_px=smoothing_sigma)
                     school_surface = _mask_array(s_surface, district_mask)
 
+    version_token = _build_preview_version_token()
     products = [
         {
+            "key": "health_buffer_8km",
             "surface": buffer_surface,
             "name": f"{slug}.health_buffer_8km.preview",
             "colors": ["#b91c1c", "#ef4444", "#f59e0b", "#84cc16", "#166534"],
@@ -1309,6 +1319,7 @@ def generate_health_access_previews(
             },
         },
         {
+            "key": "health_network_8km",
             "surface": network_surface,
             "name": f"{slug}.health_network_8km.preview",
             "colors": ["#0d7a73", "#2fb47c", "#9bd93c", "#f9e721", "#f89c20", "#d63f1a"],
@@ -1325,6 +1336,7 @@ def generate_health_access_previews(
             },
         },
         {
+            "key": "health_travel_time",
             "surface": travel_surface,
             "name": f"{slug}.health_travel_time.preview",
             "colors": ["#2056a8", "#2f89c5", "#7bc8b4", "#f2d06b", "#e97b56", "#b32d3c"],
@@ -1341,6 +1353,7 @@ def generate_health_access_previews(
             },
         },
         {
+            "key": "health_2sfca",
             "surface": sfca_surface,
             "name": f"{slug}.health_2sfca.preview",
             "colors": ["#b32d3c", "#e97b56", "#f2d06b", "#7bc8b4", "#2f89c5", "#2056a8"],
@@ -1356,6 +1369,7 @@ def generate_health_access_previews(
             },
         },
         {
+            "key": "health_welfare_vulnerability",
             "surface": vuln_surface,
             "name": f"{slug}.health_welfare_vulnerability.preview",
             "colors": ["#fde68a", "#fbbf24", "#f59e0b", "#d97706", "#b45309", "#78350f"],
@@ -1371,6 +1385,7 @@ def generate_health_access_previews(
             },
         },
         {
+            "key": "health_flood_isolation",
             "surface": flood_surface,
             "name": f"{slug}.health_flood_isolation.preview",
             "colors": ["#f0f9ff", "#bae6fd", "#7dd3fc", "#38bdf8", "#0284c7", "#1e3a8a", "#ef4444"],
@@ -1386,6 +1401,7 @@ def generate_health_access_previews(
             },
         },
         {
+            "key": "health_school_gap",
             "surface": school_surface,
             "name": f"{slug}.health_school_gap.preview",
             "colors": ["#f0fdf4", "#dcfce7", "#86efac", "#22c55e", "#16a34a", "#15803d", "#14532d"],
@@ -1413,9 +1429,10 @@ def generate_health_access_previews(
                 product["render"]["clipMax"] = float(upper)
 
         normalized = _mask_array(normalized, district_mask)
-        png_name = f"{product['name']}.png"
-        json_name = f"{product['name']}.json"
-        tif_name = f"{product['name']}.tif"
+        versioned_name = _build_versioned_asset_name(product["name"], version_token)
+        png_name = f"{versioned_name}.png"
+        json_name = f"{versioned_name}.json"
+        tif_name = f"{versioned_name}.tif"
         png_path = os.path.join(output_dir, png_name)
         json_path = os.path.join(output_dir, json_name)
         tif_path = os.path.join(output_dir, tif_name)
@@ -1432,7 +1449,12 @@ def generate_health_access_previews(
             product["render"],
             geotiff_name=tif_name,
         )
-        generated.append({"png": png_path, "json": json_path, "tif": tif_path})
+        generated.append({
+            "key": product["key"],
+            "png": png_path,
+            "json": json_path,
+            "tif": tif_path,
+        })
 
     return generated
 
@@ -1495,8 +1517,10 @@ def generate_education_access_previews(
         travel_surface = _gaussian_smooth_masked(travel_surface, district_mask, sigma_px=smoothing_sigma)
         travel_surface = _mask_array(travel_surface, district_mask)
 
+    version_token = _build_preview_version_token()
     products = [
         {
+            "key": "education_buffer_coverage",
             "surface": buffer_surface,
             "name": f"{slug}.education_buffer_{int(coverage_distance_km)}km.preview",
             "colors": ["#b91c1c", "#ef4444", "#f59e0b", "#84cc16", "#166534"],
@@ -1513,6 +1537,7 @@ def generate_education_access_previews(
             },
         },
         {
+            "key": "education_network_distance",
             "surface": network_surface,
             "name": f"{slug}.education_network_distance.preview",
             "colors": ["#0d7a73", "#2fb47c", "#9bd93c", "#f9e721", "#f89c20", "#d63f1a"],
@@ -1529,6 +1554,7 @@ def generate_education_access_previews(
             },
         },
         {
+            "key": "education_travel_time",
             "surface": travel_surface,
             "name": f"{slug}.education_travel_time.preview",
             "colors": ["#2056a8", "#2f89c5", "#7bc8b4", "#f2d06b", "#e97b56", "#b32d3c"],
@@ -1557,9 +1583,10 @@ def generate_education_access_previews(
                 product["render"]["clipMax"] = float(upper)
 
         normalized = _mask_array(normalized, district_mask)
-        png_name = f"{product['name']}.png"
-        json_name = f"{product['name']}.json"
-        tif_name = f"{product['name']}.tif"
+        versioned_name = _build_versioned_asset_name(product["name"], version_token)
+        png_name = f"{versioned_name}.png"
+        json_name = f"{versioned_name}.json"
+        tif_name = f"{versioned_name}.tif"
         png_path = os.path.join(output_dir, png_name)
         json_path = os.path.join(output_dir, json_name)
         tif_path = os.path.join(output_dir, tif_name)
@@ -1576,7 +1603,12 @@ def generate_education_access_previews(
             product["render"],
             geotiff_name=tif_name,
         )
-        generated.append({"png": png_path, "json": json_path, "tif": tif_path})
+        generated.append({
+            "key": product["key"],
+            "png": png_path,
+            "json": json_path,
+            "tif": tif_path,
+        })
 
     return generated
 
