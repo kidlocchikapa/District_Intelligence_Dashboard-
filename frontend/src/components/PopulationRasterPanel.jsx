@@ -463,6 +463,7 @@ function PopulationRasterPanel({
         </div>
       ) : null}
       <div
+        data-map-export
         className={`relative ${heightClass} min-h-0 overflow-hidden rounded-[1.5rem] border border-fog bg-[#f8f8f3] group`}
         onMouseLeave={() => {
           setHoveredDistrict(null);
