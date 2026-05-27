@@ -1,2 +1,2 @@
-event_type,risk_level,population_at_risk,geometry_geojson,is_active
-flood,High,1250,"{""type"":""Polygon"",""coordinates"":[[[35.318,-15.386],[35.322,-15.386],[35.322,-15.390],[35.318,-15.390],[35.318,-15.386]]]}",true
+event_type,risk_level,population_at_risk,geom,is_active
+flood,High,1250,"{""type"":""MultiPolygon"",""coordinates"":[[[[35.318,-15.386],[35.322,-15.386],[35.322,-15.390],[35.318,-15.390],[35.318,-15.386]]]]}",true
