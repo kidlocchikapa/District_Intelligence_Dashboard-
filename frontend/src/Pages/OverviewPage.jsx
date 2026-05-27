@@ -818,8 +818,11 @@ function OverviewPage() {
   };
 
   const { exportDataPdf } = usePdfExport("Overview_AreaAnalysis.pdf");
+  const overviewMapFilename = `${(selectedTa || selectedDistrict || "Overview")
+    .replace(/[^a-z0-9]+/gi, "_")
+    .replace(/^_+|_+$/g, "")}_Overview_Map.png`;
   const { targetRef: mapRef, downloadImage } = useImageDownload(
-    "Zomba_Overview_Map.png",
+    overviewMapFilename,
   );
 
   const handleDownloadReport = async () => {

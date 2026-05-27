@@ -6,15 +6,25 @@ export function useImageDownload(filename = "district-map.png") {
   const targetRef = useRef(null);
 
   const downloadImage = async () => {
-    if (!targetRef.current) return;
+    const exportNode =
+      targetRef.current?.querySelector?.("[data-map-export]") ||
+      targetRef.current;
+
+    if (!exportNode) return;
 
     const loadingToast = toast.loading("Preparing map download...");
 
     try {
-      const dataUrl = await toPng(targetRef.current, {
+      const dataUrl = await toPng(exportNode, {
         cacheBust: true,
         pixelRatio: 2,
         backgroundColor: "#ffffff",
+        style: {
+          border: "none",
+          borderRadius: "0",
+          boxShadow: "none",
+          outline: "none",
+        },
       });
 
       const link = document.createElement("a");
