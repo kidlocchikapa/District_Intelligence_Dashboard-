@@ -1,5 +1,5 @@
 import { useRef } from 'react';
-import { toJpeg } from 'html-to-image';
+import { toJpeg, toPng } from 'html-to-image';
 import { jsPDF } from 'jspdf';
 import { toast } from 'react-hot-toast';
 
@@ -75,35 +75,66 @@ function friendlyTitle(value) {
     .replace(/\bArea Summary\b/g, 'Area Summary');
 }
 
+function cleanAreaName(value) {
+  return String(value || '')
+    .replace(/^\s*(selected\s+area\s*:\s*)?/i, '')
+    .replace(/^\s*(TA|District)\s*:\s*/i, '')
+    .trim();
+}
+
 function wrapText(pdf, text, maxWidth) {
   const safeText = String(text ?? '');
   return pdf.splitTextToSize(safeText, Math.max(maxWidth, 20));
 }
 
-function drawTable(pdf, columns, rows, startX, startY, rowHeight) {
+function fitColumnsToPage(pdf, columns, startX, rightMargin) {
+  const availableWidth = pdf.internal.pageSize.width - startX - rightMargin;
+  const totalWidth = columns.reduce((sum, column) => sum + Number(column.width || 0), 0);
+
+  if (!totalWidth || totalWidth <= availableWidth) {
+    return columns;
+  }
+
+  const scale = availableWidth / totalWidth;
+  return columns.map((column) => ({
+    ...column,
+    width: Math.max(46, Number(column.width || 0) * scale),
+  }));
+}
+
+function drawTable(pdf, columns, rows, startX, startY, rowHeight, rightMargin = 40) {
   let y = startY;
   const pageHeight = pdf.internal.pageSize.height;
-  const bottomMargin = 42;
+  const bottomMargin = 58;
+  const fittedColumns = fitColumnsToPage(pdf, columns, startX, rightMargin);
 
   pdf.setFont('helvetica', 'bold');
-  pdf.setFontSize(11);
+  pdf.setFontSize(9.5);
+  pdf.setFillColor(248, 250, 252);
+  pdf.setDrawColor(226, 232, 240);
+  pdf.setTextColor(15, 23, 42);
 
   let x = startX;
-  columns.forEach((column) => {
-    pdf.text(String(column.label), x + 4, y + 14);
-    pdf.rect(x, y, column.width, rowHeight);
+  fittedColumns.forEach((column) => {
+    pdf.setFillColor(248, 250, 252);
+    pdf.rect(x, y, column.width, rowHeight, 'FD');
+    pdf.text(String(column.label), x + 6, y + 15, {
+      maxWidth: column.width - 12,
+    });
     x += column.width;
   });
 
   y += rowHeight;
   pdf.setFont('helvetica', 'normal');
+  pdf.setFontSize(9.5);
+  pdf.setTextColor(51, 65, 85);
 
-  rows.forEach((row) => {
-    const lineGroups = columns.map((column) =>
-      wrapText(pdf, row[column.key] ?? '', column.width - 8),
+  rows.forEach((row, rowIndex) => {
+    const lineGroups = fittedColumns.map((column) =>
+      wrapText(pdf, row[column.key] ?? '', column.width - 12),
     );
     const rowLines = Math.max(...lineGroups.map((lines) => lines.length), 1);
-    const actualRowHeight = Math.max(rowHeight, rowLines * 13 + 12);
+    const actualRowHeight = Math.max(rowHeight, rowLines * 12 + 14);
 
     if (y + actualRowHeight > pageHeight - bottomMargin) {
       pdf.addPage();
@@ -111,17 +142,24 @@ function drawTable(pdf, columns, rows, startX, startY, rowHeight) {
     }
 
     x = startX;
-    columns.forEach((column, index) => {
-      pdf.text(lineGroups[index], x + 4, y + 14, {
-        maxWidth: column.width - 8,
+    fittedColumns.forEach((column, index) => {
+      if (rowIndex % 2 === 1) {
+        pdf.setFillColor(250, 250, 250);
+        pdf.rect(x, y, column.width, actualRowHeight, 'F');
+      }
+      pdf.setDrawColor(226, 232, 240);
+      pdf.rect(x, y, column.width, actualRowHeight);
+      pdf.text(lineGroups[index], x + 6, y + 14, {
+        maxWidth: column.width - 12,
         lineHeightFactor: 1.15,
       });
-      pdf.rect(x, y, column.width, actualRowHeight);
       x += column.width;
     });
 
     y += actualRowHeight;
   });
+
+  pdf.setTextColor(0, 0, 0);
 
   return y;
 }
@@ -154,6 +192,96 @@ function makeSectionReadable(section) {
     ],
     rows,
   };
+}
+
+const DEFAULT_MAP_LEGEND = [
+  { label: 'Population intensity', color: '#56ab91' },
+  { label: 'TA boundary', color: '#5f6d5b', type: 'line' },
+  { label: 'Selected area', color: '#111827' },
+  { label: 'Planning indicator', color: '#f59e0b' },
+];
+
+function drawMapLegend(pdf, legendItems, startX, startY, maxWidth) {
+  const items = legendItems?.length ? legendItems : DEFAULT_MAP_LEGEND;
+  let x = startX;
+  let y = startY;
+  const itemGap = 18;
+
+  pdf.setFont('helvetica', 'bold');
+  pdf.setFontSize(10);
+  pdf.setTextColor(15, 23, 42);
+  pdf.text('Map legend', startX, y);
+  y += 18;
+
+  pdf.setFont('helvetica', 'normal');
+  pdf.setFontSize(9);
+
+  items.forEach((item) => {
+    const label = String(item.label || '');
+    const labelWidth = pdf.getTextWidth(label);
+    const itemWidth = Math.min(labelWidth + 32, maxWidth);
+
+    if (x + itemWidth > startX + maxWidth) {
+      x = startX;
+      y += 18;
+    }
+
+    pdf.setDrawColor(203, 213, 225);
+    pdf.setFillColor(255, 255, 255);
+
+    if (item.type === 'line') {
+      pdf.setDrawColor(item.color || '#5f6d5b');
+      pdf.setLineWidth(2);
+      pdf.line(x, y - 3, x + 15, y - 3);
+      pdf.setLineWidth(0.2);
+    } else {
+      pdf.setFillColor(item.color || '#94a3b8');
+      pdf.roundedRect(x, y - 10, 14, 10, 2, 2, 'F');
+    }
+
+    pdf.setTextColor(51, 65, 85);
+    pdf.text(label, x + 21, y - 1, {
+      maxWidth: Math.max(30, itemWidth - 24),
+    });
+    x += itemWidth + itemGap;
+  });
+
+  pdf.setTextColor(0, 0, 0);
+  return y + 12;
+}
+
+function parseMapLegend(node, fallbackLegend) {
+  if (fallbackLegend?.length) {
+    return fallbackLegend;
+  }
+
+  try {
+    const parsed = JSON.parse(node?.dataset?.mapLegend || '[]');
+    return Array.isArray(parsed) ? parsed : DEFAULT_MAP_LEGEND;
+  } catch {
+    return DEFAULT_MAP_LEGEND;
+  }
+}
+
+function normalizeMapBlocks({ mapNode, mapNodes, mapLegend, rootNode }) {
+  if (Array.isArray(mapNodes) && mapNodes.length) {
+    return mapNodes
+      .map((entry) => (entry?.node ? entry : { node: entry }))
+      .filter((entry) => entry.node);
+  }
+
+  const scopedNodes = rootNode
+    ? Array.from(rootNode.querySelectorAll('[data-map-export]'))
+    : [];
+
+  const nodes = scopedNodes.length ? scopedNodes : mapNode ? [mapNode] : [];
+
+  return nodes.map((node, index) => ({
+    node,
+    title: node?.dataset?.mapTitle || (nodes.length > 1 ? `Map ${index + 1}` : 'Map'),
+    subtitle: node?.dataset?.mapSubtitle || '',
+    legend: parseMapLegend(node, index === 0 ? mapLegend : null),
+  }));
 }
 
 export function usePdfExport(filename = 'district-report.pdf') {
@@ -203,7 +331,7 @@ export function usePdfExport(filename = 'district-report.pdf') {
     }
   };
 
-  const exportDataPdf = async ({ title, selectedArea, sections, mapNode }) => {
+  const exportDataPdf = async ({ title, selectedArea, sections, mapNode, mapNodes, mapLegend }) => {
     const loadingToast = toast.loading('Preparing easy-to-read report...');
 
     try {
@@ -212,6 +340,19 @@ export function usePdfExport(filename = 'district-report.pdf') {
       let y = 50;
       const pageHeight = pdf.internal.pageSize.height;
       const readableSections = (sections || []).map(makeSectionReadable);
+      const areaName = cleanAreaName(selectedArea) || friendlyTitle(title);
+      const isGenericSelectedAreaTitle = /selected\s+area/i.test(title || '');
+      const reportSubtitle =
+        !isGenericSelectedAreaTitle && areaName && friendlyTitle(title) !== areaName
+          ? friendlyTitle(title)
+          : '';
+      const exportedAt = new Date().toLocaleString();
+      const mapBlocks = normalizeMapBlocks({
+        mapNode,
+        mapNodes,
+        mapLegend,
+        rootNode: contentRef.current,
+      });
 
       async function loadImageSize(dataUrl) {
         return new Promise((resolve, reject) => {
@@ -222,14 +363,62 @@ export function usePdfExport(filename = 'district-report.pdf') {
         });
       }
 
-      // If a map DOM node is provided, render it into the PDF before the sections.
-      if (mapNode) {
+      pdf.setFont('helvetica', 'bold');
+      pdf.setFontSize(20);
+      pdf.text(areaName, margin, y);
+      y += 24;
+
+      if (reportSubtitle) {
+        pdf.setFont('helvetica', 'normal');
+        pdf.setFontSize(11);
+        pdf.setTextColor(90, 90, 90);
+        pdf.text(reportSubtitle, margin, y);
+        pdf.setTextColor(0, 0, 0);
+        y += 22;
+      }
+
+      for (const mapBlock of mapBlocks) {
+        const currentMapNode = mapBlock.node;
+
+        if (!currentMapNode) {
+          continue;
+        }
+
         try {
-          const mapImgData = await toJpeg(mapNode, {
+          if (y + 240 > pageHeight - 58) {
+            pdf.addPage();
+            y = margin;
+          }
+
+          if (mapBlock.title) {
+            pdf.setFont('helvetica', 'bold');
+            pdf.setFontSize(12);
+            pdf.setTextColor(15, 23, 42);
+            pdf.text(mapBlock.title, margin, y);
+            y += 16;
+          }
+
+          if (mapBlock.subtitle) {
+            pdf.setFont('helvetica', 'normal');
+            pdf.setFontSize(9);
+            pdf.setTextColor(71, 85, 105);
+            pdf.text(wrapText(pdf, mapBlock.subtitle, pdf.internal.pageSize.width - margin * 2), margin, y, {
+              lineHeightFactor: 1.15,
+            });
+            y += 16;
+          }
+
+          const mapImgData = await toPng(currentMapNode, {
             cacheBust: true,
-            quality: 1.0,
             pixelRatio: 2,
-            backgroundColor: '#ffffff',
+            backgroundColor: 'transparent',
+            filter: (node) => !node?.dataset?.mapExportSkip,
+            style: {
+              border: 'none',
+              borderRadius: '0',
+              boxShadow: 'none',
+              outline: 'none',
+            },
           });
           const imgSize = await loadImageSize(mapImgData);
           const pageWidth = pdf.internal.pageSize.width;
@@ -245,31 +434,14 @@ export function usePdfExport(filename = 'district-report.pdf') {
           const drawX = margin + (availableWidth - drawWidth) / 2;
 
           // Add image on current page and advance Y position.
-          pdf.addImage(mapImgData, 'JPEG', drawX, y, drawWidth, drawHeight);
+          pdf.addImage(mapImgData, 'PNG', drawX, y, drawWidth, drawHeight);
           y += drawHeight + 18;
+          y = drawMapLegend(pdf, mapBlock.legend, margin, y, availableWidth) + 18;
         } catch (err) {
           // If map capture fails, continue without it.
           console.warn('Failed to capture map for PDF export', err);
         }
       }
-
-      pdf.setFont('helvetica', 'bold');
-      pdf.setFontSize(18);
-      pdf.text(friendlyTitle(title), margin, y);
-
-      pdf.setFont('helvetica', 'normal');
-      pdf.setFontSize(11);
-      pdf.text(`Selected area: ${selectedArea}`, margin, y + 24);
-      pdf.text(`Exported on: ${new Date().toLocaleString()}`, margin, y + 40);
-      pdf.setTextColor(90, 90, 90);
-      pdf.text(
-        'Plain-language summary for planning and community discussion.',
-        margin,
-        y + 56,
-      );
-      pdf.setTextColor(0, 0, 0);
-
-      y += 86;
 
       readableSections.forEach((section) => {
         if (y + 80 > pageHeight) {
@@ -294,6 +466,22 @@ export function usePdfExport(filename = 'district-report.pdf') {
         y = drawTable(pdf, section.columns, section.rows, margin, y, 24);
         y += 18;
       });
+
+      const pageWidth = pdf.internal.pageSize.width;
+      const pageCount = pdf.internal.getNumberOfPages();
+      pdf.setFont('helvetica', 'normal');
+      pdf.setFontSize(9);
+      pdf.setTextColor(90, 90, 90);
+      for (let pageNumber = 1; pageNumber <= pageCount; pageNumber += 1) {
+        pdf.setPage(pageNumber);
+        pdf.setDrawColor(226, 232, 240);
+        pdf.line(margin, pageHeight - 40, pageWidth - margin, pageHeight - 40);
+        pdf.text(`Exported on: ${exportedAt}`, pageWidth - margin, pageHeight - 24, {
+          align: 'right',
+        });
+        pdf.text(`Page ${pageNumber} of ${pageCount}`, margin, pageHeight - 24);
+      }
+      pdf.setTextColor(0, 0, 0);
 
       pdf.save(filename);
       toast.success('PDF successfully downloaded!', { id: loadingToast });
