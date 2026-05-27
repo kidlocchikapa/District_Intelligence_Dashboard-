@@ -73,6 +73,11 @@ function formatTaCoverageAxisLabel(value) {
 
   return `${value.slice(0, 14)}...`;
 }
+
+function normalizeAreaName(value) {
+  return String(value || "").trim().toLowerCase();
+}
+
 function getHealthRasterAsset(assets, key) {
   return assets?.[key] || "/worldpop/zomba_ppp_2020.preview.json";
 }
@@ -255,33 +260,6 @@ function HealthPage() {
       limit: selectedTa ? 1 : 5,
     }),
   );
-
-  const augmentedGeojson = useMemo(() => {
-    if (!healthCoverageTaGeojson.data || !taAnalytics.data) {
-      return healthCoverageTaGeojson.data;
-    }
-    
-    const geojson = { ...healthCoverageTaGeojson.data };
-    geojson.features = geojson.features.map(feature => {
-      const name = feature.properties?.admin_unit_name || feature.properties?.name;
-      const taData = taAnalytics.data.find(d => String(d.admin_unit_name).toLowerCase() === String(name).toLowerCase());
-      
-      if (taData) {
-        return {
-          ...feature,
-          properties: {
-            ...feature.properties,
-            vulnerability_score: taData.vulnerability_score,
-            flood_isolation_risk: taData.flood_isolation_risk,
-            student_enrolment_affected: taData.student_enrolment_affected,
-            avg_distance_to_health: taData.avg_distance_to_health
-          }
-        };
-      }
-      return feature;
-    });
-    return geojson;
-  }, [healthCoverageTaGeojson.data, taAnalytics.data]);
 
   const healthServiceMapGeojson = useMemo(() => {
     const taBoundaryFeatures = (healthCoverageTaGeojson.data?.features || [])
@@ -554,6 +532,7 @@ function HealthPage() {
           served_population_pct: 0,
           served_population_total: 0,
           unserved_population_total: 0,
+          unserved_population_pct: 0,
         };
       }
 
@@ -571,10 +550,95 @@ function HealthPage() {
         accumulator[key].unserved_population_total = numericValue;
       }
 
+      if (metric.metric_name === "health_population_unserved_pct") {
+        accumulator[key].unserved_population_pct = numericValue;
+      }
+
       return accumulator;
     },
     {},
   );
+  const healthCoverageTooltipGeojson = useMemo(() => {
+    if (!healthCoverageTaGeojson.data) {
+      return healthCoverageTaGeojson.data;
+    }
+
+    const coverageLookup = Object.values(servedPopulationTrendLookup).reduce(
+      (lookup, row) => {
+        const key = normalizeAreaName(row.area);
+        if (key) {
+          lookup[key] = row;
+        }
+        return lookup;
+      },
+      {},
+    );
+
+    return {
+      ...healthCoverageTaGeojson.data,
+      features: (healthCoverageTaGeojson.data.features || []).map((feature) => {
+        const properties = feature?.properties || {};
+        const name = properties.admin_unit_name || properties.name;
+        const coverageMetrics = coverageLookup[normalizeAreaName(name)];
+
+        if (!coverageMetrics) {
+          return feature;
+        }
+
+        return {
+          ...feature,
+          properties: {
+            ...properties,
+            health_population_served_total:
+              coverageMetrics.served_population_total,
+            health_population_served_pct:
+              coverageMetrics.served_population_pct,
+            health_population_unserved_total:
+              coverageMetrics.unserved_population_total,
+            health_population_unserved_pct:
+              coverageMetrics.unserved_population_pct,
+          },
+        };
+      }),
+    };
+  }, [healthCoverageTaGeojson.data, servedPopulationTrendLookup]);
+  const augmentedGeojson = useMemo(() => {
+    if (!healthCoverageTooltipGeojson || !taAnalytics.data) {
+      return healthCoverageTooltipGeojson;
+    }
+
+    const analyticsLookup = taAnalytics.data.reduce((lookup, row) => {
+      const key = normalizeAreaName(row.admin_unit_name);
+      if (key) {
+        lookup[key] = row;
+      }
+      return lookup;
+    }, {});
+
+    return {
+      ...healthCoverageTooltipGeojson,
+      features: (healthCoverageTooltipGeojson.features || []).map((feature) => {
+        const properties = feature?.properties || {};
+        const name = properties.admin_unit_name || properties.name;
+        const taData = analyticsLookup[normalizeAreaName(name)];
+
+        if (!taData) {
+          return feature;
+        }
+
+        return {
+          ...feature,
+          properties: {
+            ...properties,
+            vulnerability_score: taData.vulnerability_score,
+            flood_isolation_risk: taData.flood_isolation_risk,
+            student_enrolment_affected: taData.student_enrolment_affected,
+            avg_distance_to_health: taData.avg_distance_to_health,
+          },
+        };
+      }),
+    };
+  }, [healthCoverageTooltipGeojson, taAnalytics.data]);
   const servedPopulationTrendData = Object.values(servedPopulationTrendLookup)
     .map((row) => {
       const populationTotal =
@@ -878,7 +942,7 @@ function HealthPage() {
             </p>
             <div className="mt-4 border border-gray-100 rounded p-3 bg-white">
               <PopulationRasterPanel
-                geojson={healthCoverageTaGeojson.data}
+                geojson={healthCoverageTooltipGeojson}
                 title={activeHealthRasterLayer.title}
                 subtitle={activeHealthRasterLayer.subtitle}
                 metadataUrl={getHealthRasterAsset(

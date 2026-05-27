@@ -238,6 +238,21 @@ function normalizeTaName(value) {
     .toLowerCase();
 }
 
+function normalizeAreaName(value) {
+  return String(value || "").trim().toLowerCase();
+}
+
+function getEducationUnitKey(properties, feature) {
+  const id = properties?.admin_unit_id ?? feature?.id;
+  if (id !== undefined && id !== null && id !== "") {
+    return `id:${String(id)}`;
+  }
+
+  return `name:${normalizeAreaName(
+    properties?.admin_unit_name || properties?.name,
+  )}`;
+}
+
 function getEducationRasterAsset(assets, key) {
   return assets?.[key] || "/worldpop/zomba_ppp_2020.preview.json";
 }
@@ -372,6 +387,13 @@ function EducationPage() {
       analysis_type: "education_summary",
       admin_type: "TA",
       metric_name: "school_age_population_total",
+      district: coverageFocusDistrict,
+    }),
+  );
+  const schoolPopulationBufferGeojson = useDashboardData(
+    buildDashboardPath("/dashboard/analysis/geojson", {
+      analysis_type: "school_population_buffer",
+      admin_type: "TA",
       district: coverageFocusDistrict,
     }),
   );
@@ -529,6 +551,21 @@ function EducationPage() {
   const sourceInsightRows = allInsightRows.length
     ? allInsightRows
     : insightRows;
+  const schoolPopulationBufferLookup = useMemo(() => {
+    const bufferFeatures = schoolPopulationBufferGeojson.data?.features || [];
+    return bufferFeatures.reduce((lookup, feature) => {
+      const properties = feature?.properties || {};
+      const key = getEducationUnitKey(properties, feature);
+      const metricName = properties.metric_name;
+      if (!key || !metricName) {
+        return lookup;
+      }
+
+      lookup[key] ||= {};
+      lookup[key][metricName] = Number(properties.metric_value || 0);
+      return lookup;
+    }, {});
+  }, [schoolPopulationBufferGeojson.data]);
   const selectedInsight = selectedTa
     ? sourceInsightRows.find(
         (row) =>
@@ -747,6 +784,71 @@ function EducationPage() {
     schoolLocations.data,
     filteredSchoolFeatures,
     schoolFeaturesWithPressure,
+  ]);
+
+  const educationRasterTooltipGeojson = useMemo(() => {
+    if (!educationCoverageTaGeojson.data) {
+      return educationCoverageTaGeojson.data;
+    }
+
+    const insightLookup = sourceInsightRows.reduce((lookup, row) => {
+      const key =
+        row.admin_unit_id !== undefined && row.admin_unit_id !== null
+          ? `id:${String(row.admin_unit_id)}`
+          : `name:${normalizeAreaName(row.admin_unit_name)}`;
+      if (key) {
+        lookup[key] = row;
+      }
+      return lookup;
+    }, {});
+
+    return {
+      ...educationCoverageTaGeojson.data,
+      features: (educationCoverageTaGeojson.data.features || []).map((feature) => {
+        const properties = feature?.properties || {};
+        const key = getEducationUnitKey(properties, feature);
+        const insight = insightLookup[key];
+        const bufferMetrics = schoolPopulationBufferLookup[key] || {};
+        const hasBufferMetrics =
+          Object.keys(bufferMetrics).length > 0;
+        const schoolAgePopulationTotal = Number(
+          insight?.school_age_population_total ??
+            properties.school_age_population_total ??
+            0,
+        );
+        const studentEnrollmentTotal = Number(
+          insight?.student_enrollment_total ??
+            properties.student_enrollment_total ??
+            0,
+        );
+        const populationServedTotal =
+          bufferMetrics.school_population_served_total;
+        const outsideBufferPopulation =
+          bufferMetrics.school_population_unserved_total;
+
+        if (!insight && !hasBufferMetrics) {
+          return feature;
+        }
+
+        return {
+          ...feature,
+          properties: {
+            ...properties,
+            school_count: Number(
+              insight?.school_count ?? properties.school_count ?? 0,
+            ),
+            student_enrollment_total: studentEnrollmentTotal,
+            school_age_population_total: schoolAgePopulationTotal,
+            school_population_served_total: populationServedTotal,
+            school_population_unserved_total: outsideBufferPopulation,
+          },
+        };
+      }),
+    };
+  }, [
+    educationCoverageTaGeojson.data,
+    schoolPopulationBufferLookup,
+    sourceInsightRows,
   ]);
 
   const selectSchoolRiskCategory = (category) => {
@@ -1604,7 +1706,7 @@ function EducationPage() {
             <div className="mt-4 border border-gray-100 rounded p-3 bg-white">
               <PopulationRasterPanel
                 key={`education-raster-${activeEducationRasterLayer.key}`}
-                geojson={educationCoverageTaGeojson.data}
+                geojson={educationRasterTooltipGeojson}
                 pointsGeojson={schoolLocations.data}
                 pointLayerLabel="Schools"
                 title={activeEducationRasterLayer.title}
@@ -1618,6 +1720,28 @@ function EducationPage() {
                   educationCoverageTaGeojson.loading ||
                   educationRasterMetadata.loading
                 }
+                customTooltipMetrics={[
+                  {
+                    key: "school_count",
+                    label: "Total Schools",
+                    digits: 0,
+                  },
+                  {
+                    key: "student_enrollment_total",
+                    label: "Total Enrolment",
+                    digits: 0,
+                  },
+                  {
+                    key: "school_population_served_total",
+                    label: "Population Served",
+                    digits: 0,
+                  },
+                  {
+                    key: "school_population_unserved_total",
+                    label: "Population Outside Buffer",
+                    digits: 0,
+                  },
+                ]}
                 selectedFeatureName={selectedTa}
                 hoveredFeatureName={selectedTa ? "" : hoveredEducationTa}
                 onFeatureHover={previewTaFromFeature}
