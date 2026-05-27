@@ -8,7 +8,7 @@ import numpy as np
 from geoalchemy2 import Geometry, WKTElement
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy import text
-from shapely.geometry import Point
+from shapely.geometry import Point, MultiPolygon, Polygon
 from shapely import wkt
 
 from pipeline_config import DATASET_CONFIG
@@ -171,6 +171,23 @@ def _coalesce_row_values(row, columns):
             if text:
                 return text
     return None
+
+
+def _as_multipolygon(geometry):
+    if geometry is None:
+        return None
+
+    if isinstance(geometry, MultiPolygon):
+        return geometry
+
+    if isinstance(geometry, Polygon):
+        return MultiPolygon([geometry])
+
+    geom_type = getattr(geometry, "geom_type", "").lower()
+    if geom_type == "polygon":
+        return MultiPolygon([geometry])
+
+    return geometry
 
 # Find a spatial match for a given point
 def _find_spatial_match(point, polygons):
@@ -845,8 +862,19 @@ def load_analysis_results(session, analysis_df):
         engine = session.bind
         working = analysis_df.copy()
         working['metadata'] = working['metadata'].apply(_sanitize_json_value)
+        missing_metric_values = working['metric_value'].isna().sum()
+        if missing_metric_values:
+            log_step(
+                'load_analysis_results',
+                f'null_metric_values={missing_metric_values}',
+                level='warning',
+            )
+        working['metric_value'] = pd.to_numeric(
+            working['metric_value'],
+            errors='coerce',
+        ).fillna(0)
         working['geom'] = working['geom'].apply(
-            lambda geom: WKTElement(geom.wkt, srid=4326) if geom is not None else None
+            lambda geom: WKTElement(_as_multipolygon(geom).wkt, srid=4326) if geom is not None else None
         )
 
         analysis_types = working['analysis_type'].dropna().unique().tolist()
@@ -885,6 +913,8 @@ def load_analysis_results(session, analysis_df):
             engine,
             if_exists='append',
             index=False,
+            chunksize=200,
+            method='multi',
             dtype={
                 'geom': Geometry('MULTIPOLYGON', srid=4326),
                 'metadata': JSONB,
@@ -892,6 +922,9 @@ def load_analysis_results(session, analysis_df):
         )
         return len(working)
     except Exception as exc:
+        log_step('load_analysis_results', f'error={exc}', level='error')
+        if getattr(exc, 'orig', None):
+            log_step('load_analysis_results', f'error_orig={exc.orig}', level='error')
         raise LoadError(
             user_message='Could not save analysis results to the database.',
             step_name='load_analysis_results',

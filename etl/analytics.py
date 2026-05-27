@@ -3,7 +3,9 @@ import time
 
 import geopandas as gpd
 import pandas as pd
+from pyproj import Transformer
 from shapely.ops import unary_union
+from shapely.ops import transform as shapely_transform
 from sqlalchemy import text
 from sqlalchemy.exc import OperationalError
 
@@ -245,6 +247,34 @@ def get_row_geometry(row):
         if 'geom' in row.index:
             return row['geom']
     return getattr(row, 'geometry', getattr(row, 'geom', None))
+
+
+def _geometry_looks_projected(geometry):
+    if geometry is None:
+        return False
+
+    try:
+        minx, miny, maxx, maxy = geometry.bounds
+    except Exception:
+        return False
+
+    return (
+        abs(minx) > 180
+        or abs(maxx) > 180
+        or abs(miny) > 90
+        or abs(maxy) > 90
+    )
+
+
+def normalize_geometry_to_wgs84(geometry):
+    if geometry is None:
+        return None
+
+    if _geometry_looks_projected(geometry):
+        transformer = Transformer.from_crs("EPSG:3857", "EPSG:4326", always_xy=True)
+        geometry = shapely_transform(transformer.transform, geometry)
+
+    return geometry
 
 # Calculate the 2SFCA access score for health facilities for each administrative unit
 def compute_health_2sfca_access(
@@ -922,7 +952,7 @@ def analysis_record(analysis_type, admin_row, metric_name, metric_value, metric_
         'metric_name': metric_name,
         'metric_value': metric_value,
         'metric_unit': metric_unit,
-        'geom': get_row_geometry(admin_row),
+        'geom': normalize_geometry_to_wgs84(get_row_geometry(admin_row)),
         'metadata': metadata or {},
     }
 
