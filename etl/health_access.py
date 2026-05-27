@@ -1,3 +1,4 @@
+# import standard libraries
 import json
 import logging
 import math
@@ -17,6 +18,7 @@ from rasterio.transform import from_bounds
 from shapely.geometry import box
 from sqlalchemy import text
 
+# import local libraries
 from db_utils import log_etl_run
 from roads import recompute_beneficiary_facility_travel
 from worldpop import DEFAULT_WORLDPOP_YEAR, get_zonal_stats, resolve_worldpop_raster
@@ -26,11 +28,14 @@ from analytics import (
     compute_flood_isolation_index,
     compute_school_health_gap,
     fetch_admin_units_for_analysis,
+    get_school_thresholds,
 )
 from load import load_analysis_results
 
+# set up logging
 LOGGER = logging.getLogger("etl.health_access")
 
+# set up constants
 DEFAULT_HEALTH_ACCESS_DISTANCE_KM = 8.0
 DEFAULT_HEALTH_ACCESS_GRID_SIZE_M = 250.0
 DEFAULT_HEALTH_ACCESS_MIN_RESOLUTION_M = 100.0
@@ -42,6 +47,9 @@ DEFAULT_HEALTH_ACCESS_RENDER_DPI = 220
 DEFAULT_HEALTH_ACCESS_NODATA = -9999.0
 DEFAULT_PREVIEW_OUTPUT_DIR = os.path.join(
     os.path.dirname(__file__), "..", "frontend", "public", "health-access"
+)
+DEFAULT_EDUCATION_PREVIEW_OUTPUT_DIR = os.path.join(
+    os.path.dirname(__file__), "..", "frontend", "public", "education-access"
 )
 DISTRICT_GROUPS = {
     "zomba": ["Zomba", "Zomba City"],
@@ -59,7 +67,7 @@ def log_step(step_name, message, level="info"):
     log_method = getattr(LOGGER, level, LOGGER.info)
     log_method(f"[{step_name}] {message}")
 
-
+# define custom exception for health access ETL errors
 class HealthAccessError(Exception):
     def __init__(self, user_message, step_name, original_error=None):
         self.user_message = user_message
@@ -67,7 +75,7 @@ class HealthAccessError(Exception):
         self.original_error = original_error
         super().__init__(f"{user_message} (step: {step_name})")
 
-
+# define utility function to run ETL steps with consistent logging and error handling
 def run_step(step_name, user_message_on_error, fn, *args, **kwargs):
     log_step(step_name, "started")
     try:
@@ -80,7 +88,7 @@ def run_step(step_name, user_message_on_error, fn, *args, **kwargs):
     log_step(step_name, "completed")
     return result
 
-
+# Helper functions for district normalisatin
 def _normalize_district_names(district_name=None, district_names=None):
     names = []
 
@@ -104,7 +112,7 @@ def _normalize_district_names(district_name=None, district_names=None):
             seen.append(item)
     return seen
 
-
+# Helper functions for district scoping and geometry handling
 def _slugify_districts(district_names):
     if not district_names:
         return "malawi"
@@ -116,17 +124,16 @@ def _slugify_districts(district_names):
         slug = slug.replace("--", "-")
     return slug or "malawi"
 
-
 def _district_scope_predicate(column_expression, names):
     if not names:
         return "", {}
     return f"WHERE {column_expression} = ANY(:district_names)", {"district_names": names}
 
-
+# Helper function to create an empty geodataframe with a specified CRS
 def _empty_geodataframe(crs="EPSG:4326"):
     return gpd.GeoDataFrame({"geometry": []}, geometry="geometry", crs=crs)
 
-
+# Helper function to resolve district names to IDs and handle special cases
 def _resolve_district_scope(session, district_names=None):
     names = district_names or []
     if not names:
@@ -149,7 +156,7 @@ def _resolve_district_scope(session, district_names=None):
             resolved_ids.append(int(district_id))
     return {"district_names": names, "district_ids": resolved_ids}
 
-
+# Helper functions for ensuring database tables exist
 def ensure_health_access_tables(session):
     session.execute(
         text(
@@ -178,7 +185,36 @@ def ensure_health_access_tables(session):
     )
     session.commit()
 
+# Helper ffunction to ensure education access metrics table exists
+def ensure_education_access_tables(session):
+    session.execute(
+        text(
+            """
+            CREATE TABLE IF NOT EXISTS education_facility_access_metrics (
+                facility_id BIGINT PRIMARY KEY REFERENCES education_facilities(school_id) ON DELETE CASCADE,
+                coverage_distance_km DOUBLE PRECISION NOT NULL DEFAULT 5,
+                worldpop_population_within_buffer DOUBLE PRECISION DEFAULT 0,
+                welfare_beneficiaries_within_buffer INTEGER DEFAULT 0,
+                avg_network_distance_km DOUBLE PRECISION,
+                avg_travel_time_min DOUBLE PRECISION,
+                metadata JSONB DEFAULT '{}'::jsonb,
+                calculated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+            """
+        )
+    )
+    session.execute(
+        text(
+            """
+            CREATE INDEX IF NOT EXISTS idx_education_facility_access_metrics_calculated_at
+            ON education_facility_access_metrics(calculated_at)
+            """
+        )
+    )
+    session.commit()
 
+# Helper functions for fetching and processing spatial data related
+# to districts, facilities, and beneficiaries
 def fetch_district_union(session, district_names=None):
     names = district_names or []
     where_clause, params = _district_scope_predicate("name", names)
@@ -194,7 +230,7 @@ def fetch_district_union(session, district_names=None):
         raise ValueError("No district geometry found for health access preview generation.")
     return gdf.set_crs("EPSG:4326", allow_override=True)
 
-
+# fetch facilities with optional district scoping and geometry validation against district union
 def fetch_health_facility_scope(session, district_names=None):
     names = district_names or []
     scope = _resolve_district_scope(session, names)
@@ -270,7 +306,81 @@ def fetch_health_facility_scope(session, district_names=None):
 
     return facilities
 
+# fetch school facilities 
+def fetch_school_facility_scope(session, district_names=None):
+    names = district_names or []
+    scope = _resolve_district_scope(session, names)
+    district_ids = scope["district_ids"]
+    query = text(
+        f"""
+        WITH district_union AS (
+            SELECT ST_Union(geom) AS geom
+            FROM districts
+            {"WHERE id = ANY(:district_ids)" if district_ids else ""}
+        )
+        SELECT
+            ef.school_id AS facility_id,
+            COALESCE(ef.school_name, '') AS facility_name,
+            ef.operator AS operator_type,
+            ef.status,
+            ef.district_id,
+            ef.ta_id,
+            d.name AS district_name,
+            a3.name AS ta_name,
+            ef.geom
+        FROM education_facilities ef
+        LEFT JOIN districts d
+          ON d.id = ef.district_id
+        LEFT JOIN admin3_units a3
+          ON a3.id = ef.ta_id
+        CROSS JOIN district_union du
+        WHERE ef.geom IS NOT NULL
+        {"AND ef.district_id = ANY(:district_ids)" if district_ids else ""}
+        {"AND du.geom IS NOT NULL AND ST_Intersects(ef.geom, du.geom)" if district_ids else ""}
+        """
+    )
+    params = {"district_ids": district_ids} if district_ids else None
+    facilities = gpd.read_postgis(query, session.bind, geom_col="geom", params=params)
 
+    if district_ids:
+        invalid_query = text(
+            """
+            WITH district_union AS (
+                SELECT ST_Union(geom) AS geom
+                FROM districts
+                WHERE id = ANY(:district_ids)
+            )
+            SELECT
+                ef.school_id AS facility_id,
+                COALESCE(ef.school_name, '') AS facility_name,
+                d.name AS district_name
+            FROM education_facilities ef
+            LEFT JOIN districts d
+              ON d.id = ef.district_id
+            CROSS JOIN district_union du
+            WHERE ef.geom IS NOT NULL
+              AND ef.district_id = ANY(:district_ids)
+              AND (du.geom IS NULL OR NOT ST_Intersects(ef.geom, du.geom))
+            ORDER BY ef.school_name
+            """
+        )
+        invalid_rows = session.execute(invalid_query, {"district_ids": district_ids}).mappings().all()
+        if invalid_rows:
+            preview = ", ".join(row["facility_name"] for row in invalid_rows[:5] if row["facility_name"]) or "unnamed facilities"
+            if len(invalid_rows) > 5:
+                preview = f"{preview}, +{len(invalid_rows) - 5} more"
+            log_step(
+                "fetch_school_facility_scope",
+                (
+                    f"excluded {len(invalid_rows)} facility record(s) whose geometry fell outside "
+                    f"the combined district geometry despite matching district_id. Examples: {preview}"
+                ),
+                level="warning",
+            )
+
+    return facilities
+
+# Fetch beneficiaries
 def fetch_beneficiary_scope(session, district_names=None):
     names = district_names or []
     scope = _resolve_district_scope(session, names)
@@ -306,7 +416,7 @@ def fetch_beneficiary_scope(session, district_names=None):
         params={"district_ids": district_ids} if district_ids else None,
     )
 
-
+# Fech beneficiary network access
 def fetch_beneficiary_network_scope(session, district_names=None):
     names = district_names or []
     scope = _resolve_district_scope(session, names)
@@ -355,8 +465,48 @@ def fetch_beneficiary_network_scope(session, district_names=None):
         params["district_ids"] = district_ids
     return gpd.read_postgis(query, session.bind, geom_col="geom", params=params)
 
+# Fetch beneficiary network access to schools
+def fetch_beneficiary_school_network_scope(session, district_names=None):
+        names = district_names or []
+        scope = _resolve_district_scope(session, names)
+        district_ids = scope["district_ids"]
+        query = text(
+                f"""
+                WITH district_union AS (
+                        SELECT ST_Union(geom) AS geom
+                        FROM districts
+                        {"WHERE id = ANY(:district_ids)" if district_ids else ""}
+                )
+                SELECT
+                        wb.id AS beneficiary_id,
+                        wb.household_size,
+                        wb.geom,
+                        d.name AS district_name,
+                        a3.name AS ta_name,
+                        travel.facility_id AS nearest_school_facility_id,
+                        travel.facility_name AS nearest_school_facility_name,
+                        travel.network_distance_km,
+                        travel.travel_time_min,
+                        travel.routing_status
+                FROM welfare_beneficiary wb
+                LEFT JOIN districts d
+                    ON d.id = wb.district_id
+                LEFT JOIN admin3_units a3
+                    ON a3.id = wb.ta_id
+                LEFT JOIN beneficiary_facility_travel travel
+                    ON travel.beneficiary_id = wb.id
+                 AND travel.facility_type = 'school'
+                CROSS JOIN district_union du
+                WHERE wb.geom IS NOT NULL
+                {"AND wb.district_id = ANY(:district_ids)" if district_ids else ""}
+                {"AND du.geom IS NOT NULL AND ST_Intersects(wb.geom, du.geom)" if district_ids else ""}
+                """
+        )
+        params = {"district_ids": district_ids} if district_ids else None
+        return gpd.read_postgis(query, session.bind, geom_col="geom", params=params)
 
-def _compute_worldpop_buffer_sums(raster_path, buffer_gdf):
+# Helper function to compute WorldPop population sums within facility buffers
+def _compute_worldpop_buffer_sums(raster_path, buffer_gdf, log_context=None):
     if not raster_path or buffer_gdf.empty:
         return [0.0] * len(buffer_gdf)
 
@@ -378,7 +528,7 @@ def _compute_worldpop_buffer_sums(raster_path, buffer_gdf):
         if len(names) > 5:
             preview = f"{preview}, +{len(names) - 5} more"
         log_step(
-            "refresh_health_facility_access_metrics",
+            log_context or "refresh_health_facility_access_metrics",
             (
                 f"{len(non_overlapping)} facility buffer(s) did not overlap the raster extent; "
                 f"defaulted their WorldPop buffer population to 0. Examples: {preview}"
@@ -388,7 +538,7 @@ def _compute_worldpop_buffer_sums(raster_path, buffer_gdf):
 
     return sums.tolist()
 
-
+# Function to refresh health facility access metrics 
 def refresh_health_facility_access_metrics(
     session,
     raster_path,
@@ -413,7 +563,9 @@ def refresh_health_facility_access_metrics(
         crs="EPSG:3857",
     ).to_crs("EPSG:4326")
 
-    worldpop_sums = _compute_worldpop_buffer_sums(raster_path, buffer_gdf)
+    worldpop_sums = _compute_worldpop_buffer_sums(
+        raster_path, buffer_gdf, log_context="refresh_health_facility_access_metrics"
+    )
     facilities["worldpop_population_within_buffer"] = [
         float(value or 0.0) for value in worldpop_sums
     ]
@@ -521,7 +673,138 @@ def refresh_health_facility_access_metrics(
     session.commit()
     return len(frame)
 
+# Function to refresh education facility access metrics
+def refresh_education_facility_access_metrics(session, raster_path, district_names=None):
+    ensure_education_access_tables(session)
+    facilities = fetch_school_facility_scope(session, district_names=district_names)
+    beneficiaries = fetch_beneficiary_scope(session, district_names=district_names)
+    beneficiary_network = fetch_beneficiary_school_network_scope(session, district_names=district_names)
 
+    if facilities.empty:
+        session.execute(text("DELETE FROM education_facility_access_metrics"))
+        session.commit()
+        return 0
+
+    facilities_proj = facilities.to_crs("EPSG:3857")
+    buffer_km = []
+    for _, row in facilities.iterrows():
+        thresholds = get_school_thresholds(row.get("facility_name", ""))
+        buffer_km.append(float(thresholds.get("max_dist_km", 5.0)))
+    buffer_geom = [
+        geom.buffer(km * 1000.0) if geom is not None else geom
+        for geom, km in zip(facilities_proj.geometry, buffer_km)
+    ]
+    buffer_gdf = gpd.GeoDataFrame(
+        facilities[["facility_id", "facility_name", "operator_type", "status"]].copy(),
+        geometry=buffer_geom,
+        crs="EPSG:3857",
+    ).to_crs("EPSG:4326")
+    buffer_gdf["coverage_distance_km"] = buffer_km
+
+    worldpop_sums = _compute_worldpop_buffer_sums(
+        raster_path, buffer_gdf, log_context="refresh_education_facility_access_metrics"
+    )
+    facilities["worldpop_population_within_buffer"] = [
+        float(value or 0.0) for value in worldpop_sums
+    ]
+
+    buffer_count_lookup = {}
+    if not beneficiaries.empty:
+        beneficiaries_proj = beneficiaries.to_crs("EPSG:3857")
+        beneficiary_geom_col = beneficiaries_proj.geometry.name
+        buffer_proj = gpd.GeoDataFrame(
+            buffer_gdf[["facility_id"]].copy(),
+            geometry=buffer_gdf.geometry,
+            crs=buffer_gdf.crs,
+        ).to_crs("EPSG:3857")
+        buffer_geom_col = buffer_proj.geometry.name
+        buffer_join = gpd.sjoin(
+            beneficiaries_proj[["beneficiary_id", beneficiary_geom_col]],
+            buffer_proj[["facility_id", buffer_geom_col]],
+            how="inner",
+            predicate="intersects",
+        )
+        buffer_count_lookup = (
+            buffer_join.groupby("facility_id")["beneficiary_id"].nunique().astype(int).to_dict()
+        )
+
+    avg_lookup = {}
+    if not beneficiary_network.empty:
+        routed = beneficiary_network[
+            (beneficiary_network["routing_status"] == "routed")
+            & beneficiary_network["nearest_school_facility_id"].notna()
+        ].copy()
+        if not routed.empty:
+            routed["nearest_school_facility_id"] = routed["nearest_school_facility_id"].astype(int)
+            avg_df = routed.groupby("nearest_school_facility_id").agg(
+                avg_network_distance_km=("network_distance_km", "mean"),
+                avg_travel_time_min=("travel_time_min", "mean"),
+            )
+            avg_lookup = avg_df.to_dict("index")
+
+    records = []
+    for idx, row in facilities.iterrows():
+        facility_id = int(row["facility_id"])
+        averages = avg_lookup.get(facility_id, {})
+        records.append(
+            {
+                "facility_id": facility_id,
+                "coverage_distance_km": float(buffer_km[idx]),
+                "worldpop_population_within_buffer": float(
+                    row.get("worldpop_population_within_buffer") or 0.0
+                ),
+                "welfare_beneficiaries_within_buffer": int(buffer_count_lookup.get(facility_id, 0)),
+                "avg_network_distance_km": (
+                    float(averages["avg_network_distance_km"])
+                    if averages.get("avg_network_distance_km") is not None and not pd.isna(averages.get("avg_network_distance_km"))
+                    else None
+                ),
+                "avg_travel_time_min": (
+                    float(averages["avg_travel_time_min"])
+                    if averages.get("avg_travel_time_min") is not None and not pd.isna(averages.get("avg_travel_time_min"))
+                    else None
+                ),
+                "metadata": {
+                    "buffer_rule": "primary_3km_secondary_8km",
+                    "district_names": district_names or [],
+                },
+            }
+        )
+
+    frame = pd.DataFrame(records)
+    if frame.empty:
+        return 0
+
+    if district_names:
+        session.execute(
+            text(
+                """
+                DELETE FROM education_facility_access_metrics
+                WHERE facility_id IN (
+                    SELECT ef.school_id
+                    FROM education_facilities ef
+                    JOIN districts d ON d.id = ef.district_id
+                    WHERE d.name = ANY(:district_names)
+                )
+                """
+            ),
+            {"district_names": district_names},
+        )
+    else:
+        session.execute(text("DELETE FROM education_facility_access_metrics"))
+    session.commit()
+
+    frame.to_sql(
+        "education_facility_access_metrics",
+        session.bind,
+        if_exists="append",
+        index=False,
+        dtype={"metadata": JSONB},
+    )
+    session.commit()
+    return len(frame)
+
+# Helper functions for creating analysis grid, resolving raster resolution, building raster template,
 def _create_analysis_grid(union_gdf, cell_size_m=DEFAULT_HEALTH_ACCESS_GRID_SIZE_M):
     union_proj = union_gdf.to_crs("EPSG:3857")
     geom = union_proj.geometry.iloc[0]
@@ -544,7 +827,7 @@ def _create_analysis_grid(union_gdf, cell_size_m=DEFAULT_HEALTH_ACCESS_GRID_SIZE
         return _empty_geodataframe(crs="EPSG:3857")
     return gpd.GeoDataFrame({"cell_id": cell_ids}, geometry=cells, crs="EPSG:3857")
 
-
+# Helper functions for rasterization and spatial aggregation
 def _resolve_raster_resolution_m(union_proj, requested_resolution_m):
     geom = union_proj.geometry.iloc[0]
     minx, miny, maxx, maxy = geom.bounds
@@ -557,7 +840,7 @@ def _resolve_raster_resolution_m(union_proj, requested_resolution_m):
     scale = math.sqrt(pixel_count / DEFAULT_HEALTH_ACCESS_MAX_PIXELS)
     return max(requested * scale, requested)
 
-
+# Helper function to build rasterization template based on district union geometry and desired resolution
 def _build_raster_template(union_gdf, resolution_m):
     union_proj = union_gdf.to_crs("EPSG:3857")
     geom = union_proj.geometry.iloc[0]
@@ -592,13 +875,13 @@ def _build_raster_template(union_gdf, resolution_m):
         "resolution_m": float(resolution_m),
     }
 
-
+# Helper function to extract point coordinates from a GeoSeries for rasterization
 def _point_coordinates(geoseries):
     if geoseries.empty:
         return np.empty((0, 2), dtype=np.float32)
     return np.column_stack((geoseries.x.to_numpy(dtype=np.float32), geoseries.y.to_numpy(dtype=np.float32)))
 
-
+# Helper function to aggregate point values into raster cells
 def _aggregate_points_to_raster(points_xy, values, template):
     if len(points_xy) == 0 or len(values) == 0:
         return np.full((template["height"], template["width"]), np.nan, dtype=np.float32)
@@ -629,7 +912,7 @@ def _aggregate_points_to_raster(points_xy, values, template):
     surface[populated] = (sums[populated] / counts[populated]).astype(np.float32)
     return surface
 
-
+# Helper function to create a 1D Gaussian kernel for smoothing
 def _gaussian_kernel1d(sigma_px):
     sigma_px = max(float(sigma_px), 1e-6)
     radius = max(int(math.ceil(sigma_px * 3)), 1)
@@ -638,7 +921,7 @@ def _gaussian_kernel1d(sigma_px):
     kernel /= kernel.sum()
     return kernel
 
-
+# Helper function to perform 1D convolution along a specified axis with edge padding
 def _convolve_axis(array, kernel, axis):
     pad = len(kernel) // 2
     pad_width = [(0, 0)] * array.ndim
@@ -646,7 +929,7 @@ def _convolve_axis(array, kernel, axis):
     padded = np.pad(array, pad_width, mode="edge")
     return np.apply_along_axis(lambda vec: np.convolve(vec, kernel, mode="valid"), axis, padded)
 
-
+# Helper function to apply Gaussian smoothing to a raster surface while respecting a validity mask
 def _gaussian_smooth_masked(array, valid_mask, sigma_px=DEFAULT_HEALTH_ACCESS_GAUSSIAN_SIGMA_PX):
     if not np.any(valid_mask):
         return np.full(array.shape, np.nan, dtype=np.float32)
@@ -660,7 +943,7 @@ def _gaussian_smooth_masked(array, valid_mask, sigma_px=DEFAULT_HEALTH_ACCESS_GA
         result[smooth_weights > 1e-6] = smooth_values[smooth_weights > 1e-6] / smooth_weights[smooth_weights > 1e-6]
     return result
 
-
+# Helper function to perform inverse distance weighting interpolation for missing raster cells based on nearby valid cells
 def _idw_interpolate_surface(seed_surface, template, power=DEFAULT_HEALTH_ACCESS_IDW_POWER, max_samples=DEFAULT_HEALTH_ACCESS_IDW_MAX_SAMPLES):
     valid_mask = np.isfinite(seed_surface) & template["mask"]
     if not np.any(valid_mask):
@@ -693,7 +976,7 @@ def _idw_interpolate_surface(seed_surface, template, power=DEFAULT_HEALTH_ACCESS
         result[target_rows[start:stop], target_cols[start:stop]] = interpolated.astype(np.float32)
     return result
 
-
+# Helper function to compute a surface of nearest point distances
 def _nearest_distance_surface(points_xy, template):
     if len(points_xy) == 0:
         return np.full((template["height"], template["width"]), np.nan, dtype=np.float32)
@@ -713,7 +996,7 @@ def _nearest_distance_surface(points_xy, template):
         result[mask_rows[start:stop], mask_cols[start:stop]] = nearest.astype(np.float32)
     return result
 
-
+# Helper function to clip raster values to a specified percentile and normalize
 def _clip_and_normalize(array, mask, clip_percentile=95):
     result = np.full(array.shape, np.nan, dtype=np.float32)
     valid = np.isfinite(array) & mask
@@ -726,14 +1009,14 @@ def _clip_and_normalize(array, mask, clip_percentile=95):
     result[valid] = (clipped[valid] / clip_max).astype(np.float32)
     return result, clip_max
 
-
+# Helper function to apply a binary mask to a raster array,
 def _mask_array(array, mask):
     result = np.full(array.shape, np.nan, dtype=np.float32)
     valid = np.isfinite(array) & mask
     result[valid] = array[valid].astype(np.float32)
     return result
 
-
+# Helper function to write a raster array to a GeoTIFF file 
 def _write_geotiff(array, transform, output_tif, crs="EPSG:3857"):
     valid = np.isfinite(array)
     raster = np.where(valid, array, DEFAULT_HEALTH_ACCESS_NODATA).astype(np.float32)
@@ -772,7 +1055,7 @@ def _write_geotiff(array, transform, output_tif, crs="EPSG:3857"):
         ) as dst:
             dst.write(raster, 1)
 
-
+# Helper function to write a raster array to a PNG file for preview purposes
 def _write_preview_png(array, colors, output_png):
     cmap = mcolors.LinearSegmentedColormap.from_list("health_access", colors, N=256)
     rgba = cmap(np.clip(np.nan_to_num(array, nan=0.0), 0.0, 1.0))
@@ -787,7 +1070,7 @@ def _write_preview_png(array, colors, output_png):
     fig.savefig(output_png, dpi=DEFAULT_HEALTH_ACCESS_RENDER_DPI, transparent=True)
     plt.close(fig)
 
-
+# Helper function to save metadata for the generated preview
 def _save_preview_metadata(output_json, image_name, bounds, legend_label, low_label, high_label, colors, render, geotiff_name=None):
     metadata = {
         "image": image_name,
@@ -805,13 +1088,13 @@ def _save_preview_metadata(output_json, image_name, bounds, legend_label, low_la
     with open(output_json, "w", encoding="utf-8") as handle:
         json.dump(metadata, handle, indent=2)
 
-
+# Helper function to compute leaflet bounds from the union of district geometries for map preview
 def _leaflet_bounds_from_union(union_gdf):
     wgs84 = union_gdf.to_crs("EPSG:4326")
     minx, miny, maxx, maxy = wgs84.total_bounds
     return [[float(miny), float(minx)], [float(maxy), float(maxx)]]
 
-
+# Main function to generate health access preview rasters 
 def generate_health_access_previews(
     session,
     district_name=None,
@@ -1153,7 +1436,151 @@ def generate_health_access_previews(
 
     return generated
 
+# Helper function to generate education access previews using school and beneficiary data
+def generate_education_access_previews(
+    session,
+    district_name=None,
+    district_names=None,
+    output_dir=DEFAULT_EDUCATION_PREVIEW_OUTPUT_DIR,
+    coverage_distance_km=5.0,
+    grid_size_m=DEFAULT_HEALTH_ACCESS_GRID_SIZE_M,
+):
+    selected_districts = _normalize_district_names(district_name, district_names)
+    union_gdf = fetch_district_union(session, district_names=selected_districts)
+    facilities = fetch_school_facility_scope(session, district_names=selected_districts)
+    beneficiary_network = fetch_beneficiary_school_network_scope(
+        session, district_names=selected_districts
+    )
 
+    os.makedirs(output_dir, exist_ok=True)
+    slug = _slugify_districts(selected_districts)
+    bounds = _leaflet_bounds_from_union(union_gdf)
+    template = _build_raster_template(union_gdf, float(grid_size_m))
+    district_mask = template["mask"]
+    smoothing_sigma = max(1.0, 750.0 / template["resolution_m"]) * DEFAULT_HEALTH_ACCESS_GAUSSIAN_SIGMA_PX
+
+    # --- Buffer coverage surface (nearest-facility distance, clipped to coverage radius) ---
+    facilities_proj = facilities.to_crs("EPSG:3857") if not facilities.empty else _empty_geodataframe("EPSG:3857")
+    facility_xy = _point_coordinates(facilities_proj.geometry) if not facilities_proj.empty else np.empty((0, 2), dtype=np.float32)
+    if len(facility_xy):
+        facility_distance_m = _nearest_distance_surface(facility_xy, template)
+        buffer_surface = np.clip(1.0 - (facility_distance_m / (float(coverage_distance_km) * 1000.0)), 0.0, 1.0)
+        buffer_surface = _gaussian_smooth_masked(buffer_surface, district_mask, sigma_px=smoothing_sigma)
+        buffer_surface = _mask_array(np.clip(buffer_surface, 0.0, 1.0), district_mask)
+    else:
+        buffer_surface = np.full((template["height"], template["width"]), np.nan, dtype=np.float32)
+
+    # --- Network distance and travel time surfaces (IDW from beneficiary routing) ---
+    network_surface = np.full((template["height"], template["width"]), np.nan, dtype=np.float32)
+    travel_surface = np.full((template["height"], template["width"]), np.nan, dtype=np.float32)
+    if not beneficiary_network.empty:
+        beneficiary_network_proj = beneficiary_network.to_crs("EPSG:3857")
+        beneficiary_xy = _point_coordinates(beneficiary_network_proj.geometry)
+
+        network_seed = _aggregate_points_to_raster(
+            beneficiary_xy,
+            pd.to_numeric(beneficiary_network_proj["network_distance_km"], errors="coerce").to_numpy(dtype=np.float32),
+            template,
+        )
+        network_surface = _idw_interpolate_surface(network_seed, template)
+        network_surface = _gaussian_smooth_masked(network_surface, district_mask, sigma_px=smoothing_sigma)
+        network_surface = _mask_array(network_surface, district_mask)
+
+        travel_seed = _aggregate_points_to_raster(
+            beneficiary_xy,
+            pd.to_numeric(beneficiary_network_proj["travel_time_min"], errors="coerce").to_numpy(dtype=np.float32),
+            template,
+        )
+        travel_surface = _idw_interpolate_surface(travel_seed, template)
+        travel_surface = _gaussian_smooth_masked(travel_surface, district_mask, sigma_px=smoothing_sigma)
+        travel_surface = _mask_array(travel_surface, district_mask)
+
+    products = [
+        {
+            "surface": buffer_surface,
+            "name": f"{slug}.education_buffer_{int(coverage_distance_km)}km.preview",
+            "colors": ["#b91c1c", "#ef4444", "#f59e0b", "#84cc16", "#166534"],
+            "legend_label": f"School service coverage within {coverage_distance_km} km",
+            "low_label": "Lower access",
+            "high_label": "Higher access",
+            "render": {
+                "transform": "continuous",
+                "coverageDistanceKm": float(coverage_distance_km),
+                "surfaceMethod": "nearest-facility-distance",
+                "resolutionM": float(template["resolution_m"]),
+                "smoothed": True,
+                "maskedToDistrict": True,
+            },
+        },
+        {
+            "surface": network_surface,
+            "name": f"{slug}.education_network_distance.preview",
+            "colors": ["#0d7a73", "#2fb47c", "#9bd93c", "#f9e721", "#f89c20", "#d63f1a"],
+            "legend_label": "Mean beneficiary road distance to nearest school",
+            "low_label": "Near",
+            "high_label": "Far",
+            "render": {
+                "transform": "linear",
+                "unit": "km",
+                "surfaceMethod": "idw",
+                "resolutionM": float(template["resolution_m"]),
+                "smoothed": True,
+                "maskedToDistrict": True,
+            },
+        },
+        {
+            "surface": travel_surface,
+            "name": f"{slug}.education_travel_time.preview",
+            "colors": ["#2056a8", "#2f89c5", "#7bc8b4", "#f2d06b", "#e97b56", "#b32d3c"],
+            "legend_label": "Mean beneficiary travel time to nearest school",
+            "low_label": "Fast",
+            "high_label": "Slow",
+            "render": {
+                "transform": "linear",
+                "unit": "minutes",
+                "surfaceMethod": "idw",
+                "resolutionM": float(template["resolution_m"]),
+                "smoothed": True,
+                "maskedToDistrict": True,
+            },
+        },
+    ]
+
+    generated = []
+    for product in products:
+        surface = product["surface"]
+        if product["render"]["transform"] == "continuous":
+            normalized = _mask_array(np.clip(surface, 0.0, 1.0), district_mask)
+        else:
+            normalized, upper = _clip_and_normalize(surface, district_mask)
+            if upper is not None:
+                product["render"]["clipMax"] = float(upper)
+
+        normalized = _mask_array(normalized, district_mask)
+        png_name = f"{product['name']}.png"
+        json_name = f"{product['name']}.json"
+        tif_name = f"{product['name']}.tif"
+        png_path = os.path.join(output_dir, png_name)
+        json_path = os.path.join(output_dir, json_name)
+        tif_path = os.path.join(output_dir, tif_name)
+        _write_preview_png(normalized, product["colors"], png_path)
+        _write_geotiff(normalized, template["transform"], tif_path)
+        _save_preview_metadata(
+            json_path,
+            png_name,
+            bounds,
+            product["legend_label"],
+            product["low_label"],
+            product["high_label"],
+            product["colors"],
+            product["render"],
+            geotiff_name=tif_name,
+        )
+        generated.append({"png": png_path, "json": json_path, "tif": tif_path})
+
+    return generated
+
+# Function to orchestrate the entire process of generating health access visualizations
 def process_health_access_visualizations(
     session,
     district_name=None,
@@ -1205,6 +1632,7 @@ def process_health_access_visualizations(
         grid_size_m=grid_size_m,
     )
 
+    generated_at = datetime.now(timezone.utc).isoformat()
     metadata = {
         "district_names": selected_districts,
         "coverage_distance_km": float(coverage_distance_km),
@@ -1212,6 +1640,7 @@ def process_health_access_visualizations(
         "raster_path": raster_path,
         "worldpop_year": resolved_worldpop["year"] if resolved_worldpop else year,
         "preview_assets": previews,
+        "generated_at": generated_at,
         "routing_result": routing_result,
     }
     run_step(
@@ -1235,6 +1664,96 @@ def process_health_access_visualizations(
     return {
         "dataset_type": "health_access",
         "table_name": "health_facility_access_metrics",
+        "rows_read": facility_metrics_rows,
+        "rows_processed": facility_metrics_rows,
+        "rows_loaded": facility_metrics_rows,
+        "rows_flagged": 0,
+        "indicators_loaded": len(previews),
+    }
+
+# Function to orchestrate the entire process of generating education access visualizations
+def process_education_access_visualizations(
+    session,
+    district_name=None,
+    district_names=None,
+    raster_path=None,
+    api_url=None,
+    year=DEFAULT_WORLDPOP_YEAR,
+    coverage_distance_km=5.0,
+    grid_size_m=DEFAULT_HEALTH_ACCESS_GRID_SIZE_M,
+):
+    started_at = datetime.now(timezone.utc)
+    selected_districts = _normalize_district_names(district_name, district_names)
+    resolved_worldpop = None
+    if not raster_path:
+        resolved_worldpop = run_step(
+            "resolve_education_access_worldpop",
+            "Could not resolve a WorldPop raster for education access visualizations.",
+            resolve_worldpop_raster,
+            api_url=api_url,
+            year=year,
+        )
+        raster_path = resolved_worldpop["raster_path"]
+
+    routing_result = run_step(
+        "recompute_school_beneficiary_routing",
+        "Could not refresh beneficiary school routing.",
+        recompute_beneficiary_facility_travel,
+        session=session,
+        facility_types=["school"],
+        strict=False,
+    )
+    facility_metrics_rows = run_step(
+        "refresh_school_access_metrics",
+        "Could not compute facility education access metrics.",
+        refresh_education_facility_access_metrics,
+        session=session,
+        raster_path=raster_path,
+        district_names=selected_districts,
+    )
+    previews = run_step(
+        "generate_education_access_previews",
+        "Could not generate education access preview rasters.",
+        generate_education_access_previews,
+        session=session,
+        district_name=district_name,
+        district_names=district_names,
+        coverage_distance_km=coverage_distance_km,
+        grid_size_m=grid_size_m,
+    )
+
+    generated_at = datetime.now(timezone.utc).isoformat()
+    metadata = {
+        "district_names": selected_districts,
+        "coverage_distance_km": float(coverage_distance_km),
+        "grid_size_m": float(grid_size_m),
+        "raster_path": raster_path,
+        "worldpop_year": resolved_worldpop["year"] if resolved_worldpop else year,
+        "preview_assets": previews,
+        "generated_at": generated_at,
+        "routing_result": routing_result,
+    }
+    run_step(
+        "log_education_access_visualizations",
+        "Education access visualizations completed but ETL audit logging failed.",
+        log_etl_run,
+        session=session,
+        filename="education_access_visualizations",
+        source_type="internal",
+        dataset_type="education_access",
+        table_name="education_facility_access_metrics",
+        rows_read=facility_metrics_rows,
+        rows_processed=facility_metrics_rows,
+        rows_loaded=facility_metrics_rows,
+        rows_flagged=0,
+        status="Success",
+        metadata=metadata,
+        started_at=started_at,
+        completed_at=datetime.now(timezone.utc),
+    )
+    return {
+        "dataset_type": "education_access",
+        "table_name": "education_facility_access_metrics",
         "rows_read": facility_metrics_rows,
         "rows_processed": facility_metrics_rows,
         "rows_loaded": facility_metrics_rows,

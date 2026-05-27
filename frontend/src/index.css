@@ -5,6 +5,13 @@
   --font-sans: "Raleway", "Inter", ui-sans-serif, system-ui, sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", "Noto Color Emoji";
 }
 
+html,
+body,
+#root {
+  height: 100%;
+  overflow: hidden;
+}
+
 :root {
   color: #22313f;
   background:
@@ -13,13 +20,8 @@
 }
 
 body {
-  min-height: 100vh;
   margin: 0;
   font-family: "Raleway", "IBM Plex Sans", "Segoe UI", sans-serif;
-}
-
-#root {
-  min-height: 100vh;
 }
 
 .leaflet-container {

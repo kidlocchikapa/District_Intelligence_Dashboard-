@@ -18,7 +18,7 @@ from pipeline_config import GEOGRAPHIC_COLUMNS
 # Set up logging
 LOGGER = logging.getLogger('etl.transform')
 
-
+##########3 Custom exception class for errors during transformation steps ##############
 class TransformError(Exception):
     def __init__(self, user_message, step_name, original_error=None):
         self.user_message = user_message
@@ -738,10 +738,27 @@ def normalize_health_dataset(df):
     working['zone'] = working['zone'].fillna(working.get('addr:city'))
     working['district'] = working['district'].fillna(working.get('district_name'))
     working['code'] = working['code'].fillna(working.get('osm_id'))
+    working['code'] = working['code'].apply(_normalize_health_code)
 
     working['services_offered'] = working['services_offered'].fillna(working.get('healthcare'))
     working['services_offered'] = working['services_offered'].fillna(working.get('healthcare:speciality'))
     return working
+
+
+def _normalize_health_code(value):
+    if value is None or value is pd.NA:
+        return pd.NA
+
+    try:
+        if pd.isna(value):
+            return pd.NA
+    except TypeError:
+        pass
+
+    normalized = str(value).strip().upper()
+    if not normalized or normalized in {'NAN', '<NA>', 'NONE', 'NULL'}:
+        return pd.NA
+    return normalized
 
 # Convert a DataFrame with longitude and latitude columns into a GeoDataFrame with Point geometries
 def to_gdf(df, lon_col='longitude', lat_col='latitude', crs='EPSG:4326'):
@@ -922,8 +939,7 @@ def transform_boundary_dataset(df):
             original_error=exc,
         ) from exc
 
-# Derive key indicators for each geographic unit based on the dataset type and available 
-# data, enriching with population data from boundaries
+# Derive key indicators for each geographic unit based on the dataset type 
 def derive_indicators(df, dataset_type, admin_units_df):
     try:
         working = df.copy()

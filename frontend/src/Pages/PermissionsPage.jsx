@@ -35,6 +35,7 @@ export default function PermissionsPage() {
 
   useEffect(() => {
     loadUsers();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   async function loadUsers() {
@@ -136,10 +137,10 @@ export default function PermissionsPage() {
   const selectedUser = users.find((u) => u.id === selectedUserId);
 
   return (
-    <div className="p-8 max-w-[1400px] mx-auto space-y-6 animate-in fade-in duration-500">
-      <div className="flex items-end justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-slate-900 tracking-tight flex items-center gap-2">
+    <div className="animate-in fade-in mx-auto max-w-[1400px] space-y-5 p-4 duration-500 sm:space-y-6 sm:p-6 lg:p-8">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+        <div className="min-w-0">
+          <h1 className="flex items-center gap-2 text-xl font-bold tracking-tight text-slate-900 sm:text-2xl">
             <ShieldCheck className="text-black" />
             User Permissions
           </h1>
@@ -150,13 +151,13 @@ export default function PermissionsPage() {
         </div>
 
         {status && (
-          <div className="rounded-lg border border-gray-200 bg-gray-100 px-4 py-2 text-xs font-bold text-black animate-in slide-in-from-right-4">
+          <div className="animate-in slide-in-from-right-4 rounded-lg border border-gray-200 bg-gray-100 px-4 py-2 text-xs font-bold text-black sm:max-w-md">
             {status}
           </div>
         )}
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
+      <div className="grid grid-cols-1 gap-5 lg:grid-cols-12 lg:gap-8">
         {/* User List Sidebar */}
         <div className="lg:col-span-4 space-y-4">
           <div className="relative">
@@ -173,8 +174,8 @@ export default function PermissionsPage() {
             />
           </div>
 
-          <div className="bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-sm h-[600px] flex flex-col">
-            <div className="p-4 border-b border-slate-100 bg-slate-50/50 flex items-center justify-between">
+          <div className="flex max-h-[420px] flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm lg:h-[600px] lg:max-h-none">
+            <div className="flex items-center justify-between border-b border-slate-100 bg-slate-50/50 p-4">
               <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">
                 Active Users
               </span>
@@ -188,7 +189,7 @@ export default function PermissionsPage() {
                 <button
                   key={user.id}
                   onClick={() => handleSelectUser(user.id)}
-                  className={`w-full text-left p-4 flex items-center justify-between group transition-all border-b border-slate-50 last:border-0 ${
+                  className={`group flex w-full items-center justify-between gap-3 border-b border-slate-50 p-4 text-left transition-all last:border-0 ${
                     selectedUserId === user.id
                       ? "bg-slate-900 text-white"
                       : "hover:bg-slate-50"
@@ -204,14 +205,14 @@ export default function PermissionsPage() {
                     >
                       {user.fullName.charAt(0)}
                     </div>
-                    <div>
+                    <div className="min-w-0">
                       <div
-                        className={`text-sm font-bold ${selectedUserId === user.id ? "text-white" : "text-slate-900"}`}
+                        className={`truncate text-sm font-bold ${selectedUserId === user.id ? "text-white" : "text-slate-900"}`}
                       >
                         {user.fullName}
                       </div>
                       <div
-                        className={`text-[10px] font-medium ${selectedUserId === user.id ? "text-white/60" : "text-slate-500"}`}
+                        className={`truncate text-[10px] font-medium ${selectedUserId === user.id ? "text-white/60" : "text-slate-500"}`}
                       >
                         {user.email}
                       </div>
@@ -234,14 +235,14 @@ export default function PermissionsPage() {
         {/* Permissions Management Panel */}
         <div className="lg:col-span-8">
           {selectedUser ? (
-            <div className="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden flex flex-col h-full min-h-[600px]">
-              <div className="p-6 border-b border-slate-100 flex items-center justify-between bg-slate-50/30">
-                <div className="flex items-center gap-4">
+            <div className="flex h-full min-h-[520px] flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm lg:min-h-[600px]">
+              <div className="flex flex-col gap-4 border-b border-slate-100 bg-slate-50/30 p-4 sm:flex-row sm:items-center sm:justify-between sm:p-6">
+                <div className="flex min-w-0 items-center gap-4">
                   <div className="h-12 w-12 bg-slate-900 rounded-2xl flex items-center justify-center text-white text-lg font-bold">
                     {selectedUser.fullName.charAt(0)}
                   </div>
-                  <div>
-                    <h2 className="text-lg font-bold text-slate-900">
+                  <div className="min-w-0">
+                    <h2 className="truncate text-lg font-bold text-slate-900">
                       {selectedUser.fullName}
                     </h2>
                     <p className="text-xs font-medium text-slate-500 uppercase tracking-widest">
@@ -253,7 +254,7 @@ export default function PermissionsPage() {
                 <button
                   onClick={handleSave}
                   disabled={isSaving || isLoadingPerms}
-                  className="flex items-center gap-2 rounded-xl bg-black px-6 py-2.5 text-sm font-bold text-white hover:bg-gray-800 transition-all active:scale-[0.98] disabled:opacity-50 shadow-lg shadow-black/10"
+                  className="flex w-full items-center justify-center gap-2 rounded-xl bg-black px-6 py-2.5 text-sm font-bold text-white shadow-lg shadow-black/10 transition-all hover:bg-gray-800 active:scale-[0.98] disabled:opacity-50 sm:w-auto"
                 >
                   {isSaving ? (
                     <RotateCw size={18} className="animate-spin" />
@@ -264,7 +265,7 @@ export default function PermissionsPage() {
                 </button>
               </div>
 
-              <div className="flex-1 p-6 relative">
+              <div className="relative flex-1 p-4 sm:p-6">
                 {isLoadingPerms && (
                   <div className="absolute inset-0 bg-white/60 backdrop-blur-[1px] z-10 flex items-center justify-center">
                     <RotateCw
@@ -282,8 +283,8 @@ export default function PermissionsPage() {
                     </span>
                   </div>
 
-                  <div className="border border-slate-100 rounded-2xl overflow-hidden">
-                    <table className="w-full text-left border-collapse">
+                  <div className="overflow-x-auto rounded-2xl border border-slate-100">
+                    <table className="min-w-[640px] w-full border-collapse text-left">
                       <thead>
                         <tr className="bg-slate-50/50">
                           <th className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-[0.2em]">

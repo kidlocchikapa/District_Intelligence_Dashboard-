@@ -13,6 +13,7 @@ from flood_exposure import run_flood_exposure_analysis, resolve_population_raste
 from health_access import (
     DEFAULT_HEALTH_ACCESS_DISTANCE_KM,
     DEFAULT_HEALTH_ACCESS_GRID_SIZE_M,
+    process_education_access_visualizations,
     process_health_access_visualizations,
 )
 from ingest import extract_source, load_reference_gazetteer
@@ -72,7 +73,7 @@ DEFAULT_OVERPASS_URL = os.getenv('OVERPASS_API_URL', 'https://overpass-api.de/ap
 DEFAULT_OVERPASS_TIMEOUT = int(os.getenv('OVERPASS_TIMEOUT', '180'))
 DEFAULT_OVERPASS_DISTRICTS = os.getenv('OVERPASS_ROADS_DISTRICTS', '')
 
-# Custom exception class for ETL pipeline errors
+#######     Custom exception class for ETL pipeline errors ########################3
 class ETLPipelineError(Exception):
     def __init__(self, user_message, step_name, original_error=None):
         self.user_message = user_message
@@ -80,7 +81,6 @@ class ETLPipelineError(Exception):
         self.original_error = original_error
         super().__init__(f"{user_message} (step: {step_name})")
 
-# 
 def setup_logging():
     if LOGGER.handlers:
         return
@@ -112,7 +112,7 @@ def run_step(step_name, user_message_on_error, fn, *args, **kwargs):
     log_step(step_name, 'completed')
     return result
 
-
+# Utility function to parse comma-separated lists from environment variables or config
 def parse_csv_list(value):
     if not value:
         return []
@@ -122,6 +122,7 @@ def parse_csv_list(value):
 DISTRICT_GROUPS = {
     'zomba_all': ['Zomba', 'Zomba City'],
 }
+DEFAULT_WORLDPOP_DISTRICT_GROUP = 'zomba_all'
 
 # main ETL processing functions
 def process_tabular_dataset(
@@ -497,6 +498,8 @@ def process_worldpop_dataset(
         selected_districts.append(district_name)
     if district_names:
         selected_districts.extend(district_names)
+    if not selected_districts:
+        selected_districts.extend(DISTRICT_GROUPS.get(DEFAULT_WORLDPOP_DISTRICT_GROUP, []))
     selected_districts = sorted({name for name in selected_districts if name})
 
 # For raster-based WorldPop processing, fetch admin units, process the raster, and derive indicators
@@ -883,7 +886,7 @@ def parse_headers(header_values):
         headers[key.strip()] = value.strip()
     return headers
 
-# Helper function to determine the appropriate table name for logging based on dataset type, especially for flood and analysis datasets
+# Helper function to determine the appropriate table name for logging based on dataset type
 def resolve_table_name_for_failure(dataset_type):
     if dataset_type == 'flood':
         return 'flood_zones'
@@ -891,6 +894,8 @@ def resolve_table_name_for_failure(dataset_type):
         return 'beneficiary_facility_travel'
     if dataset_type == 'health_access':
         return 'health_facility_access_metrics'
+    if dataset_type == 'education_access':
+        return 'education_facility_access_metrics'
     if dataset_type == 'analysis':
         return 'analysis_results'
     if dataset_type == 'worldpop':
@@ -901,7 +906,7 @@ def resolve_table_name_for_failure(dataset_type):
 def main():
     setup_logging()
     parser = argparse.ArgumentParser(description='District Intelligence ETL Pipeline')
-    parser.add_argument('--type', required=True, choices=list(DATASET_CONFIG.keys()) + ['flood', 'routing', 'health_access'], help='Dataset type')
+    parser.add_argument('--type', required=True, choices=list(DATASET_CONFIG.keys()) + ['flood', 'routing', 'health_access', 'education_access'], help='Dataset type')
     parser.add_argument('--source-type', default='file', choices=['file', 'api', 'worldpop', 'overpass'], help='Input source type')
     parser.add_argument('--file', help='Path to CSV, Excel, JSON, or GeoTIFF file')
     parser.add_argument('--api-url', help='Remote API endpoint for extraction')
@@ -925,7 +930,7 @@ def main():
     parser.add_argument('--analysis-type', action='append', choices=sorted(ANALYSIS_TYPES), help='Spatial analysis to run')
     parser.add_argument('--admin-level', choices=['District', 'TA', 'Village'], help='Administrative level for analysis')
     parser.add_argument('--coverage-distance-km', type=float, default=5.0, help='Coverage buffer distance in kilometers')
-    parser.add_argument('--grid-size-m', type=float, default=DEFAULT_HEALTH_ACCESS_GRID_SIZE_M, help='Grid size in meters for health access preview rasters')
+    parser.add_argument('--grid-size-m', type=float, default=DEFAULT_HEALTH_ACCESS_GRID_SIZE_M, help='Grid size in meters for health/education access preview rasters')
     parser.add_argument('--program-id', type=int, help='Welfare program id to attach to welfare beneficiary uploads')
     parser.add_argument(
         '--missing-data-strategy',
@@ -956,6 +961,11 @@ def main():
     clip_districts = parse_csv_list(args.road_clip_districts)
     try:
         if args.type == 'worldpop':
+            if not args.district and not selected_group_districts:
+                selected_group_districts = DISTRICT_GROUPS.get(
+                    DEFAULT_WORLDPOP_DISTRICT_GROUP,
+                    [],
+                )
             result = run_step(
                 step_name='dispatch_worldpop_pipeline',
                 user_message_on_error='WorldPop pipeline failed. Verify the district filters, year, and source settings.',
@@ -1090,6 +1100,29 @@ def main():
                 api_url=args.api_url,
                 year=args.worldpop_year,
                 coverage_distance_km=args.coverage_distance_km if args.coverage_distance_km != 5.0 else DEFAULT_HEALTH_ACCESS_DISTANCE_KM,
+                grid_size_m=args.grid_size_m,
+            )
+        elif args.type == 'education_access':
+            selected_district_names = []
+            if args.district:
+                selected_district_names.append(args.district)
+            selected_district_names.extend(selected_group_districts)
+            if not selected_district_names:
+                selected_district_names.extend(DISTRICT_GROUPS.get('zomba_all', []))
+            selected_district_names = sorted({name for name in selected_district_names if name})
+            primary_district = selected_district_names[0] if selected_district_names else None
+            secondary_districts = selected_district_names[1:] if len(selected_district_names) > 1 else []
+            result = run_step(
+                step_name='dispatch_education_access_pipeline',
+                user_message_on_error='Education access visualization pipeline failed. Check beneficiary, road, facility, and WorldPop inputs.',
+                fn=process_education_access_visualizations,
+                session=session,
+                district_name=primary_district,
+                district_names=secondary_districts,
+                raster_path=args.file,
+                api_url=args.api_url,
+                year=args.worldpop_year,
+                coverage_distance_km=args.coverage_distance_km,
                 grid_size_m=args.grid_size_m,
             )
         else:

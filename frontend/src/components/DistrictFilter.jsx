@@ -1,6 +1,6 @@
 function DistrictFilter({ value, onChange, options = [], disabled = false }) {
   return (
-    <label className="min-w-[220px] text-sm text-slate/70">
+    <label className="w-full text-sm text-slate/70 sm:min-w-[220px]">
       District
       <select
         className="mt-2 w-full rounded-2xl border border-fog bg-white/90 px-4 py-3 text-sm text-slate"

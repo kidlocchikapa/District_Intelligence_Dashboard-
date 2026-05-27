@@ -1,3 +1,4 @@
+# import standard libraries
 import logging
 import os
 from datetime import datetime
@@ -7,6 +8,7 @@ import geopandas as gpd
 from sqlalchemy import text
 from shapely.ops import unary_union
 
+# import project modules
 from ingest import extract_source
 from db_utils import log_etl_run
 from load import (
@@ -25,7 +27,9 @@ from transform import (
 )
 from pipeline_config import DATASET_CONFIG
 
+
 LOGGER = logging.getLogger('etl.welfare')
+
 
 # Utility functions
 def build_spatial_lookup_bounds(df, padding_degrees=0.05):
@@ -137,7 +141,7 @@ def compute_welfare_indicators(
 
     return beneficiaries_gdf
 
-# Main ETL orchestration
+# ETL orchestration
 def process_welfare_beneficiary_dataset(
     session,
     file_path=None,

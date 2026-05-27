@@ -1,16 +1,51 @@
 import { X } from 'lucide-react';
+import { useEffect } from "react";
+import { createPortal } from "react-dom";
 
-export default function Modal({ isOpen, onClose, title, children }) {
+const MODAL_SIZES = {
+  sm: "max-w-lg",
+  md: "max-w-2xl",
+  lg: "max-w-4xl",
+  xl: "max-w-6xl",
+};
+
+export default function Modal({ isOpen, onClose, title, children, size = "sm" }) {
+  useEffect(() => {
+    if (!isOpen || typeof document === "undefined") return undefined;
+
+    const previousBodyOverflow = document.body.style.overflow;
+
+    function handleEscape(event) {
+      if (event.key === "Escape") onClose?.();
+    }
+
+    document.body.style.overflow = "hidden";
+    document.addEventListener("keydown", handleEscape);
+
+    return () => {
+      document.body.style.overflow = previousBodyOverflow;
+      document.removeEventListener("keydown", handleEscape);
+    };
+  }, [isOpen, onClose]);
+
   if (!isOpen) return null;
 
-  return (
-    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-900/40 backdrop-blur-sm p-4">
+  const maxWidthClass = MODAL_SIZES[size] || MODAL_SIZES.sm;
+
+  const modalLayer = (
+    <div
+      className="fixed inset-0 z-[200] flex items-center justify-center bg-slate-900/40 backdrop-blur-sm p-4"
+      onClick={onClose}
+      role="dialog"
+      aria-modal="true"
+      aria-label={title}
+    >
       <div 
-        className="w-full max-w-lg rounded-2xl bg-white shadow-2xl ring-1 ring-slate-200 animate-in fade-in zoom-in duration-200"
+        className={`flex max-h-[92vh] w-full ${maxWidthClass} flex-col rounded-2xl bg-white shadow-2xl ring-1 ring-slate-200 animate-in fade-in zoom-in duration-200`}
         onClick={(e) => e.stopPropagation()}
       >
         {/* Modal Header */}
-        <div className="flex items-center justify-between border-b border-slate-100 px-6 py-4">
+        <div className="flex shrink-0 items-center justify-between border-b border-slate-100 px-6 py-4">
           <h2 className="text-lg font-bold text-slate-900">{title}</h2>
           <button 
             onClick={onClose}
@@ -21,10 +56,13 @@ export default function Modal({ isOpen, onClose, title, children }) {
         </div>
 
         {/* Modal Body */}
-        <div className="p-6">
+        <div className="min-h-0 overflow-auto p-6">
           {children}
         </div>
       </div>
     </div>
   );
+
+  if (typeof document === "undefined") return null;
+  return createPortal(modalLayer, document.body);
 }

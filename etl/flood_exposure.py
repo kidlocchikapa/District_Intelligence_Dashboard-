@@ -114,7 +114,7 @@ def ensure_flood_zones_table(session):
     )
     session.commit()
 
-
+# Polygons for flood risk make they exist
 def ensure_flood_risk_polygons_table(session):
     session.execute(
         text(
@@ -841,22 +841,36 @@ def validate_raster_readable(raster_path, strict=False):
     except Exception:
         return False
 
+# Generate a PNG preview of the flood risk raster with appropriate color coding for different risk levels,
 def _write_preview_png(array, colors, output_png):
-    cmap = mcolors.LinearSegmentedColormap.from_list("flood_risk", colors, N=256)
-    # The values are 0-5. Map them to 0.0-1.0
-    norm_array = array / 5.0
-    rgba = cmap(np.clip(np.nan_to_num(norm_array, nan=0.0), 0.0, 1.0))
-    rgba[np.isnan(array) | (array == 0), 3] = 0.0
+    # Build a per-value RGBA lookup: value 0 → transparent, 1-2 → green, 3-4 → amber, 5 → red
+    value_to_rgba = {
+        0: (0,   0,   0,   0),    # transparent / no risk
+        1: (22,  163, 74,  230),  # low  – green
+        2: (22,  163, 74,  230),
+        3: (245, 158, 11,  230),  # medium – amber
+        4: (245, 158, 11,  230),
+        5: (220, 38,  38,  230),  # high – red
+    }
+
     height, width = array.shape
-    fig_width = max(width / 300, 1.0)
-    fig_height = max(height / 300, 1.0)
+    rgba = np.zeros((height, width, 4), dtype=np.uint8)
+
+    for val, (r, g, b, a) in value_to_rgba.items():
+        mask = (np.nan_to_num(array, nan=0) == val)
+        rgba[mask] = [r, g, b, a]
+
+    # Save at high DPI so the overlay is crisp on retina screens
+    fig_width  = max(width  / 100, 2.0)
+    fig_height = max(height / 100, 2.0)
     fig = plt.figure(figsize=(fig_width, fig_height), dpi=300, frameon=False)
     ax = fig.add_axes([0, 0, 1, 1])
     ax.imshow(rgba, interpolation="nearest")
     ax.axis("off")
-    fig.savefig(output_png, dpi=300, transparent=True)
+    fig.savefig(output_png, dpi=300, transparent=True, bbox_inches="tight", pad_inches=0)
     plt.close(fig)
 
+# Save metadata in JSON file
 def _save_preview_metadata(output_json, image_name, bounds, legend_label, low_label, high_label, colors):
     metadata = {
         "image": image_name,
@@ -871,13 +885,14 @@ def _save_preview_metadata(output_json, image_name, bounds, legend_label, low_la
     with open(output_json, "w", encoding="utf-8") as handle:
         json.dump(metadata, handle, indent=2)
 
+# Convert the bounding box of the union geometry into Leaflet's expected format [[south, west], [north, east]]
 def _leaflet_bounds_from_union(union_geom):
     minx, miny, maxx, maxy = union_geom.bounds
     return [[float(miny), float(minx)], [float(maxy), float(maxx)]]
 
+# Generate PNG previews of the flood risk raster ans save in public folder in frontend
 def generate_flood_risk_previews(flood_raster_path, district_name, boundaries):
     log_step('previews', f'Generating flood risk raster previews for {district_name}')
-    # Use relative path based on the project structure
     script_dir = os.path.dirname(os.path.abspath(__file__))
     output_dir = os.path.abspath(os.path.join(script_dir, "..", "frontend", "public", "worldpop"))
     os.makedirs(output_dir, exist_ok=True)
@@ -903,9 +918,8 @@ def generate_flood_risk_previews(flood_raster_path, district_name, boundaries):
         else:
             flood_data = flood_arr
 
-    # Map 0 to transparent, 1-2 green, 3-4 orange, 5 red
-    colors = ["#ffffff00", "#16a34a", "#15803d", "#fcd34d", "#f59e0b", "#dc2626"]
-    _write_preview_png(flood_data, colors, os.path.join(output_dir, png_name))
+    # Map 0 to transparent, 1-2 green, 3-4 amber, 5 red (handled inside _write_preview_png)
+    _write_preview_png(flood_data, None, os.path.join(output_dir, png_name))
     
     bounds = _leaflet_bounds_from_union(boundaries["district_geom"])
     _save_preview_metadata(
