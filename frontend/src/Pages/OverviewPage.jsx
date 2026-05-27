@@ -181,7 +181,7 @@ function DistrictBoundaryMap({
             const isHovered =
               hoveredName && name && normalizeName(name) === normalizeName(hoveredName);
             const fillColor = isSelected
-              ? "#ffffff"
+              ? "#111827"
               : isHovered
                 ? "#dbeafe"
                 : index % 2 === 0
@@ -199,7 +199,7 @@ function DistrictBoundaryMap({
                   fill={fillColor}
                   stroke={isSelected ? "#111827" : "#64745f"}
                   strokeWidth={isSelected ? 3.2 : isHovered ? 2.4 : 1.4}
-                  opacity={isSelected ? 1 : 0.9}
+                  opacity={isSelected ? 0.94 : 0.9}
                   className="cursor-pointer transition"
                   onMouseEnter={() => setHoveredFeature(feature)}
                   onFocus={() => setHoveredFeature(feature)}
@@ -214,7 +214,11 @@ function DistrictBoundaryMap({
                     y={labelPosition.y}
                     textAnchor="middle"
                     dominantBaseline="middle"
-                    className="pointer-events-none select-none fill-gray-700 text-[13px] font-extrabold"
+                    fill="#ffffff"
+                    stroke="#1f2937"
+                    strokeWidth={1.8}
+                    paintOrder="stroke"
+                    className="pointer-events-none select-none text-[13px] font-extrabold"
                   >
                     {name.replace(/^Ta\s+/i, "TA ")}
                   </text>
@@ -249,7 +253,7 @@ function DistrictBoundaryMap({
             <span>Traditional Authority area</span>
           </div>
           <div className="flex items-center gap-3">
-            <span className="h-4 w-7 rounded-sm border-2 border-[#111827] bg-white" />
+            <span className="h-4 w-7 rounded-sm border-2 border-[#111827] bg-[#111827]" />
             <span>Selected TA</span>
           </div>
           <div className="flex items-center gap-3">
