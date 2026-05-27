@@ -1,0 +1,2 @@
+﻿event_type,risk_level,district_name,ward_name,facility_name,facility_type,latitude,longitude,notes
+flood,High,Zomba,Matawale,Matawale Primary School,education,-15.3878,35.3204,Sample exposure record
