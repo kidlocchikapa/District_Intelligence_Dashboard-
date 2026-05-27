@@ -1,0 +1,36 @@
+{
+  "image": "zomba-zomba-city.education_network_distance.preview.20260527T203145Z.png",
+  "bounds": [
+    [
+      -15.684327274999816,
+      35.003983926000046
+    ],
+    [
+      -15.196727879999912,
+      35.853439
+    ]
+  ],
+  "legend": {
+    "label": "Mean beneficiary road distance to nearest school",
+    "lowLabel": "Near",
+    "highLabel": "Far",
+    "colors": [
+      "#0d7a73",
+      "#2fb47c",
+      "#9bd93c",
+      "#f9e721",
+      "#f89c20",
+      "#d63f1a"
+    ]
+  },
+  "render": {
+    "transform": "linear",
+    "unit": "km",
+    "surfaceMethod": "idw",
+    "resolutionM": 250.0,
+    "smoothed": true,
+    "maskedToDistrict": true,
+    "clipMax": 6.312440872192383
+  },
+  "geotiff": "zomba-zomba-city.education_network_distance.preview.20260527T203145Z.tif"
+}
