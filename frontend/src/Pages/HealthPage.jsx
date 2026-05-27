@@ -441,6 +441,10 @@ function HealthPage() {
 
   const facilities = healthLocations?.data?.features || [];
   const totalFacilities = facilities.length;
+  const hospitalFacilities = facilities.filter((feature) =>
+    classifyFacilityProperties(feature?.properties || {}).isHospital,
+  ).length;
+  const nonHospitalProviders = Math.max(totalFacilities - hospitalFacilities, 0);
   
   const functionalFacilities = facilities.filter(
     (f) => f?.properties?.status === "Functional"
@@ -717,14 +721,20 @@ function HealthPage() {
         </div>
 
         {/* Stats Row */}
-        <div className="grid grid-cols-2 md:grid-cols-5 gap-6 mb-10">
+        <div className="grid grid-cols-2 gap-6 mb-10 md:grid-cols-3 xl:grid-cols-6">
           {healthLocations.loading
             ? [...Array(5)].map((_, i) => <StatCardSkeleton key={i} />)
             : [
                 {
-                  label: "Total Facilities",
+                  label: "Health Providers",
                   value: formatStat(totalFacilities),
                   icon: HeartPulse,
+                  helper: `Includes ${formatStat(hospitalFacilities)} hospitals and ${formatStat(nonHospitalProviders)} non-hospital providers`,
+                },
+                {
+                  label: "Non-hospital Providers",
+                  value: formatStat(nonHospitalProviders),
+                  icon: Building,
                 },
                 {
                   label: "Functional",
@@ -735,11 +745,6 @@ function HealthPage() {
                   label: "Non-functional",
                   value: formatStat(nonFunctionalFacilities),
                   icon: AlertCircle,
-                },
-                {
-                  label: "Govt Owned",
-                  value: formatStat(govFacilities),
-                  icon: Building2,
                 },
                 {
                   label: "Private / Other",
@@ -760,6 +765,11 @@ function HealthPage() {
                   <div className="mt-4 text-[32px] font-extrabold tracking-tight">
                     {stat.value}
                   </div>
+                  {stat.helper ? (
+                    <p className="mt-2 text-[11px] font-semibold leading-5 text-gray-400">
+                      {stat.helper}
+                    </p>
+                  ) : null}
                 </div>
               ))}
         </div>
@@ -1047,15 +1057,15 @@ function HealthPage() {
         </div>
 
         {/* Map + Coverage Trend Section */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-8">
-          <div className="border border-gray-100 rounded p-8 shadow-sm bg-white h-[600px] flex flex-col">
+        <div className="grid grid-cols-1 gap-5 lg:grid-cols-2 lg:gap-8 mb-8">
+          <div className="rounded border border-gray-100 bg-white p-4 shadow-sm sm:p-6 lg:p-8 min-h-[420px] h-[70vh] max-h-[600px] flex flex-col">
             <h3 className="text-[16px] font-extrabold mb-6">
               Health Services Map
             </h3>
             <p className="text-xs text-gray-500 font-semibold mb-4">
               {selectedTa
-                ? `TA boundary and facilities are focused on ${selectedTa}. Hospitals are one provider type alongside clinics, dispensaries, and health centres.`
-                : "TA boundaries and facility markers are interactive. Click a boundary or marker to focus that TA."}
+                ? `TA boundary and health providers are focused on ${selectedTa}. Hospitals are one provider type alongside clinics, dispensaries, and health centres.`
+                : "TA boundaries and health provider markers are interactive. Click a boundary or marker to focus that TA."}
             </p>
             <div ref={mapRef} className="flex-1 rounded overflow-hidden relative border border-gray-50 bg-gray-50">
               <MapPanel
@@ -1105,7 +1115,7 @@ function HealthPage() {
             </div>
           </div>
 
-          <div className="border border-gray-100 rounded p-8 shadow-sm bg-white h-[600px] flex flex-col">
+          <div className="rounded border border-gray-100 bg-white p-4 shadow-sm sm:p-6 lg:p-8 min-h-[420px] h-[70vh] max-h-[600px] flex flex-col">
             <h3 className="text-[16px] font-extrabold mb-6">
               Health Service Coverage Trend
             </h3>
@@ -1147,7 +1157,7 @@ function HealthPage() {
                   value={coverageChartSearch}
                   onChange={(event) => setCoverageChartSearch(event.target.value)}
                   placeholder="Search TA..."
-                  className="min-w-[180px] flex-1 rounded-full border border-gray-200 px-3 py-1.5 text-xs font-semibold text-gray-700 outline-none focus:border-gray-900"
+                  className="w-full flex-1 sm:min-w-[180px] rounded-full border border-gray-200 px-3 py-1.5 text-xs font-semibold text-gray-700 outline-none focus:border-gray-900"
                 />
               </div>
               <p className="mt-2 text-[11px] font-semibold text-gray-500">
@@ -1259,14 +1269,14 @@ function HealthPage() {
         </div>
 
         {/* Charts Section */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-          <div className="border border-gray-100 rounded p-6 shadow-sm bg-white h-[400px] flex flex-col">
+        <div className="grid grid-cols-1 gap-5 lg:grid-cols-2 lg:gap-8">
+          <div className="rounded border border-gray-100 bg-white p-4 shadow-sm sm:p-6 min-h-[360px] h-auto lg:h-[400px] flex flex-col">
             <h3 className="text-[16px] font-extrabold mb-4">
               {selectedTa
-                ? `Health Facilities in ${selectedTa}`
+                ? `Health Providers in ${selectedTa}`
                 : selectedDistrict
-                  ? `Health Facilities in ${selectedDistrict}`
-                  : "Health Facilities Across Zomba"}
+                  ? `Health Providers in ${selectedDistrict}`
+                  : "Health Providers Across Zomba"}
             </h3>
 
             <div className="flex-1 overflow-hidden">
@@ -1369,7 +1379,7 @@ function HealthPage() {
                         value={facilityChartSearch}
                         onChange={(event) => setFacilityChartSearch(event.target.value)}
                         placeholder="Search district..."
-                        className="min-w-[170px] flex-1 rounded-full border border-gray-200 px-3 py-1.5 text-xs font-semibold text-gray-700 outline-none focus:border-gray-900"
+                        className="w-full flex-1 sm:min-w-[170px] rounded-full border border-gray-200 px-3 py-1.5 text-xs font-semibold text-gray-700 outline-none focus:border-gray-900"
                       />
                     </div>
                     <p className="mt-2 text-[11px] font-semibold text-gray-500">
@@ -1377,7 +1387,7 @@ function HealthPage() {
                       {facilityChartData.length} districts.
                     </p>
                   </div>
-                <div className="h-[300px]">
+                <div className="h-[260px] sm:h-[300px]">
                   {districtHealthSummary.loading ? (
                     <div className="h-full w-full animate-pulse rounded bg-gray-50" />
                   ) : filteredFacilityChartData.length === 0 ? (
@@ -1457,7 +1467,7 @@ function HealthPage() {
             </div>
           </div>
 
-          <div className="border border-gray-100 rounded p-6 shadow-sm bg-white h-[400px] flex flex-col">
+          <div className="rounded border border-gray-100 bg-white p-4 shadow-sm sm:p-6 min-h-[360px] h-auto lg:h-[400px] flex flex-col">
             <div className="flex items-start justify-between gap-4 mb-4">
               <div>
                 <h3 className="text-[16px] font-extrabold">
@@ -1570,7 +1580,7 @@ function HealthPage() {
               </h2>
             </div>
           </div>
-          <div className="grid grid-cols-1 xl:grid-cols-2 gap-8 xl:items-start">
+          <div className="grid grid-cols-1 gap-5 xl:grid-cols-2 xl:gap-8 xl:items-start">
             <div className="border border-gray-100 rounded-lg p-6 shadow-sm bg-white">
               <h3 className="text-[16px] font-extrabold mb-2 text-gray-800">
                 Facility Burden Analysis
@@ -1930,9 +1940,9 @@ function HealthRecommendations({
   const priorityLedRecommendations = rankedPriorities.slice(0, 2).map((row, index) => ({
     priority: index === 0 ? "high" : row.priority_band === "Critical" || row.priority_band === "High" ? "high" : "medium",
     icon: row.health_vulnerability_score >= row.education_vulnerability_score ? HeartPulse : AlertTriangle,
-    title: `${row.admin_unit_name} should anchor the next health access response`,
-    body: `${row.narrative} Health vulnerability is scored at ${formatNumber(row.health_vulnerability_score, 1)} and flood isolation at ${formatNumber(row.health_flood_isolation_score, 1)}, which signals a need for targeted facility access and continuity planning.`,
-    action: row.recommended_actions?.find((action) => /clinic|health|referral|outreach/i.test(action)) || row.recommended_actions?.[0] || "Use the top-ranked TA to guide the next health deployment cycle",
+    title: `Start health support in ${row.admin_unit_name}`,
+    body: `${row.narrative} This area has a high health need score of ${formatNumber(row.health_vulnerability_score, 1)} and may also be hard to reach during floods. It should be checked first when planning clinics, outreach visits, medicines, or referral support.`,
+    action: row.recommended_actions?.find((action) => /clinic|health|referral|outreach/i.test(action)) || row.recommended_actions?.[0] || "Use this TA as the first place to review for the next health response",
   }));
 
   const recommendations = [
@@ -1941,13 +1951,13 @@ function HealthRecommendations({
     noAccessTotal > 0 && {
       priority: "high",
       icon: AlertTriangle,
-      title: "Critical Health Access Gap",
-      body: `${formatNumber(noAccessTotal, 0)} people in ${districtScope} lack access to a health facility within 8 km — ${formatNumber(100 - accessShare, 1)}% of the population. The access coverage map shows the largest unserved pockets in rural TAs. Expanding facility placement or mobile health outreach in these zones is the highest-priority intervention.`,
-      action: "Identify top 3 unserved population clusters from the coverage map and plan satellite clinic placement",
+      title: "Many People Are Far from Health Services",
+      body: `${formatNumber(noAccessTotal, 0)} people in ${districtScope} are not within 8 km of a health facility. That is ${formatNumber(100 - accessShare, 1)}% of the population. The map can help show which TAs need new service points, mobile clinics, or stronger outreach.`,
+      action: "Pick the 3 areas with the most people outside the 8 km service area and plan outreach or new service points there",
       metricLinks: [
         {
           id: "no-access-population",
-          label: "No Access Population",
+          label: "People Far from Care",
           value: formatNumber(noAccessTotal, 0),
           onClick: () =>
             openMetricPreview({
@@ -1958,11 +1968,11 @@ function HealthRecommendations({
         },
         {
           id: "lowest-coverage-tas",
-          label: "Lowest-Coverage TAs",
+          label: "Least Served TAs",
           value: formatNumber(taAccessPressureRows.length, 0),
           onClick: () =>
             openMetricPreview({
-              title: "TA Coverage Pressure",
+              title: "TAs with the Lowest Health Service Coverage",
               rows: taAccessPressureRows,
               columns: taColumns,
             }),
@@ -1973,11 +1983,11 @@ function HealthRecommendations({
     allUnderservedTAs.length > 0 && {
       priority: "high",
       icon: Building,
-      title: "Facility Shortage in High-Population TAs",
-      body: `${allUnderservedTAs.length} TA${allUnderservedTAs.length > 1 ? "s" : ""} exceed 2,000 people per facility — well above the recommended threshold.${worstTA ? ` ${worstTA.ta_name} is the most underserved with ${formatNumber(worstTA.population_per_facility, 0)} people per facility serving a population of ${formatNumber(worstTA.population_total, 0)}.` : ""}${topPriorityUnderservedTAs.length ? ` Highest-priority TAs are ${topPriorityUnderservedTAs.map((row) => row.ta_name).join(", ")}.` : ""} New facility construction or upgrading existing health posts to full clinics is needed.`,
+      title: "Some TAs Have Too Few Facilities",
+      body: `${allUnderservedTAs.length} TA${allUnderservedTAs.length > 1 ? "s have" : " has"} more than 2,000 people for each health facility.${worstTA ? ` ${worstTA.ta_name} has the highest pressure, with about ${formatNumber(worstTA.population_per_facility, 0)} people per facility.` : ""}${topPriorityUnderservedTAs.length ? ` Start with ${topPriorityUnderservedTAs.map((row) => row.ta_name).join(", ")}.` : ""} These places may need a new facility, an upgraded clinic, or more regular outreach.`,
       action: topPriorityUnderservedTAs.length
-        ? `Prioritise new health facility construction in ${topPriorityUnderservedTAs.map((row) => row.ta_name).join(", ")} first, then phase the remaining underserved TAs.`
-        : "Prioritise new health facility construction in underserved TAs.",
+        ? `Review ${topPriorityUnderservedTAs.map((row) => row.ta_name).join(", ")} first for new facilities, clinic upgrades, or outreach days.`
+        : "Review the underserved TAs for new facilities, clinic upgrades, or outreach days.",
       metricLinks: [
         {
           id: "underserved-tas",
@@ -1992,7 +2002,7 @@ function HealthRecommendations({
         },
         {
           id: "worst-ta-ratio",
-          label: "Worst TA Ratio",
+          label: "Highest Pressure TA",
           value: worstTA
             ? formatNumber(worstTA.population_per_facility, 0)
             : "N/A",
@@ -2009,9 +2019,9 @@ function HealthRecommendations({
     nonFunctionalFacilities > 0 && {
       priority: "high",
       icon: AlertCircle,
-      title: "Non-Functional Facilities Reducing Effective Capacity",
-      body: `${formatNumber(nonFunctionalFacilities)} of ${formatNumber(totalFacilities)} facilities are non-functional or closed. These represent lost capacity that could serve existing populations without new construction. Rehabilitation of closed facilities is faster and cheaper than building new ones.`,
-      action: "Audit all non-functional facilities and prioritise rehabilitation of those in high-need TAs",
+      title: "Closed Facilities Could Be Reopened",
+      body: `${formatNumber(nonFunctionalFacilities)} of ${formatNumber(totalFacilities)} facilities are closed or not working. Reopening some of them may improve access faster than building from scratch, especially in areas with high need.`,
+      action: "Check each closed facility and reopen the ones that can serve the most people first",
       metricLinks: [
         {
           id: "non-functional-facilities",
@@ -2043,16 +2053,16 @@ function HealthRecommendations({
       icon: Building2,
       title:
         hospitalFacilities === 0
-          ? "No Hospitals in Scope: Plan Around Referral Networks"
-          : "Separate Hospital Capacity from Primary-Care Coverage",
+          ? "There Are Providers, but No Hospitals Here"
+          : "Do Not Treat Every Provider as a Hospital",
       body:
         hospitalFacilities === 0
-          ? `This scope has ${formatNumber(totalFacilities, 0)} mapped health providers but no facility classified as a hospital. Coverage appears on the map because clinics, dispensaries, and health centres still deliver frontline care. Decision-making should prioritise referral pathways, emergency transport, and district-level hospital linkage instead of assuming local inpatient capacity.`
-          : `${formatNumber(hospitalFacilities, 0)} of ${formatNumber(totalFacilities, 0)} mapped providers are hospitals, while ${formatNumber(nonHospitalFacilities, 0)} are non-hospital facilities. Coverage maps measure proximity to any provider, so hospital planning should use this service mix split to avoid overestimating inpatient or surgical capacity.`,
+          ? `This area has ${formatNumber(totalFacilities, 0)} health providers, but none are listed as hospitals. Clinics, dispensaries, and health centres still matter for basic care, but serious cases will need clear routes to a hospital.`
+          : `${formatNumber(hospitalFacilities, 0)} of ${formatNumber(totalFacilities, 0)} providers are hospitals. The rest are clinics, dispensaries, health centres, or other providers. Use these numbers when planning beds, emergency care, and clinic outreach.`,
       action:
         hospitalFacilities === 0
-          ? "Define referral routes from primary-care facilities to nearest district hospitals and set emergency transport triggers"
-          : "Track provider coverage and hospital capacity as separate planning metrics in TA briefs",
+          ? "Set clear routes from local providers to the nearest hospital"
+          : "Plan hospital services and basic clinic services separately",
       metricLinks: [
         {
           id: "hospital-facilities-count",
@@ -2067,7 +2077,7 @@ function HealthRecommendations({
         },
         {
           id: "non-hospital-facilities-count",
-          label: "Non-Hospital Providers",
+          label: "Other Providers",
           value: formatNumber(nonHospitalFacilities, 0),
           onClick: () =>
             openMetricPreview({
@@ -2081,9 +2091,9 @@ function HealthRecommendations({
     doctorRatio !== null && doctorRatio > 5000 && {
       priority: "high",
       icon: Users,
-      title: "Severe Doctor Shortage",
-      body: `The doctor-to-population ratio is 1:${formatNumber(doctorRatio, 0)}, far exceeding the WHO recommended 1:1,000. With only ${formatNumber(doctors, 0)} doctors serving ${formatNumber(totalPop, 0)} people, clinical capacity is severely constrained. Nurse-led care models and community health worker deployment can bridge the gap in the short term.`,
-      action: "Deploy community health workers to high-burden TAs and fast-track nurse practitioner training",
+      title: "Too Few Doctors for the Population",
+      body: `There is about 1 doctor for every ${formatNumber(doctorRatio, 0)} people. With ${formatNumber(doctors, 0)} doctors serving ${formatNumber(totalPop, 0)} people, clinics may struggle to handle serious cases quickly. Nurses, midwives, and community health workers can help cover the gap while staffing is improved.`,
+      action: "Send extra outreach staff to the busiest TAs and strengthen nurse-led care",
       metricLinks: [
         {
           id: "doctor-ratio",
@@ -2113,9 +2123,9 @@ function HealthRecommendations({
     privateFacilities > govFacilities && {
       priority: "medium",
       icon: Building2,
-      title: "Private Sector Dominance — Equity Risk",
-      body: `${formatNumber(privateFacilities)} of ${formatNumber(totalFacilities)} facilities are privately operated, outnumbering government facilities. While private facilities expand coverage, they concentrate in urban and peri-urban areas, leaving rural populations dependent on fewer government facilities. Public-private partnership agreements should include rural service obligations.`,
-      action: "Negotiate PPP agreements requiring private facilities to serve a defined rural catchment population",
+      title: "Many Facilities Are Private",
+      body: `${formatNumber(privateFacilities)} of ${formatNumber(totalFacilities)} facilities are privately operated. Private facilities can improve access, but they may be harder for poorer or rural communities to use. Planning should make sure public services still reach areas that private providers do not cover well.`,
+      action: "Work with private providers, but set clear expectations for serving rural and low-income communities",
       metricLinks: [
         {
           id: "private-facilities",
@@ -2145,9 +2155,9 @@ function HealthRecommendations({
     floodExposed > 0 && {
       priority: "medium",
       icon: AlertTriangle,
-      title: "Flood-Exposed Health Facilities",
-      body: `${formatNumber(floodExposed)} health facilities are in flood-exposed zones. During flood events these facilities may become inaccessible or damaged, cutting off health services precisely when demand spikes. Emergency referral pathways and pre-positioned medical supplies at unaffected facilities are essential.`,
-      action: "Establish flood-season health service continuity plans and pre-position emergency medical supplies",
+      title: "Some Facilities May Be Cut Off by Floods",
+      body: `${formatNumber(floodExposed)} health facilities are in flood-exposed areas. During floods, people may not reach them, or the facilities may be damaged. Nearby safer facilities should be ready with medicines, staff plans, and referral support.`,
+      action: "Prepare safer facilities before flood season with medicines, staff plans, and referral routes",
       metricLinks: [
         {
           id: "flood-exposed-facilities",
@@ -2166,9 +2176,9 @@ function HealthRecommendations({
     medianTravel !== null && medianTravel > 30 && {
       priority: "medium",
       icon: TrendingUp,
-      title: "Long Travel Times to Facilities",
-      body: `The median road travel time to the nearest health facility is ${medianTravel.toFixed(0)} minutes. For emergency obstetric care, stroke, and trauma, this delay is life-threatening. Ambulance pre-positioning and community first-responder training in high-travel-time areas can reduce preventable deaths.`,
-      action: "Pre-position ambulances in TAs with median travel times above 30 minutes",
+      title: "Travel Time to Care Is Long",
+      body: `The typical road travel time to the nearest health facility is about ${medianTravel.toFixed(0)} minutes. For births, injuries, and other emergencies, this delay can be dangerous. Ambulance placement, referral planning, and community first response can reduce delays.`,
+      action: "Place emergency transport closer to TAs where travel time is above 30 minutes",
       metricLinks: [
         {
           id: "median-travel-time",
@@ -2183,7 +2193,7 @@ function HealthRecommendations({
         },
         {
           id: "high-travel-facilities",
-          label: "Facilities >30 min",
+          label: "Over 30 Min",
           value: formatNumber(highTravelFacilityRows.length, 0),
           onClick: () =>
             openMetricPreview({
@@ -2198,9 +2208,9 @@ function HealthRecommendations({
     welfareWithAccess > 0 && {
       priority: "low",
       icon: Lightbulb,
-      title: "Link Health Access to Social Protection",
-      body: `${formatNumber(welfareWithAccess, 0)} welfare beneficiaries have a health facility within 8 km. Integrating health service utilisation data with welfare programme monitoring would allow identification of beneficiaries who are geographically close to facilities but not accessing care — enabling targeted outreach.`,
-      action: "Cross-reference welfare beneficiary data with health facility utilisation records to identify non-users",
+      title: "Connect Welfare Support with Health Visits",
+      body: `${formatNumber(welfareWithAccess, 0)} welfare beneficiaries live within 8 km of a health facility. Some may still not be using services because of cost, transport, disability, or other barriers. Linking welfare and clinic records can show who needs follow-up.`,
+      action: "Compare welfare records with clinic visits to find households that may need outreach",
       metricLinks: [
         {
           id: "welfare-with-access",
@@ -2219,9 +2229,9 @@ function HealthRecommendations({
     {
       priority: "low",
       icon: Lightbulb,
-      title: "Map Interpretation: Coverage vs Utilisation",
-      body: `The 8 km buffer coverage maps show geographic proximity to facilities, not actual utilisation. A facility within 8 km may still be inaccessible due to road conditions, cost, or cultural barriers. The road-distance and travel-time rasters provide a more accurate picture of real-world access than straight-line buffers alone.`,
-      action: "Supplement coverage analysis with patient visit data and community health surveys to capture utilisation gaps",
+      title: "Being Near a Facility Does Not Always Mean Access",
+      body: `The 8 km map shows who lives near a health facility. It does not prove that people can easily use that facility. Roads, transport cost, opening hours, and service quality can still stop people from getting care.`,
+      action: "Use patient visits and community feedback alongside the map before making final decisions",
       metricLinks: [
         {
           id: "coverage-summary",
@@ -2256,7 +2266,7 @@ function HealthRecommendations({
         <h3 className="text-[16px] font-extrabold">Insights & Recommendations</h3>
       </div>
       <p className="text-sm text-gray-500 font-semibold mb-6">
-        Data-driven planning actions derived from facility coverage maps, access analysis, workforce data, and flood exposure for {districtScope}.
+        Use these cards to see what needs attention first, where to send support, and what action to take next for {districtScope}.
       </p>
       <InteractiveRecommendations
         recommendations={recommendations}
@@ -2274,4 +2284,6 @@ function HealthRecommendations({
 }
 
 export default HealthPage;
+
+
 

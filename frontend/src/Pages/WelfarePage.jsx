@@ -3,6 +3,7 @@ import {
   UserCheck,
   Heart,
   Download,
+  Lightbulb,
 } from "lucide-react";
 import { useDashboardData } from "../hooks/useDashboardData";
 import { useDistrict } from "../context/DistrictContext";
@@ -12,6 +13,7 @@ import { formatNumber } from "../lib/format";
 import DataTable from "../components/DataTable";
 import MapPanel from "../components/MapPanel";
 import SharedDistrictSelector from "../components/SharedDistrictSelector";
+import InteractiveRecommendations from "../components/InteractiveRecommendations";
 
 function formatMinutes(value) {
   const mins = Number(value);
@@ -72,6 +74,67 @@ function formatTaAxisLabel(value) {
   }
 
   return `${value.slice(0, 14)}...`;
+}
+
+function simplifyWelfareSignal(signal) {
+  const title = String(signal?.title || "");
+
+  if (/flood-sensitive welfare footprint/i.test(title)) {
+    return {
+      ...signal,
+      title: "Many Welfare Households May Face Flood Risk",
+      description:
+        "A large share of supported households are in flood-prone places. Cash support, shelter plans, and service follow-up should be ready before flood season.",
+      action:
+        "Prepare flood-season support plans for the most exposed welfare households.",
+    };
+  }
+
+  if (/health access gap/i.test(title)) {
+    return {
+      ...signal,
+      title: "Some Welfare Households Are Far from Health Care",
+      description:
+        "Many supported households may not be close enough to health services. Outreach visits, transport help, or better referral routes may be needed.",
+      action:
+        "Plan outreach visits or transport support for households far from health services.",
+    };
+  }
+
+  if (/education vulnerability/i.test(title)) {
+    return {
+      ...signal,
+      title: "Some Supported Children May Struggle to Reach School",
+      description:
+        "Welfare-supported areas may have weak school access or many school-age children not enrolled. Welfare and education teams should follow up together.",
+      action:
+        "Coordinate welfare follow-up with school enrolment checks in these areas.",
+    };
+  }
+
+  if (/nearby public hospital coverage/i.test(title)) {
+    return {
+      ...signal,
+      title: "No Nearby Public Hospital Is Showing for This Area",
+      description:
+        "The selected area does not show welfare households within public hospital reach. Referral routes and transport support should be checked.",
+      action:
+        "Check referral routes and transport options to the nearest public hospital.",
+    };
+  }
+
+  if (/integrated baseline/i.test(title)) {
+    return {
+      ...signal,
+      title: "Enough Linked Data Is Available for Planning",
+      description:
+        "This view has welfare, school, health, and flood information joined together, so areas can be compared for support planning.",
+      action:
+        "Use this linked view to compare areas before deciding where to focus support.",
+    };
+  }
+
+  return signal;
 }
 
 function getTaBarColor(value, maxValue) {
@@ -166,6 +229,63 @@ function WelfarePage() {
     () => integration.data?.beneficiary_preview ?? EMPTY_ROWS,
     [integration.data],
   );
+  const planningPrioritySignals = (planningPriorities.data?.priorities || [])
+    .slice(0, 3)
+    .map((item) => ({
+      severity:
+        item.priority_band === "Critical"
+          ? "high"
+          : item.priority_band === "High"
+            ? "medium"
+            : "info",
+      title: `Review welfare support in ${item.admin_unit_name}`,
+      description:
+        "This area should be reviewed first because welfare needs overlap with health, school, flood, or population pressures.",
+      action:
+        "Review welfare records together with health, school, flood, and population indicators.",
+    }));
+  const decisionSignals = [
+    ...(integration.data?.decision_signals || []),
+    ...planningPrioritySignals,
+  ].map(simplifyWelfareSignal).slice(0, 6);
+  const welfareRecommendations = decisionSignals.map((signal, index) => ({
+    id: `welfare-signal-${index}`,
+    priority:
+      signal.severity === "high"
+        ? "high"
+        : signal.severity === "medium"
+          ? "medium"
+          : "low",
+    icon:
+      signal.severity === "high"
+        ? ShieldAlert
+        : signal.severity === "medium"
+          ? Activity
+          : Heart,
+    title: signal.title,
+    body: signal.description,
+    action:
+      signal.action ||
+      "Review the linked welfare, health, education, and flood records for this area.",
+  }));
+  const welfarePriorityConfig = {
+    high: {
+      label: "Immediate Action",
+      classes: "bg-red-50 border-red-200 text-red-700",
+      dot: "bg-red-500",
+    },
+    medium: {
+      label: "Short-Term Action",
+      classes: "bg-amber-50 border-amber-200 text-amber-700",
+      dot: "bg-amber-500",
+    },
+    low: {
+      label: "Planning Note",
+      classes: "bg-blue-50 border-blue-200 text-blue-700",
+      dot: "bg-blue-500",
+    },
+  };
+  const notes = integration.data?.notes || [];
   const baseByArea = useMemo(
     () => baseIntegration.data?.by_area ?? EMPTY_ROWS,
     [baseIntegration.data],
@@ -504,9 +624,29 @@ function WelfarePage() {
               ].map((item) => <StatCard key={item.label} {...item} />)}
         </div>
 
+        <div className="mb-10 rounded border border-gray-100 bg-white p-4 shadow-sm sm:p-6 lg:p-8">
+          <h3 className="text-[16px] font-extrabold mb-5 flex items-center gap-3">
+            <GraduationCap className="h-5 w-5 text-black" />
+            Integration Notes
+          </h3>
+          <div className="space-y-3">
+            {notes.length ? (
+              notes.map((note, index) => (
+                <p key={index} className="text-[13px] leading-6 text-gray-600">
+                  {note}
+                </p>
+              ))
+            ) : (
+              <p className="rounded border border-dashed border-gray-200 bg-gray-50 px-4 py-4 text-sm font-semibold text-gray-500">
+                No integration notes are available for the current filters.
+              </p>
+            )}
+          </div>
+        </div>
+
         {adminType === "TA" ? (
-          <div className="grid grid-cols-1 xl:grid-cols-2 gap-8 mb-10">
-            <div className="border border-gray-100 rounded p-8 shadow-sm bg-white h-[560px] flex flex-col">
+          <div className="grid grid-cols-1 gap-5 xl:grid-cols-2 xl:gap-8 mb-10">
+            <div className="rounded border border-gray-100 bg-white p-4 shadow-sm sm:p-6 lg:p-8 min-h-[420px] h-[68vh] max-h-[560px] flex flex-col">
               <div className="mb-5 flex items-start justify-between gap-4">
                 <div>
                   <h3 className="text-[16px] font-extrabold">
@@ -551,7 +691,7 @@ function WelfarePage() {
               </div>
             </div>
 
-            <div className="border border-gray-100 rounded p-8 shadow-sm bg-white h-[560px] flex flex-col">
+            <div className="rounded border border-gray-100 bg-white p-4 shadow-sm sm:p-6 lg:p-8 min-h-[420px] h-[68vh] max-h-[560px] flex flex-col">
               <h3 className="text-[16px] font-extrabold mb-2">
                 Beneficiaries by TA
               </h3>
@@ -593,7 +733,7 @@ function WelfarePage() {
                     value={taChartSearch}
                     onChange={(event) => setTaChartSearch(event.target.value)}
                     placeholder="Search TA..."
-                    className="min-w-[170px] flex-1 rounded-full border border-gray-200 px-3 py-1.5 text-xs font-semibold text-gray-700 outline-none focus:border-gray-900"
+                    className="w-full flex-1 sm:min-w-[170px] rounded-full border border-gray-200 px-3 py-1.5 text-xs font-semibold text-gray-700 outline-none focus:border-gray-900"
                   />
                 </div>
                 <p className="mt-2 text-[11px] font-semibold text-gray-500">
@@ -700,12 +840,18 @@ function WelfarePage() {
           </div>
         ) : null}
 
-        <div className="mb-10">
-          <div className="border border-gray-100 rounded p-8 shadow-sm bg-white">
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-6 mb-10">
+          {departmentSummary.map((item) => (
+            <DepartmentCard key={item.department} item={item} />
+          ))}
+        </div>
+
+        <div className="grid grid-cols-1 gap-8 mb-10">
+          <div className="rounded border border-gray-100 bg-white p-4 shadow-sm sm:p-6 lg:p-8">
             <h3 className="text-[16px] font-extrabold mb-6">
               Program Participation Breakdown
             </h3>
-            <div className="h-[280px]">
+            <div className="h-[240px] sm:h-[280px]">
               {integration.loading ? (
                 <div className="h-full w-full bg-gray-50 rounded-full animate-pulse flex items-center justify-center">
                   <div className="w-2/3 h-2/3 bg-white rounded-full"></div>
@@ -775,12 +921,12 @@ function WelfarePage() {
                 value={areaSearch}
                 onChange={(event) => setAreaSearch(event.target.value)}
                 placeholder="Search TAs or districts"
-                className="min-w-[220px] flex-1 rounded border border-gray-200 px-3 py-2 text-[13px] font-semibold text-gray-700 outline-none focus:border-black"
+                className="w-full flex-1 rounded border border-gray-200 px-3 py-2 text-[13px] font-semibold text-gray-700 outline-none focus:border-black sm:min-w-[220px]"
               />
               <select
                 value={selectedTa}
                 onChange={(event) => setSelectedTa(event.target.value)}
-                className="min-w-[180px] rounded border border-gray-200 px-3 py-2 text-[13px] font-bold text-gray-700"
+                className="w-full rounded border border-gray-200 px-3 py-2 text-[13px] font-bold text-gray-700 sm:w-auto sm:min-w-[180px]"
               >
                 <option value="">All TAs</option>
                 {taOptions.map((option) => (
@@ -788,6 +934,24 @@ function WelfarePage() {
                     {option}
                   </option>
                 ))}
+              </select>
+              <select
+                value={riskFilter}
+                onChange={(event) => setRiskFilter(event.target.value)}
+                className="w-full rounded border border-gray-200 px-3 py-2 text-[13px] font-bold text-gray-700 sm:w-auto sm:min-w-[170px]"
+              >
+                <option value="all">All Risk States</option>
+                <option value="flood_only">Flood Affected Only</option>
+                <option value="clear_only">Not Flood Affected</option>
+              </select>
+              <select
+                value={serviceFilter}
+                onChange={(event) => setServiceFilter(event.target.value)}
+                className="w-full rounded border border-gray-200 px-3 py-2 text-[13px] font-bold text-gray-700 sm:w-auto sm:min-w-[190px]"
+              >
+                <option value="all">All Service States</option>
+                <option value="school_limited">Limited School Access</option>
+                <option value="health_limited">Limited Health Access</option>
               </select>
             </div>
             <p className="mt-3 text-[12px] font-semibold text-gray-500">
@@ -810,12 +974,12 @@ function WelfarePage() {
                 value={beneficiarySearch}
                 onChange={(event) => setBeneficiarySearch(event.target.value)}
                 placeholder="Search beneficiary, TA, district, or program"
-                className="min-w-[240px] flex-1 rounded border border-gray-200 px-3 py-2 text-[13px] font-semibold text-gray-700 outline-none focus:border-black"
+                className="w-full flex-1 rounded border border-gray-200 px-3 py-2 text-[13px] font-semibold text-gray-700 outline-none focus:border-black sm:min-w-[240px]"
               />
               <select
                 value={selectedProgram}
                 onChange={(event) => setSelectedProgram(event.target.value)}
-                className="min-w-[210px] rounded border border-gray-200 px-3 py-2 text-[13px] font-bold text-gray-700"
+                className="w-full rounded border border-gray-200 px-3 py-2 text-[13px] font-bold text-gray-700 sm:w-auto sm:min-w-[210px]"
               >
                 <option value="">All Programs</option>
                 {programOptions.map((option) => (
@@ -830,7 +994,7 @@ function WelfarePage() {
               <select
                 value={selectedTa}
                 onChange={(event) => setSelectedTa(event.target.value)}
-                className="min-w-[180px] rounded border border-gray-200 px-3 py-2 text-[13px] font-bold text-gray-700"
+                className="w-full rounded border border-gray-200 px-3 py-2 text-[13px] font-bold text-gray-700 sm:w-auto sm:min-w-[180px]"
               >
                 <option value="">All TAs</option>
                 {taOptions.map((option) => (
@@ -851,9 +1015,42 @@ function WelfarePage() {
             subtitle={`A record-level sample showing welfare program membership and residence for ${scopeLabel}.`}
           />
         </div>
+
+        <div className="mb-10">
+          <div className="mb-2 flex items-center gap-3">
+            <Lightbulb className="h-5 w-5 text-amber-500" />
+            <h3 className="text-[16px] font-extrabold">
+              Insights & Recommendations
+            </h3>
+          </div>
+          <p className="mb-6 text-sm font-semibold text-gray-500">
+            Use these cards to see which households or areas need attention
+            first, what support may be missing, and what action to take next for
+            {scopeLabel}.
+          </p>
+          {integration.loading || planningPriorities.loading ? (
+            <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
+              {[...Array(4)].map((_, index) => (
+                <div
+                  key={index}
+                  className="h-36 animate-pulse rounded border border-gray-100 bg-gray-50"
+                />
+              ))}
+            </div>
+          ) : (
+            <InteractiveRecommendations
+              recommendations={welfareRecommendations}
+              priorityConfig={welfarePriorityConfig}
+              sectionKey={`welfare:${scopeLabel}`}
+            />
+          )}
+        </div>
+
       </div>
     </div>
   );
 }
 
 export default WelfarePage;
+
+

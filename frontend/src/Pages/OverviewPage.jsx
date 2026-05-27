@@ -126,6 +126,7 @@ function DistrictBoundaryMap({
   scopeLabel,
 }) {
   const [hoveredFeature, setHoveredFeature] = useState(null);
+  const [showTaNames, setShowTaNames] = useState(true);
   const features = useMemo(() => geojson?.features || [], [geojson]);
   const width = 1000;
   const height = 620;
@@ -141,7 +142,7 @@ function DistrictBoundaryMap({
 
   if (loading) {
     return (
-      <div className="flex h-[520px] items-center justify-center rounded border border-gray-100 bg-gray-50 text-[12px] font-bold uppercase tracking-[0.16em] text-gray-400">
+      <div className="flex h-[360px] items-center justify-center rounded border border-gray-100 bg-gray-50 text-[12px] font-bold uppercase tracking-[0.16em] text-gray-400 sm:h-[520px]">
         Loading district map...
       </div>
     );
@@ -149,7 +150,7 @@ function DistrictBoundaryMap({
 
   if (!features.length) {
     return (
-      <div className="flex h-[520px] items-center justify-center rounded border border-dashed border-gray-200 bg-gray-50 text-sm font-semibold text-gray-400">
+      <div className="flex h-[360px] items-center justify-center rounded border border-dashed border-gray-200 bg-gray-50 text-sm font-semibold text-gray-400 sm:h-[520px]">
         No TA boundaries available for this district.
       </div>
     );
@@ -158,7 +159,7 @@ function DistrictBoundaryMap({
   return (
     <div className="grid gap-4 lg:grid-cols-[1fr_260px]">
       <div
-        className="relative h-[520px] overflow-hidden rounded border border-gray-100 bg-[#f8faf7]"
+        className="relative h-[360px] overflow-hidden rounded border border-gray-100 bg-[#f8faf7] sm:h-[520px]"
         onMouseLeave={() => setHoveredFeature(null)}
       >
         <svg
@@ -207,13 +208,17 @@ function DistrictBoundaryMap({
                   role="button"
                   aria-label={`Select ${name}`}
                 />
-                {labelPosition ? (
+                {showTaNames && labelPosition ? (
                   <text
                     x={labelPosition.x}
                     y={labelPosition.y}
                     textAnchor="middle"
                     dominantBaseline="middle"
-                    className="pointer-events-none select-none fill-gray-700 text-[13px] font-extrabold"
+                    fill={isSelected ? "#ffffff" : "#111827"}
+                    stroke={isSelected ? "#1f2937" : "none"}
+                    strokeWidth={isSelected ? 1.8 : 0}
+                    paintOrder={isSelected ? "stroke" : undefined}
+                    className="pointer-events-none select-none text-[13px] font-extrabold"
                   >
                     {name.replace(/^Ta\s+/i, "TA ")}
                   </text>
@@ -255,6 +260,19 @@ function DistrictBoundaryMap({
             <span className="h-4 w-7 rounded-sm border-2 border-[#64745f] bg-[#dbeafe]" />
             <span>Hovered TA</span>
           </div>
+        </div>
+        <div className="mt-4 rounded border border-gray-200 bg-gray-50 p-3">
+          <p className="text-[10px] font-bold uppercase tracking-[0.14em] text-gray-400">
+            Label Visibility
+          </p>
+          <button
+            type="button"
+            onClick={() => setShowTaNames((current) => !current)}
+            className="mt-2 w-full rounded border border-gray-300 bg-white px-3 py-2 text-[11px] font-bold uppercase tracking-[0.12em] text-gray-700 transition hover:bg-gray-100"
+            aria-pressed={showTaNames}
+          >
+            {showTaNames ? "Hide TA names" : "Show TA names"}
+          </button>
         </div>
         <div className="mt-5 rounded bg-gray-50 p-3">
           <p className="text-[10px] font-bold uppercase tracking-[0.14em] text-gray-400">
@@ -327,6 +345,11 @@ function OverviewPage() {
       district: districtScope,
       ta: selectedTa,
       admin_type: selectedTa ? "TA" : "District",
+    }),
+  );
+  const educationInsights = useDashboardData(
+    buildDashboardPath("/dashboard/education/insights", {
+      district: districtScope,
     }),
   );
   const healthSummary = useDashboardData(
@@ -556,6 +579,11 @@ function OverviewPage() {
           risk_level: floodStats.riskLevel,
           schools_count: Number(serviceStats.schools_count || 0),
           hospitals_count: Number(serviceStats.hospitals_count || 0),
+          non_hospital_providers_count: Math.max(
+            Number(serviceStats.health_facilities_count || 0) -
+              Number(serviceStats.hospitals_count || 0),
+            0,
+          ),
           beneficiaries_count: Number(serviceStats.beneficiaries_count || 0),
           district_name: serviceStats.district_name || "",
           health_facilities_count: Number(
@@ -594,6 +622,20 @@ function OverviewPage() {
     : [];
   const welfareSummary = welfareIntegration.data?.summary || {};
   const educationData = educationSummary.data || {};
+  const educationInsightRows = useMemo(
+    () => educationInsights.data?.districts ?? [],
+    [educationInsights.data],
+  );
+  const selectedEducationInsight = selectedTa
+    ? educationInsightRows.find(
+        (row) =>
+          normalizeName(row.admin_unit_name) === normalizeName(selectedTa),
+      ) || null
+    : null;
+  const districtEducationSchoolCount = educationInsightRows.reduce(
+    (sum, row) => sum + Number(row.school_count || 0),
+    0,
+  );
 
   const comparisonSource = selectedPriorityRow
     ? [selectedPriorityRow]
@@ -626,11 +668,24 @@ function OverviewPage() {
     "facility_count",
     "health_facility_count",
   ]);
-  const healthServedPopulation = metricFromRows(healthRows, [
-    "population_served",
-    "population_served_total",
-    "served_population_total",
-  ]);
+  const selectedTaServiceStats = selectedTa
+    ? taServiceLookup.get(`name:${normalizeName(selectedTa)}`) || null
+    : null;
+  const overviewSchoolCount = selectedTa
+    ? Number(selectedEducationInsight?.school_count || 0)
+    : districtEducationSchoolCount || Number(educationData.school_count || 0);
+  const overviewHealthProviderCount = selectedTaServiceStats
+    ? Number(selectedTaServiceStats.health_facilities_count || 0)
+    : (taServiceStats.data || []).reduce(
+        (sum, row) => sum + Number(row.health_facilities_count || 0),
+        0,
+      ) || healthFacilityCount || Number(summary.data?.total_health_facilities || 0);
+  const overviewHospitalCount = selectedTaServiceStats
+    ? Number(selectedTaServiceStats.hospitals_count || 0)
+    : (taServiceStats.data || []).reduce(
+        (sum, row) => sum + Number(row.hospitals_count || 0),
+        0,
+      );
   const healthCoveragePct = metricFromRows(healthRows, [
     "health_service_coverage_pct",
     "service_coverage_pct",
@@ -639,7 +694,7 @@ function OverviewPage() {
   const snapshotCards = [
     {
       title: "Education",
-      primary: `${formatStat(educationData.school_count || 0)} schools`,
+      primary: `${formatStat(overviewSchoolCount)} schools`,
       secondary: `${formatStat(educationData.not_in_school_total || 0)} learners likely out of school`,
       surfaceClass: "border-amber-100 bg-amber-50/45",
       titleClass: "text-amber-700",
@@ -648,10 +703,10 @@ function OverviewPage() {
     },
     {
       title: "Health",
-      primary: `${formatStat(healthFacilityCount || summary.data?.total_health_facilities || 0)} facilities`,
+      primary: `${formatStat(overviewHealthProviderCount)} providers`,
       secondary: healthCoveragePct
         ? `${formatPercent(healthCoveragePct)} service coverage`
-        : `${formatStat(healthServedPopulation)} served population`,
+        : `${formatStat(overviewHospitalCount)} hospitals classified`,
       surfaceClass: "border-sky-100 bg-sky-50/45",
       titleClass: "text-sky-700",
       valueClass: "text-sky-800",
@@ -690,15 +745,15 @@ function OverviewPage() {
     },
     {
       label: "Schools",
-      value: formatStat(summary.data?.total_schools || 0),
+      value: formatStat(overviewSchoolCount),
       icon: School,
       helper: scopeLabel,
     },
     {
-      label: "Health Facilities",
-      value: formatStat(summary.data?.total_health_facilities || 0),
+      label: "Health Providers",
+      value: formatStat(overviewHealthProviderCount),
       icon: HeartPulse,
-      helper: scopeLabel,
+      helper: `${scopeLabel} - includes ${formatStat(overviewHospitalCount)} hospitals`,
     },
     {
       label: "Welfare Beneficiaries",
@@ -903,14 +958,16 @@ function OverviewPage() {
   const loadingAnyTopCard =
     summary.loading ||
     welfareIntegration.loading ||
+    educationInsights.loading ||
+    taServiceStats.loading ||
     floodSummary.loading ||
     planningPriorities.loading;
 
   return (
     <div className="min-h-screen bg-white text-black font-sans pb-10">
-      <div className="flex items-center gap-4 px-8 py-8 border-b border-gray-200">
-        <div>
-          <h1 className="text-[28px] font-extrabold tracking-tight">
+      <div className="flex flex-col gap-3 border-b border-gray-200 px-4 py-5 sm:px-6 sm:py-6 lg:px-8 lg:py-8">
+        <div className="min-w-0">
+          <h1 className="text-2xl font-extrabold tracking-tight sm:text-[28px]">
             OVERVIEW
           </h1>
           <p className="mt-2 max-w-3xl text-[14px] font-medium leading-6 text-gray-500">
@@ -920,8 +977,8 @@ function OverviewPage() {
         </div>
       </div>
 
-      <div className="px-8 mt-8">
-        <div className="flex flex-wrap gap-4 mb-8">
+      <div className="mt-6 px-4 sm:mt-8 sm:px-6 lg:px-8">
+        <div className="mb-8 flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center sm:gap-4">
           <button
             onClick={handleDownloadReport}
             disabled={(!selectedDistrict && !selectedTa) || summary.loading}
@@ -930,7 +987,7 @@ function OverviewPage() {
                 ? "Download analysis for selected area"
                 : "Select a district or TA first"
             }
-            className="flex items-center gap-2 border border-gray-300 rounded px-3 py-1.5 text-[13px] font-bold hover:bg-gray-50 transition-all shadow-sm active:scale-95 disabled:cursor-not-allowed disabled:opacity-50"
+            className="flex w-full items-center justify-center gap-2 rounded border border-gray-300 px-3 py-2 text-[13px] font-bold shadow-sm transition-all hover:bg-gray-50 active:scale-95 disabled:cursor-not-allowed disabled:opacity-50 sm:w-auto sm:justify-start sm:py-1.5"
           >
             <Download className="h-4 w-4" />
             Download Area Analysis
@@ -945,12 +1002,12 @@ function OverviewPage() {
           <SharedDistrictSelector />
         </div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-6 mb-10">
+        <div className="mb-10 grid grid-cols-1 gap-4 sm:grid-cols-2 sm:gap-5 lg:grid-cols-3 xl:gap-6">
           {loadingAnyTopCard
             ? [...Array(6)].map((_, index) => (
                 <div
                   key={index}
-                  className="border border-gray-100 rounded p-6 shadow-md bg-white animate-pulse"
+                  className="rounded border border-gray-100 bg-white p-4 shadow-md animate-pulse sm:p-6"
                 >
                   <div className="flex justify-between items-start mb-4">
                     <div className="h-4 w-32 bg-gray-200 rounded"></div>
@@ -962,15 +1019,15 @@ function OverviewPage() {
             : overviewStats.map((stat) => (
                 <div
                   key={stat.label}
-                  className="border border-gray-100 rounded p-6 shadow-md bg-white hover:shadow-lg transition-all group"
+                  className="group rounded border border-gray-100 bg-white p-4 shadow-md transition-all hover:shadow-lg sm:p-6"
                 >
-                  <div className="flex justify-between items-start">
+                  <div className="flex items-start justify-between gap-3">
                     <span className="text-[14px] text-gray-500 font-bold group-hover:text-black transition-colors">
                       {stat.label}
                     </span>
                     <stat.icon className="h-5 w-5 text-gray-300 group-hover:text-black transition-colors" />
                   </div>
-                  <div className="mt-4 text-[32px] font-extrabold tracking-tight">
+                  <div className="mt-4 break-words text-[26px] font-extrabold tracking-tight sm:text-[32px]">
                     {stat.value}
                   </div>
                   <p className="mt-2 text-[12px] font-semibold text-gray-400">
@@ -1000,17 +1057,15 @@ function OverviewPage() {
                     selectedTaChartRow?.population ||
                     summary.data?.total_estimated_population ||
                     0,
-                  schools: summary.data?.total_schools || 0,
+                  schools: overviewSchoolCount,
                   not_in_school: educationData.not_in_school_total || 0,
                 },
               },
               {
                 label: "Health & Welfare",
                 metrics: {
-                  health_facilities:
-                    healthFacilityCount ||
-                    summary.data?.total_health_facilities ||
-                    0,
+                  health_providers: overviewHealthProviderCount,
+                  hospitals: overviewHospitalCount,
                   welfare_beneficiaries:
                     welfareSummary.total_beneficiaries || 0,
                   health_access_pct: welfareSummary.health_access_pct || 0,
@@ -1033,7 +1088,7 @@ function OverviewPage() {
         </div>
 
         <div className="mb-10">
-          <div className="min-w-0 border border-gray-100 rounded p-8 shadow-sm bg-white flex flex-col min-h-[640px]">
+          <div className="flex min-w-0 flex-col rounded border border-gray-100 bg-white p-4 shadow-sm sm:min-h-[560px] sm:p-6 lg:min-h-[640px] lg:p-8">
             <div className="mb-6">
               <div className="flex items-center gap-2 text-[11px] font-bold uppercase tracking-[0.2em] text-gray-400">
                 <MapIcon className="h-4 w-4" />
@@ -1064,8 +1119,8 @@ function OverviewPage() {
           </div>
         </div>
 
-        <div className="grid grid-cols-1 xl:grid-cols-[0.9fr_1.1fr] gap-8 mb-10">
-          <section className="min-w-0 border border-gray-100 rounded p-8 shadow-sm bg-white">
+        <div className="grid grid-cols-1 gap-5 xl:grid-cols-[0.9fr_1.1fr] xl:gap-8 mb-10">
+          <section className="min-w-0 rounded border border-gray-100 bg-white p-4 shadow-sm sm:p-6 lg:p-8">
             <div className="mb-6">
               <h3 className="text-[18px] font-extrabold text-black">
                 Cross-Department Pressure Profile
@@ -1076,7 +1131,7 @@ function OverviewPage() {
                   : "Average normalized planning signals across the current TA scope."}
               </p>
             </div>
-            <div className="h-[320px]">
+            <div className="h-[260px] sm:h-[320px]">
               <ResponsiveContainer width="100%" height="100%">
                 <BarChart
                   data={comparisonData}
@@ -1122,7 +1177,7 @@ function OverviewPage() {
             </div>
           </section>
 
-          <section className="min-w-0 border border-gray-100 rounded p-8 shadow-sm bg-white">
+          <section className="min-w-0 rounded border border-gray-100 bg-white p-4 shadow-sm sm:p-6 lg:p-8">
             <div className="mb-6">
               <h3 className="text-[18px] font-extrabold text-black">
                 Department Snapshots
@@ -1157,8 +1212,8 @@ function OverviewPage() {
           </section>
         </div>
 
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-10">
-          <div className="min-w-0 border border-gray-100 rounded p-5 shadow-sm bg-white flex flex-col sm:p-8">
+        <div className="grid grid-cols-1 gap-5 lg:grid-cols-2 lg:gap-8 mb-10">
+          <div className="flex min-w-0 flex-col rounded border border-gray-100 bg-white p-4 shadow-sm sm:p-6 lg:p-8">
             <h3 className="text-[16px] font-extrabold mb-2">
               {selectedTa
                 ? `${selectedTa} Population Context Map`
@@ -1169,7 +1224,7 @@ function OverviewPage() {
             </p>
             <div
               ref={mapRef}
-              className="relative h-[560px] w-full rounded border border-gray-50 bg-gray-50 shadow-inner sm:h-[640px]"
+              className="relative h-[380px] w-full rounded border border-gray-50 bg-gray-50 shadow-inner sm:h-[520px] lg:h-[640px]"
             >
               <PopulationRasterPanel
                 geojson={populationMapGeojson}
@@ -1182,7 +1237,12 @@ function OverviewPage() {
                 selectedFeatureName={selectedTa}
                 customTooltipMetrics={[
                   { key: "schools_count", label: "Schools" },
-                  { key: "hospitals_count", label: "Hospitals" },
+                  { key: "health_facilities_count", label: "Health Providers" },
+                  { key: "hospitals_count", label: "Hospitals in Providers" },
+                  {
+                    key: "non_hospital_providers_count",
+                    label: "Non-Hospital Providers",
+                  },
                   { key: "beneficiaries_count", label: "Beneficiaries" },
                   { key: "exposed_population", label: "Flood Exposed" },
                   {
@@ -1204,7 +1264,7 @@ function OverviewPage() {
             </div>
           </div>
 
-          <div className="min-w-0 border border-gray-100 rounded p-8 shadow-sm bg-white flex flex-col min-h-[640px]">
+          <div className="min-w-0 rounded border border-gray-100 bg-white p-4 shadow-sm sm:p-6 lg:p-8 flex flex-col min-h-[440px] sm:min-h-[640px]">
             <h3 className="text-[16px] font-extrabold mb-2">
               {selectedTa ? `Population for ${selectedTa}` : "Population by TA"}
             </h3>
@@ -1245,7 +1305,7 @@ function OverviewPage() {
                   value={populationChartSearch}
                   onChange={(event) => setPopulationChartSearch(event.target.value)}
                   placeholder="Search TA or district..."
-                  className="min-w-[180px] flex-1 rounded-full border border-gray-200 px-3 py-1.5 text-xs font-semibold text-gray-700 outline-none focus:border-gray-900"
+                  className="w-full flex-1 sm:min-w-[180px] rounded-full border border-gray-200 px-3 py-1.5 text-xs font-semibold text-gray-700 outline-none focus:border-gray-900"
                 />
                 {selectedTa ? (
                   <button
@@ -1261,7 +1321,7 @@ function OverviewPage() {
                 Showing {filteredChartData.length} of {chartData.length} TAs.
               </p>
             </div>
-            <div className="flex-1">
+            <div className="min-h-[340px] flex-1 overflow-x-auto">
               {populationDistribution.loading ? (
                 <div className="h-full w-full flex flex-col gap-4 animate-pulse">
                   <div className="flex-1 bg-gray-50 rounded-lg relative overflow-hidden">
@@ -1277,11 +1337,12 @@ function OverviewPage() {
                   </div>
                 </div>
               ) : filteredChartData.length > 0 ? (
-                <ResponsiveContainer width="100%" height="100%">
-                  <BarChart
-                    data={filteredChartData}
-                    margin={{ top: 20, right: 20, left: 12, bottom: 92 }}
-                  >
+                <div className="h-full min-w-[560px] sm:min-w-0">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <BarChart
+                      data={filteredChartData}
+                      margin={{ top: 20, right: 20, left: 12, bottom: 92 }}
+                    >
                     <CartesianGrid
                       strokeDasharray="3 3"
                       vertical={false}
@@ -1325,42 +1386,43 @@ function OverviewPage() {
                       }}
                       cursor={{ fill: "#f8fafc" }}
                     />
-                    <Bar
-                      dataKey="population"
-                      radius={[2, 2, 0, 0]}
-                      barSize={14}
-                      minPointSize={2}
-                      activeBar={<Rectangle fill="#7e22ce" />}
-                      onClick={(entry) =>
-                        selectTa(entry?.admin3 || "", entry?.district || "")
-                      }
-                    >
-                      {filteredChartData.map((entry) => {
-                        const isSelected =
-                          normalizeName(entry.admin3) ===
-                          normalizeName(selectedTa);
+                      <Bar
+                        dataKey="population"
+                        radius={[2, 2, 0, 0]}
+                        barSize={14}
+                        minPointSize={2}
+                        activeBar={<Rectangle fill="#7e22ce" />}
+                        onClick={(entry) =>
+                          selectTa(entry?.admin3 || "", entry?.district || "")
+                        }
+                      >
+                        {filteredChartData.map((entry) => {
+                          const isSelected =
+                            normalizeName(entry.admin3) ===
+                            normalizeName(selectedTa);
 
-                        return (
-                          <Cell
-                            key={`population-bar-${entry.admin3}`}
-                            cursor="pointer"
-                            fill={
-                              isSelected
-                                ? "#7e22ce"
-                                : getPopulationBarColor(
-                                    Number(entry.population),
-                                    maxPopulation,
-                                  )
-                            }
-                            stroke={isSelected ? "#111827" : "transparent"}
-                            strokeWidth={isSelected ? 2 : 0}
-                            fillOpacity={selectedTa && !isSelected ? 0.28 : 1}
-                          />
-                        );
-                      })}
-                    </Bar>
-                  </BarChart>
-                </ResponsiveContainer>
+                          return (
+                            <Cell
+                              key={`population-bar-${entry.admin3}`}
+                              cursor="pointer"
+                              fill={
+                                isSelected
+                                  ? "#7e22ce"
+                                  : getPopulationBarColor(
+                                      Number(entry.population),
+                                      maxPopulation,
+                                    )
+                              }
+                              stroke={isSelected ? "#111827" : "transparent"}
+                              strokeWidth={isSelected ? 2 : 0}
+                              fillOpacity={selectedTa && !isSelected ? 0.28 : 1}
+                            />
+                          );
+                        })}
+                      </Bar>
+                    </BarChart>
+                  </ResponsiveContainer>
+                </div>
               ) : (
                 <div className="flex h-full items-center justify-center rounded border border-dashed border-gray-200 bg-gray-50 text-sm font-semibold text-gray-400">
                   No rows match the current chart filters.
@@ -1370,12 +1432,12 @@ function OverviewPage() {
           </div>
         </div>
 
-        <div className="grid grid-cols-1 xl:grid-cols-[0.85fr_1.15fr] gap-8 mb-10">
-          <section className="min-w-0 border border-gray-100 rounded p-8 shadow-sm bg-white">
+        <div className="grid grid-cols-1 gap-5 xl:grid-cols-[0.85fr_1.15fr] xl:gap-8 mb-10">
+          <section className="min-w-0 rounded border border-gray-100 bg-white p-4 shadow-sm sm:p-6 lg:p-8">
             <h3 className="text-[16px] font-extrabold mb-6">
               Flood Exposure Distribution for {scopeLabel}
             </h3>
-            <div className="h-[320px]">
+            <div className="h-[260px] sm:h-[320px]">
               {floodSummary.loading ? (
                 <div className="flex items-center justify-center h-full text-gray-400">
                   Loading flood exposure data...
@@ -1391,8 +1453,8 @@ function OverviewPage() {
                       data={pieData}
                       cx="50%"
                       cy="50%"
-                      innerRadius={72}
-                      outerRadius={102}
+                      innerRadius="45%"
+                      outerRadius="68%"
                       paddingAngle={4}
                       dataKey="value"
                     >
@@ -1435,7 +1497,7 @@ function OverviewPage() {
             </div>
           </section>
 
-          <section className="min-w-0 border border-gray-100 rounded p-8 shadow-sm bg-white">
+          <section className="min-w-0 rounded border border-gray-100 bg-white p-4 shadow-sm sm:p-6 lg:p-8">
             <h3 className="text-[16px] font-extrabold mb-2">Data Freshness</h3>
             <p className="text-[13px] font-medium text-gray-500 mb-6">
               Latest available update timestamps across the main overview

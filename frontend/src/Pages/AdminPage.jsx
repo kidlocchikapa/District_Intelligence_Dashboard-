@@ -36,6 +36,53 @@ const datasetTypes = [
   "flood",
 ];
 
+const departmentDatasetTypes = {
+  education: ["education"],
+  health: ["health"],
+  social_welfare: ["social_welfare", "roads"],
+  disaster: ["disaster", "flood"],
+};
+
+const uploadTemplateFiles = {
+  education: {
+    url: "/upload-templates/education_template.csv",
+    filename: "education_template.csv",
+    description: "School records template (CSV).",
+  },
+  health: {
+    url: "/upload-templates/health_template.csv",
+    filename: "health_template.csv",
+    description: "Health facility records template (CSV).",
+  },
+  social_welfare: {
+    url: "/upload-templates/social_welfare_template.csv",
+    filename: "social_welfare_template.csv",
+    description: "Welfare beneficiary summary template (CSV).",
+  },
+  roads: {
+    url: "/upload-templates/roads_template.geojson",
+    filename: "roads_template.geojson",
+    description: "Road network template (GeoJSON LineString).",
+  },
+  disaster: {
+    url: "/upload-templates/disaster_template.csv",
+    filename: "disaster_template.csv",
+    description: "Disaster exposure sample template (CSV).",
+  },
+  flood: {
+    url: "/upload-templates/flood_template.txt",
+    filename: "flood_template.txt",
+    description: "Flood raster upload guide template.",
+  },
+};
+
+function resolveDepartmentDatasetTypes(department) {
+  if (!department) {
+    return [];
+  }
+  return departmentDatasetTypes[department] || datasetTypes;
+}
+
 const taskDescriptions = {
   worldpop_totals: {
     badge: "Population",
@@ -171,6 +218,14 @@ function AdminPage() {
   const availableDepartments = useMemo(
     () => Object.keys(departmentConfig),
     [],
+  );
+  const availableDatasetTypes = useMemo(
+    () => resolveDepartmentDatasetTypes(selectedDepartment),
+    [selectedDepartment],
+  );
+  const selectedTemplate = useMemo(
+    () => uploadTemplateFiles[uploadFormState.type] || null,
+    [uploadFormState.type],
   );
   const isGlobalAdmin = useMemo(
     () =>
@@ -333,6 +388,23 @@ function AdminPage() {
     }
   }
 
+  function handleDownloadTemplate() {
+    if (!selectedTemplate) {
+      setStatus(
+        `No template is configured for dataset type "${uploadFormState.type}".`,
+      );
+      return;
+    }
+
+    const link = document.createElement("a");
+    link.href = selectedTemplate.url;
+    link.download = selectedTemplate.filename;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    setStatus(`Template downloaded: ${selectedTemplate.filename}`);
+  }
+
   async function handleRunTask(task) {
     if (!selectedDepartment) {
       setStatus("No department access is assigned to this account.");
@@ -426,7 +498,7 @@ function AdminPage() {
         </div>
       </div>
 
-      <div className="flex-1 min-h-[640px] lg:min-h-0">
+      <div className="min-h-[560px] flex-1 lg:min-h-0">
         {isGlobalAdmin && activeTab === "system" && <GlobalAdminStewardship />}
 
         {isGlobalAdmin && activeTab === "operations" && (
@@ -451,12 +523,12 @@ function AdminPage() {
           <>
             {isGlobalAdmin && allowedDepartments.length > 0 && (
               <div className="mb-4 flex flex-wrap items-center gap-3">
-                <label className="text-sm font-bold text-slate-700">
+                <label className="flex w-full flex-col gap-2 text-sm font-bold text-slate-700 sm:w-auto sm:flex-row sm:items-center">
                   Department
                   <select
                     value={selectedDepartment}
                     onChange={(event) => setSelectedDepartment(event.target.value)}
-                    className="ml-3 rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-900 outline-none focus:ring-2 focus:ring-slate-900/10"
+                    className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-900 outline-none focus:ring-2 focus:ring-slate-900/10 sm:ml-3"
                   >
                     {allowedDepartments.map((department) => (
                       <option key={department} value={department}>
@@ -482,7 +554,7 @@ function AdminPage() {
         )}
 
         {!isGlobalAdmin && activeTab === "operations" && (
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 h-full overflow-auto pb-8">
+          <div className="grid h-full grid-cols-1 gap-5 overflow-auto pb-8 lg:grid-cols-2 lg:gap-8">
             <Panel
               title="Dataset Ingestion"
               subtitle="Upload new records to the system via CSV or GeoJSON."
@@ -504,23 +576,11 @@ function AdminPage() {
                       }
                     >
                       {selectedDepartment
-                        ? datasetTypes
-                            .filter((t) => {
-                              if (selectedDepartment === "education")
-                                return t === "education";
-                              if (selectedDepartment === "social_welfare")
-                                return t === "social_welfare" || t === "roads";
-                              if (selectedDepartment === "disaster")
-                                return t === "disaster" || t === "flood";
-                              if (selectedDepartment === "health")
-                                return t === "health";
-                              return true;
-                            })
-                            .map((t) => (
-                              <option key={t} value={t}>
-                                {t.replace("_", " ")}
-                              </option>
-                            ))
+                        ? availableDatasetTypes.map((t) => (
+                            <option key={t} value={t}>
+                              {t.replace("_", " ")}
+                            </option>
+                          ))
                         : (
                           <option value="">
                             No department access
@@ -530,21 +590,36 @@ function AdminPage() {
                   </label>
                   <label className="block text-sm font-bold text-slate-700">
                     Source File
-                    <input
-                      type="file"
-                      disabled={
-                        !selectedDepartment ||
-                        selectedDepartment === "education" ||
-                        selectedDepartment === "health"
-                      }
-                      className="mt-2 w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl outline-none"
-                      onChange={(e) =>
-                        setUploadFormState((s) => ({
-                          ...s,
-                          file: e.target.files?.[0],
-                        }))
-                      }
-                    />
+                    <div className="mt-2 flex flex-col gap-2 sm:flex-row sm:items-center">
+                      <input
+                        type="file"
+                        disabled={
+                          !selectedDepartment ||
+                          selectedDepartment === "education" ||
+                          selectedDepartment === "health"
+                        }
+                        className="w-full flex-1 px-4 py-2.5 bg-white border border-slate-200 rounded-xl outline-none"
+                        onChange={(e) =>
+                          setUploadFormState((s) => ({
+                            ...s,
+                            file: e.target.files?.[0],
+                          }))
+                        }
+                      />
+                      <button
+                        type="button"
+                        onClick={handleDownloadTemplate}
+                        disabled={!selectedDepartment || !selectedTemplate}
+                        className="shrink-0 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-xs font-bold text-slate-700 transition-all hover:border-slate-300 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        Download template file
+                      </button>
+                    </div>
+                    {selectedTemplate && (
+                      <p className="mt-2 text-xs font-medium text-slate-500">
+                        {selectedTemplate.description}
+                      </p>
+                    )}
                   </label>
                 </div>
                 <button className="flex w-full items-center justify-center gap-2 rounded-xl bg-slate-900 py-3 font-bold text-white transition-all hover:bg-slate-800">
@@ -631,7 +706,7 @@ function AdminPage() {
         {activeTab === "logs" && (
           <div className="flex h-full min-h-[60vh] flex-col overflow-hidden rounded-2xl bg-slate-900 shadow-2xl">
             <div className="flex flex-col gap-3 border-b border-white/10 bg-white/5 p-4 sm:flex-row sm:items-center sm:justify-between">
-              <div className="flex items-center gap-3">
+              <div className="flex flex-wrap items-center gap-3">
                 <Terminal className="text-emerald-400" size={18} />
                 <h3 className="text-sm font-bold text-white tracking-tight">
                   System Console
@@ -640,11 +715,11 @@ function AdminPage() {
                   LIVE
                 </span>
               </div>
-              <div className="flex items-center gap-3">
+              <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto sm:justify-end sm:gap-3">
                 <select
                   value={selectedJobId}
                   onChange={(event) => setSelectedJobId(event.target.value)}
-                  className="max-w-64 rounded-lg border border-white/10 bg-slate-950 px-3 py-2 text-xs font-semibold text-white outline-none"
+                  className="w-full rounded-lg border border-white/10 bg-slate-950 px-3 py-2 text-xs font-semibold text-white outline-none sm:max-w-64"
                 >
                   {jobs.length ? (
                     jobs.map((job) => (
@@ -662,7 +737,7 @@ function AdminPage() {
                 <button
                   onClick={handleClearConsole}
                   disabled={!selectedJob?.id}
-                  className="inline-flex items-center gap-2 rounded-lg border border-white/10 px-3 py-2 text-xs font-bold text-white/80 transition-colors hover:bg-white/10 disabled:opacity-40"
+                  className="inline-flex flex-1 items-center justify-center gap-2 rounded-lg border border-white/10 px-3 py-2 text-xs font-bold text-white/80 transition-colors hover:bg-white/10 disabled:opacity-40 sm:flex-none"
                 >
                   <Trash2 size={14} />
                   Clear console
@@ -670,7 +745,7 @@ function AdminPage() {
                 <button
                   onClick={handleTerminateJob}
                   disabled={!selectedJob?.canTerminate}
-                  className="inline-flex items-center gap-2 rounded-lg border border-rose-500/30 bg-rose-500/10 px-3 py-2 text-xs font-bold text-rose-300 transition-colors hover:bg-rose-500/20 disabled:opacity-40"
+                  className="inline-flex flex-1 items-center justify-center gap-2 rounded-lg border border-rose-500/30 bg-rose-500/10 px-3 py-2 text-xs font-bold text-rose-300 transition-colors hover:bg-rose-500/20 disabled:opacity-40 sm:flex-none"
                 >
                   <Square size={13} />
                   Terminate task
@@ -685,7 +760,7 @@ function AdminPage() {
               </div>
             </div>
 
-            <div className="grid min-h-0 flex-1 lg:grid-cols-[320px_minmax(0,1fr)]">
+            <div className="grid min-h-0 flex-1 lg:grid-cols-[minmax(240px,320px)_minmax(0,1fr)]">
               <div className="border-b border-white/10 bg-black/20 lg:border-b-0 lg:border-r">
                 <div className="px-4 py-3 text-[10px] font-bold uppercase tracking-widest text-slate-500">
                   Recent jobs
@@ -716,14 +791,14 @@ function AdminPage() {
                 </div>
               </div>
 
-              <div className="flex-1 overflow-auto p-6 font-mono text-xs leading-relaxed">
+              <div className="flex-1 overflow-auto p-4 font-mono text-xs leading-relaxed sm:p-6">
                 {selectedJob?.logs?.length ? (
                   selectedJob.logs.map((log, i) => (
                     <div
                       key={i}
-                      className="mb-1.5 flex gap-4 animate-in fade-in slide-in-from-left-2 duration-300"
+                      className="animate-in fade-in slide-in-from-left-2 mb-1.5 flex gap-3 duration-300 sm:gap-4"
                     >
-                      <span className="text-slate-500 flex-shrink-0 w-20">
+                      <span className="w-16 flex-shrink-0 text-slate-500 sm:w-20">
                         [{new Date(log.at).toLocaleTimeString()}]
                       </span>
                       <span

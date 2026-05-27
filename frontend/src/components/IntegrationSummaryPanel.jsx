@@ -18,7 +18,7 @@ function IntegrationSummaryPanel({
 }) {
   if (loading) {
     return (
-      <div className="rounded border border-gray-100 bg-white p-8 shadow-sm">
+      <div className="rounded border border-gray-100 bg-white p-4 shadow-sm sm:p-6 lg:p-8">
         <div className="h-5 w-56 rounded bg-gray-200 animate-pulse" />
         <div className="mt-3 h-4 w-80 rounded bg-gray-100 animate-pulse" />
         <div className="mt-6 grid grid-cols-1 gap-6 xl:grid-cols-3">
@@ -45,7 +45,7 @@ function IntegrationSummaryPanel({
   }
 
   return (
-    <div className="rounded border border-gray-100 bg-white p-8 shadow-sm">
+    <div className="rounded border border-gray-100 bg-white p-4 shadow-sm sm:p-6 lg:p-8">
       <h3 className="text-[16px] font-extrabold">{title}</h3>
       {subtitle ? (
         <p className="mt-2 text-sm leading-6 text-gray-500">{subtitle}</p>
@@ -63,7 +63,7 @@ function IntegrationSummaryPanel({
               {Object.entries(item.metrics || {}).map(([key, value]) => (
                 <div
                   key={key}
-                  className="flex items-center justify-between gap-3"
+                  className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between sm:gap-3"
                 >
                   <span className="text-[12px] font-semibold capitalize text-gray-500">
                     {key.replace(/_/g, " ")}
