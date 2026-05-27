@@ -1,9 +1,12 @@
 import { useMemo, useState, useRef } from "react";
 import {
-  UserCheck,
-  Heart,
+  Activity,
   Download,
+  GraduationCap,
+  Heart,
   Lightbulb,
+  ShieldAlert,
+  UserCheck,
 } from "lucide-react";
 import { useDashboardData } from "../hooks/useDashboardData";
 import { useDistrict } from "../context/DistrictContext";
@@ -15,20 +18,6 @@ import MapPanel from "../components/MapPanel";
 import SharedDistrictSelector from "../components/SharedDistrictSelector";
 import InteractiveRecommendations from "../components/InteractiveRecommendations";
 
-function formatMinutes(value) {
-  const mins = Number(value);
-  if (!Number.isFinite(mins) || mins <= 0) return "—";
-  if (mins < 60) return `${Math.round(mins)} min`;
-  const h = Math.floor(mins / 60);
-  const m = Math.round(mins % 60);
-  return m > 0 ? `${h}h ${m}min` : `${h}h`;
-}
-
-function formatDistanceKm(value) {
-  const km = Number(value);
-  if (!Number.isFinite(km) || km <= 0) return "—";
-  return km < 1 ? `${Math.round(km * 1000)} m` : `${formatNumber(km, 1)} km`;
-}
 import {
   Bar,
   BarChart,
@@ -57,6 +46,22 @@ const WELFARE_SUMMARY_KEYS = [
   "beneficiary_records_under_18",
 ];
 const EMPTY_ROWS = [];
+const DEPARTMENT_METRIC_LABELS = {
+  total_beneficiaries: "Total Beneficiaries",
+  active_programs: "Active Programs",
+  estimated_household_population: "Household Reach",
+  beneficiaries_with_school_access: "School Access",
+  student_enrollment_total: "Student Enrollment",
+  school_age_population_total: "School-Age Population",
+  school_age_population_unenrolled: "School-Age Not Enrolled",
+  beneficiaries_with_health_access: "Health Access",
+  public_facility_access_count: "Public Facility Access",
+  private_facility_access_count: "Private Facility Access",
+  public_hospital_access_count: "Public Hospital Access",
+  private_hospital_access_count: "Private Hospital Access",
+  flood_affected_count: "Flood Affected",
+  flood_affected_pct: "Flood Affected %",
+};
 
 function formatWholeNumber(value) {
   return Number(value || 0).toLocaleString(undefined, {
@@ -173,6 +178,56 @@ function StatCard({ label, value, icon, helper }) {
   );
 }
 
+function DepartmentCard({ item }) {
+  const metricEntries = Object.entries(item?.metrics || {});
+
+  return (
+    <div className="border border-gray-100 rounded p-5 shadow-md bg-white group hover:shadow-lg transition-all active:scale-95">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-gray-400 group-hover:text-gray-500 transition-colors">
+            {(item?.department || "").replace(/_/g, " ")}
+          </p>
+          <h4 className="mt-1 text-[16px] font-extrabold text-black">
+            {item?.label || item?.department || "Department"}
+          </h4>
+        </div>
+        <span className="rounded-full bg-gray-50 px-2.5 py-1 text-[11px] font-bold uppercase tracking-[0.12em] text-gray-500">
+          {metricEntries.length} metrics
+        </span>
+      </div>
+
+      <div className="mt-5 space-y-3">
+        {metricEntries.length > 0 ? (
+          metricEntries.map(([key, value]) => {
+            const label =
+              DEPARTMENT_METRIC_LABELS[key] || key.replace(/_/g, " ");
+            const isPercent = key.endsWith("_pct");
+
+            return (
+              <div
+                key={key}
+                className="flex items-center justify-between gap-3 border-t border-gray-50 pt-3 first:border-t-0 first:pt-0"
+              >
+                <span className="text-[12px] font-semibold text-gray-500">
+                  {label}
+                </span>
+                <span className="text-[14px] font-extrabold text-black">
+                  {formatNumber(value, isPercent ? 1 : 0)}
+                </span>
+              </div>
+            );
+          })
+        ) : (
+          <p className="rounded border border-dashed border-gray-200 bg-gray-50 px-4 py-4 text-sm font-semibold text-gray-500">
+            No department metrics are available for this view.
+          </p>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function WelfarePage() {
   const { selectedDistrict, selectedTa, setSelectedTa } = useDistrict();
   const { contentRef, exportDataPdf } = usePdfExport("Welfare_Report.pdf");
@@ -184,6 +239,8 @@ function WelfarePage() {
   const [taChartSearch, setTaChartSearch] = useState("");
   const [taChartLimit, setTaChartLimit] = useState(12);
   const [taChartSort, setTaChartSort] = useState("beneficiaries_desc");
+  const [riskFilter, setRiskFilter] = useState("all");
+  const [serviceFilter, setServiceFilter] = useState("all");
 
   const baseIntegration = useDashboardData(
     buildDashboardPath("/dashboard/welfare/integration", {
@@ -236,6 +293,10 @@ function WelfarePage() {
   );
   const beneficiaryPreview = useMemo(
     () => integration.data?.beneficiary_preview ?? EMPTY_ROWS,
+    [integration.data],
+  );
+  const departmentSummary = useMemo(
+    () => integration.data?.department_summary ?? EMPTY_ROWS,
     [integration.data],
   );
   const planningPrioritySignals = (planningPriorities.data?.priorities || [])
@@ -462,6 +523,10 @@ function WelfarePage() {
     return byArea.filter((row) => {
       const areaName = String(row.admin_unit_name || "").toLowerCase();
       const districtName = String(row.district_name || "").toLowerCase();
+      const beneficiaryCount = Number(row.beneficiary_count || 0);
+      const schoolAccessCount = Number(row.school_access_count || 0);
+      const healthAccessCount = Number(row.health_access_count || 0);
+      const floodAffectedCount = Number(row.flood_affected_count || 0);
       const searchValue = areaSearch.trim().toLowerCase();
       const matchesSearch =
         !searchValue ||
@@ -471,10 +536,25 @@ function WelfarePage() {
         !selectedTa ||
         String(row.admin_unit_name || "").toLowerCase() ===
           selectedTa.toLowerCase();
+      const matchesRiskFilter =
+        riskFilter === "all" ||
+        (riskFilter === "flood_only" && floodAffectedCount > 0) ||
+        (riskFilter === "clear_only" && floodAffectedCount === 0);
+      const matchesServiceFilter =
+        serviceFilter === "all" ||
+        (serviceFilter === "school_limited" &&
+          schoolAccessCount < beneficiaryCount) ||
+        (serviceFilter === "health_limited" &&
+          healthAccessCount < beneficiaryCount);
 
-      return matchesSearch && matchesTa;
+      return (
+        matchesSearch &&
+        matchesTa &&
+        matchesRiskFilter &&
+        matchesServiceFilter
+      );
     });
-  }, [areaSearch, byArea, selectedTa]);
+  }, [areaSearch, byArea, riskFilter, selectedTa, serviceFilter]);
 
   const filteredBeneficiaryPreview = useMemo(() => {
     return beneficiaryPreview.filter((row) => {
