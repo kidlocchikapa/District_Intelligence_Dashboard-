@@ -2,16 +2,30 @@ import { formatNumber, titleizeMetric } from '../lib/format';
 import EmptyState from './EmptyState';
 
 function DataTable({ rows, columns, title, subtitle }) {
+  const displayTitle = title?.trim() || "Records";
+  const showHeader = Boolean(title?.trim() || subtitle);
+
   if (!rows?.length) {
-    return <EmptyState title={title} description="No tabular records are available for this section yet." />;
+    return (
+      <EmptyState
+        title={displayTitle}
+        description="No tabular records are available for this section yet."
+      />
+    );
   }
 
   return (
     <div className="space-y-4">
-      <div>
-        <h4 className="text-lg font-semibold text-slate">{title}</h4>
-        {subtitle ? <p className="mt-1 text-sm leading-6 text-slate/60">{subtitle}</p> : null}
-      </div>
+      {showHeader ? (
+        <div>
+          {title?.trim() ? (
+            <h4 className="text-lg font-semibold text-slate">{title}</h4>
+          ) : null}
+          {subtitle ? (
+            <p className="mt-1 text-sm leading-6 text-slate/60">{subtitle}</p>
+          ) : null}
+        </div>
+      ) : null}
       <div className="overflow-hidden rounded border border-fog">
         <div className="max-h-[360px] overflow-auto">
           <table className="min-w-full divide-y divide-fog text-sm">
