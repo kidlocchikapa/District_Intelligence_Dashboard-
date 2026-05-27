@@ -234,7 +234,6 @@ function WelfarePage() {
   const mapRef = useRef(null);
   const [adminType, setAdminType] = useState("TA");
   const [areaSearch, setAreaSearch] = useState("");
-  const [beneficiarySearch, setBeneficiarySearch] = useState("");
   const [selectedProgram, setSelectedProgram] = useState("");
   const [taChartSearch, setTaChartSearch] = useState("");
   const [taChartLimit, setTaChartLimit] = useState(12);
@@ -508,7 +507,6 @@ function WelfarePage() {
   const selectTa = (taName) => {
     setSelectedTa(taName || "");
     setAreaSearch("");
-    setBeneficiarySearch("");
   };
 
   const programNamesLabel = (() => {
@@ -556,39 +554,6 @@ function WelfarePage() {
     });
   }, [areaSearch, byArea, riskFilter, selectedTa, serviceFilter]);
 
-  const filteredBeneficiaryPreview = useMemo(() => {
-    return beneficiaryPreview.filter((row) => {
-      const fullName = `${row.firstname || ""} ${row.lastname || ""}`
-        .trim()
-        .toLowerCase();
-      const taName = String(row.ta_name || "").toLowerCase();
-      const districtName = String(row.district_name || "").toLowerCase();
-      const programName = String(row.program_name || "").toLowerCase();
-      const searchValue = beneficiarySearch.trim().toLowerCase();
-      const matchesSearch =
-        !searchValue ||
-        fullName.includes(searchValue) ||
-        taName.includes(searchValue) ||
-        districtName.includes(searchValue) ||
-        programName.includes(searchValue);
-      const matchesTa =
-        !selectedTa || taName === selectedTa.toLowerCase();
-      const matchesProgram =
-        !selectedProgram || programName === selectedProgram.toLowerCase();
-
-      return (
-        matchesSearch &&
-        matchesTa &&
-        matchesProgram
-      );
-    });
-  }, [
-    beneficiaryPreview,
-    beneficiarySearch,
-    selectedProgram,
-    selectedTa,
-  ]);
-
   const areaColumns = [
     {
       key: "admin_unit_name",
@@ -607,26 +572,6 @@ function WelfarePage() {
       key: "estimated_household_population",
       label: "Household Reach",
       digits: 0,
-    },
-  ];
-
-  const beneficiaryColumns = [
-    {
-      key: "beneficiary_name",
-      label: "Beneficiary",
-      render: (_, row) => `${row.firstname || ""} ${row.lastname || ""}`.trim(),
-    },
-    {
-      key: "program_name",
-      label: "Program",
-    },
-    {
-      key: "ta_name",
-      label: "TA",
-    },
-    {
-      key: "district_name",
-      label: "District",
     },
   ];
 
@@ -1054,56 +999,6 @@ function WelfarePage() {
             columns={areaColumns}
             title={selectedTa ? `${selectedTa} Welfare View` : "TA Welfare View"}
             subtitle={`Social welfare beneficiary totals for ${scopeLabel}.`}
-          />
-        </div>
-
-        <div className="mb-10">
-          <div className="mb-5 rounded border border-gray-100 bg-white p-5 shadow-sm">
-            <div className="flex flex-wrap items-center gap-3">
-              <input
-                type="text"
-                value={beneficiarySearch}
-                onChange={(event) => setBeneficiarySearch(event.target.value)}
-                placeholder="Search beneficiary, TA, district, or program"
-                className="w-full flex-1 rounded border border-gray-200 px-3 py-2 text-[13px] font-semibold text-gray-700 outline-none focus:border-black sm:min-w-[240px]"
-              />
-              <select
-                value={selectedProgram}
-                onChange={(event) => setSelectedProgram(event.target.value)}
-                className="w-full rounded border border-gray-200 px-3 py-2 text-[13px] font-bold text-gray-700 sm:w-auto sm:min-w-[210px]"
-              >
-                <option value="">All Programs</option>
-                {programOptions.map((option) => (
-                  <option
-                    key={option.program_id || option.program_name}
-                    value={option.program_name}
-                  >
-                    {option.program_name}
-                  </option>
-                ))}
-              </select>
-              <select
-                value={selectedTa}
-                onChange={(event) => setSelectedTa(event.target.value)}
-                className="w-full rounded border border-gray-200 px-3 py-2 text-[13px] font-bold text-gray-700 sm:w-auto sm:min-w-[180px]"
-              >
-                <option value="">All TAs</option>
-                {taOptions.map((option) => (
-                  <option key={option} value={option}>
-                    {option}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <p className="mt-3 text-[12px] font-semibold text-gray-500">
-              Showing {formatWholeNumber(filteredBeneficiaryPreview.length)} beneficiary preview records for {scopeLabel} after filtering.
-            </p>
-          </div>
-          <DataTable
-            rows={filteredBeneficiaryPreview}
-            columns={beneficiaryColumns}
-            title={selectedTa ? `Beneficiary Preview for ${selectedTa}` : "Beneficiary Preview"}
-            subtitle={`A record-level sample showing welfare program membership and residence for ${scopeLabel}.`}
           />
         </div>
 
