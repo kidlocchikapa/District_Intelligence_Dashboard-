@@ -1,0 +1,36 @@
+{
+  "image": "zomba-zomba-city.health_flood_isolation.preview.20260527T185826Z.png",
+  "bounds": [
+    [
+      -15.684327274999816,
+      35.003983926000046
+    ],
+    [
+      -15.196727879999912,
+      35.853439
+    ]
+  ],
+  "legend": {
+    "label": "% Healthcare Access Lost During Flood",
+    "lowLabel": "Resilient",
+    "highLabel": "High Isolation Risk",
+    "colors": [
+      "#f0f9ff",
+      "#bae6fd",
+      "#7dd3fc",
+      "#38bdf8",
+      "#0284c7",
+      "#1e3a8a",
+      "#ef4444"
+    ]
+  },
+  "render": {
+    "transform": "linear",
+    "surfaceMethod": "idw",
+    "resolutionM": 250.0,
+    "smoothed": true,
+    "maskedToDistrict": true,
+    "clipMax": 2.146233081817627
+  },
+  "geotiff": "zomba-zomba-city.health_flood_isolation.preview.20260527T185826Z.tif"
+}
