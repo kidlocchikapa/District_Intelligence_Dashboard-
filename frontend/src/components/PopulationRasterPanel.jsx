@@ -32,6 +32,64 @@ function MapInstanceCapture({ onReady }) {
   return null;
 }
 
+function formatLegendNumber(value, digits = 1) {
+  const number = Number(value);
+
+  if (!Number.isFinite(number)) {
+    return null;
+  }
+
+  return number.toLocaleString(undefined, {
+    maximumFractionDigits: digits,
+    minimumFractionDigits: Number.isInteger(number) ? 0 : digits,
+  });
+}
+
+function resolveLegendEdgeLabels(metadata, legend) {
+  const render = metadata?.render || {};
+  const labelText = `${legend?.label || ""} ${legend?.lowLabel || ""} ${legend?.highLabel || ""}`.toLowerCase();
+  const unit = String(render.unit || "").toLowerCase();
+  const isTravelTime =
+    unit.includes("minute") ||
+    labelText.includes("travel time") ||
+    labelText.includes("time to");
+  const isDistance =
+    unit === "km" ||
+    unit.includes("kilomet") ||
+    labelText.includes("distance") ||
+    labelText.includes("within");
+
+  if (
+    render.surfaceMethod === "nearest-facility-distance" &&
+    Number.isFinite(Number(render.coverageDistanceKm))
+  ) {
+    const distance = formatLegendNumber(render.coverageDistanceKm);
+    return {
+      low: `>${distance} km`,
+      high: "0 km",
+    };
+  }
+
+  if (isTravelTime && Number.isFinite(Number(render.clipMax))) {
+    return {
+      low: "0 min",
+      high: `${formatLegendNumber(render.clipMax)} min`,
+    };
+  }
+
+  if (isDistance && Number.isFinite(Number(render.clipMax))) {
+    return {
+      low: "0 km",
+      high: `${formatLegendNumber(render.clipMax)} km`,
+    };
+  }
+
+  return {
+    low: legend?.lowLabel || "Low",
+    high: legend?.highLabel || "High",
+  };
+}
+
 function PopulationRasterPanel({
   geojson,
   pointsGeojson,
@@ -423,10 +481,12 @@ function PopulationRasterPanel({
     return `linear-gradient(90deg, ${colors.join(", ")})`;
   }
 
+  const legendEdgeLabels = resolveLegendEdgeLabels(metadata, legend);
+
   const exportLegendItems = [
     legend
       ? {
-          label: legend.label || title || "Raster surface",
+          label: `${legend.label || title || "Raster surface"} (${legendEdgeLabels.low} to ${legendEdgeLabels.high})`,
           color: Array.isArray(legend.colors) && legend.colors.length
             ? legend.colors[Math.floor(legend.colors.length / 2)]
             : "#56ab91",
@@ -733,8 +793,8 @@ function PopulationRasterPanel({
               style={{ background: legendBackground(legend.colors) }}
             />
             <div className="mt-2 flex items-center justify-between text-[10px] font-bold uppercase tracking-[0.12em] text-slate/55">
-              <span>{legend.lowLabel || "Low"}</span>
-              <span>{legend.highLabel || "High"}</span>
+              <span>{legendEdgeLabels.low}</span>
+              <span>{legendEdgeLabels.high}</span>
             </div>
             <div className="mt-3 border-t border-slate-100 pt-2.5">
               <p className="text-[9px] font-bold uppercase tracking-[0.14em] text-slate/45">
