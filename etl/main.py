@@ -72,6 +72,10 @@ LOGGER = logging.getLogger('etl_pipeline')
 DEFAULT_OVERPASS_URL = os.getenv('OVERPASS_API_URL', 'https://overpass-api.de/api/interpreter')
 DEFAULT_OVERPASS_TIMEOUT = int(os.getenv('OVERPASS_TIMEOUT', '180'))
 DEFAULT_OVERPASS_DISTRICTS = os.getenv('OVERPASS_ROADS_DISTRICTS', '')
+HEALTH_ANALYSIS_TYPES = {
+    'health_population_served',
+    'health_service_coverage',
+}
 
 #######     Custom exception class for ETL pipeline errors ########################3
 class ETLPipelineError(Exception):
@@ -117,6 +121,13 @@ def parse_csv_list(value):
     if not value:
         return []
     return [item.strip() for item in str(value).split(',') if item.strip()]
+
+
+def resolve_health_coverage_distance_km(coverage_distance_km, analysis_types=None):
+    selected_types = set(analysis_types or [])
+    if coverage_distance_km == 5.0 and selected_types.intersection(HEALTH_ANALYSIS_TYPES):
+        return DEFAULT_HEALTH_ACCESS_DISTANCE_KM
+    return coverage_distance_km
 
 # Group Zomba and Zomba city as one
 DISTRICT_GROUPS = {
@@ -357,7 +368,7 @@ def process_tabular_dataset(
             session=session,
             analysis_types=['health_population_served'],
             admin_level='District',
-            coverage_distance_km=5.0,
+            coverage_distance_km=DEFAULT_HEALTH_ACCESS_DISTANCE_KM,
             raster_path=resolved_worldpop['raster_path'],
         )
         health_access_rows_loaded += run_step(
@@ -375,7 +386,7 @@ def process_tabular_dataset(
             session=session,
             analysis_types=['health_population_served'],
             admin_level='TA',
-            coverage_distance_km=5.0,
+            coverage_distance_km=DEFAULT_HEALTH_ACCESS_DISTANCE_KM,
             raster_path=resolved_worldpop['raster_path'],
         )
         health_access_rows_loaded += run_step(
@@ -387,15 +398,27 @@ def process_tabular_dataset(
         )
 
     if dataset_type == 'education':
+        education_worldpop = run_step(
+            step_name='education_analysis_resolve_worldpop_raster',
+            user_message_on_error='Could not download/resolve WorldPop raster for education population access analysis.',
+            fn=resolve_worldpop_raster,
+            api_url=api_url,
+            year=year,
+        )
         district_education_df = run_step(
             step_name='education_analysis_compute_district',
             user_message_on_error='Could not compute district-level education analyses.',
             fn=run_spatial_analyses,
             session=session,
-            analysis_types=['education_summary', 'nearest_school_distance', 'school_service_coverage'],
+            analysis_types=[
+                'education_summary',
+                'nearest_school_distance',
+                'school_service_coverage',
+                'school_population_buffer',
+            ],
             admin_level='District',
             coverage_distance_km=5.0,
-            raster_path=None,
+            raster_path=education_worldpop['raster_path'],
         )
         education_analysis_rows_loaded += run_step(
             step_name='education_analysis_load_district',
@@ -410,10 +433,15 @@ def process_tabular_dataset(
             user_message_on_error='Could not compute TA-level education analyses.',
             fn=run_spatial_analyses,
             session=session,
-            analysis_types=['education_summary', 'nearest_school_distance', 'school_service_coverage'],
+            analysis_types=[
+                'education_summary',
+                'nearest_school_distance',
+                'school_service_coverage',
+                'school_population_buffer',
+            ],
             admin_level='TA',
             coverage_distance_km=5.0,
-            raster_path=None,
+            raster_path=education_worldpop['raster_path'],
         )
         education_analysis_rows_loaded += run_step(
             step_name='education_analysis_load_ta',
@@ -718,13 +746,21 @@ def process_analysis_dataset(
 ):
     started_at = datetime.utcnow()
     selected_analysis_types = set(analysis_types or ANALYSIS_TYPES)
+    coverage_distance_km = resolve_health_coverage_distance_km(
+        coverage_distance_km,
+        selected_analysis_types,
+    )
     resolved_worldpop = None
     log_step('analysis_pipeline', f'analysis_types={sorted(selected_analysis_types)}, admin_level={admin_level}')
 
-    if 'health_population_served' in selected_analysis_types and not raster_path:
+    if (
+        ('health_population_served' in selected_analysis_types
+         or 'school_population_buffer' in selected_analysis_types)
+        and not raster_path
+    ):
         resolved_worldpop = run_step(
             step_name='analysis_resolve_worldpop_raster',
-            user_message_on_error='Could not download/resolve WorldPop raster for health population served analysis.',
+            user_message_on_error='Could not download/resolve WorldPop raster for population access analysis.',
             fn=resolve_worldpop_raster,
             api_url=api_url,
             year=year,
@@ -985,6 +1021,10 @@ def main():
                 child_class_max=args.child_class_max,
             )
         elif args.type == 'analysis':
+            effective_coverage_distance_km = resolve_health_coverage_distance_km(
+                args.coverage_distance_km,
+                args.analysis_type,
+            )
             result = run_step(
                 step_name='dispatch_analysis_pipeline',
                 user_message_on_error='Spatial analysis pipeline failed. Verify analysis options and input data.',
@@ -992,7 +1032,7 @@ def main():
                 session=session,
                 analysis_types=args.analysis_type,
                 admin_level=args.admin_level,
-                coverage_distance_km=args.coverage_distance_km,
+                coverage_distance_km=effective_coverage_distance_km,
                 raster_path=args.file,
                 api_url=args.api_url,
                 year=args.worldpop_year,
