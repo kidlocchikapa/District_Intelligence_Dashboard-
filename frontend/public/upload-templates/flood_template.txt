@@ -1,0 +1,9 @@
+﻿Flood upload expects a raster GeoTIFF file (.tif or .tiff).
+
+Recommended minimum structure:
+- Single-band raster with flood hazard/intensity values.
+- Valid georeferencing (CRS and transform).
+- Raster extent covering the target district area.
+
+You can use this filename convention:
+flood_impact_<district>.tif
