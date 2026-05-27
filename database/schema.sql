@@ -80,7 +80,9 @@ CREATE TABLE IF NOT EXISTS education_facilities (
     ta_id INTEGER REFERENCES admin3_units(id),
     district_id INTEGER REFERENCES districts(id),
     geom GEOMETRY(Point, 4326) NOT NULL,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    is_active BOOLEAN NOT NULL DEFAULT TRUE,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
 ALTER TABLE IF EXISTS education_facilities DROP CONSTRAINT IF EXISTS education_facilities_osm_id_key;
@@ -110,7 +112,9 @@ CREATE TABLE IF NOT EXISTS health_facilities (
     ta_id INTEGER REFERENCES admin3_units(id),
     district_id INTEGER REFERENCES districts(id),
     geom GEOMETRY(Point, 4326),
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    is_active BOOLEAN NOT NULL DEFAULT TRUE,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
 ALTER TABLE IF EXISTS health_facilities DROP CONSTRAINT IF EXISTS health_facilities_osm_id_key;
@@ -134,7 +138,9 @@ CREATE TABLE IF NOT EXISTS welfare_beneficiaries (
     beneficiary_count INTEGER,
     ta_id INTEGER REFERENCES admin3_units(id),
     geom GEOMETRY(Point, 4326), -- Approximate location or center of cluster
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    is_active BOOLEAN NOT NULL DEFAULT TRUE,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
 -- Welfare Programs
@@ -179,6 +185,18 @@ CREATE TABLE IF NOT EXISTS welfare_beneficiary_indicators (
     affected_by_flood BOOLEAN DEFAULT FALSE,
     has_school_access BOOLEAN DEFAULT FALSE,
     has_health_facility_access BOOLEAN DEFAULT FALSE,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Disaster zones maintained from admin stewardship edits
+CREATE TABLE IF NOT EXISTS disaster_zones (
+    id SERIAL PRIMARY KEY,
+    event_type VARCHAR(120),
+    risk_level VARCHAR(60),
+    population_at_risk INTEGER,
+    geom GEOMETRY(MultiPolygon, 4326),
+    is_active BOOLEAN NOT NULL DEFAULT TRUE,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
@@ -300,8 +318,6 @@ CREATE TABLE IF NOT EXISTS flood_facility_exposure_summary (
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     UNIQUE (analysis_date, district_id, ta_id, facility_type)
 );
-
-DROP TABLE IF EXISTS disaster_zones;
 
 -- Master Gazetteer used to normalize district / ward / village names across sources
 CREATE TABLE IF NOT EXISTS master_gazetteer (
@@ -441,7 +457,9 @@ CREATE INDEX IF NOT EXISTS idx_edu_facilities_geom ON education_facilities USING
 CREATE INDEX IF NOT EXISTS idx_edu_facilities_district_id ON education_facilities(district_id);
 CREATE INDEX IF NOT EXISTS idx_health_facilities_geom ON health_facilities USING GIST(geom);
 CREATE INDEX IF NOT EXISTS idx_health_facilities_district_id ON health_facilities(district_id);
+CREATE INDEX IF NOT EXISTS idx_health_facilities_is_active ON health_facilities(is_active);
 CREATE INDEX IF NOT EXISTS idx_welfare_geom ON welfare_beneficiaries USING GIST(geom);
+CREATE INDEX IF NOT EXISTS idx_welfare_is_active ON welfare_beneficiaries(is_active);
 CREATE INDEX IF NOT EXISTS idx_welfare_beneficiary_geom ON welfare_beneficiary USING GIST(geom);
 CREATE INDEX IF NOT EXISTS idx_welfare_beneficiary_program_id ON welfare_beneficiary(program_id);
 CREATE INDEX IF NOT EXISTS idx_welfare_beneficiary_district_id ON welfare_beneficiary(district_id);
@@ -464,6 +482,8 @@ CREATE INDEX IF NOT EXISTS idx_worldpop_age_sex_lookup ON worldpop_age_sex(admin
 CREATE INDEX IF NOT EXISTS idx_analysis_results_lookup ON analysis_results(analysis_type, metric_name, admin_unit_id);
 CREATE INDEX IF NOT EXISTS idx_analysis_results_geom ON analysis_results USING GIST(geom);
 CREATE INDEX IF NOT EXISTS idx_admin_data_edits_lookup ON admin_data_edits(table_name, record_id, changed_at DESC);
+CREATE INDEX IF NOT EXISTS idx_edu_facilities_is_active ON education_facilities(is_active);
+CREATE INDEX IF NOT EXISTS idx_disaster_zones_is_active ON disaster_zones(is_active);
 
 -- Compatibility indexes for environments that may have legacy/newer table variants.
 DO $$
