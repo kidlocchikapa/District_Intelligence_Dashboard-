@@ -214,10 +214,10 @@ function DistrictBoundaryMap({
                     y={labelPosition.y}
                     textAnchor="middle"
                     dominantBaseline="middle"
-                    fill="#ffffff"
-                    stroke="#1f2937"
-                    strokeWidth={1.8}
-                    paintOrder="stroke"
+                    fill={isSelected ? "#ffffff" : "#111827"}
+                    stroke={isSelected ? "#1f2937" : "none"}
+                    strokeWidth={isSelected ? 1.8 : 0}
+                    paintOrder={isSelected ? "stroke" : undefined}
                     className="pointer-events-none select-none text-[13px] font-extrabold"
                   >
                     {name.replace(/^Ta\s+/i, "TA ")}
