@@ -91,6 +91,20 @@ def normalize_welfare_beneficiary(df):
         working['status'] = working['status'].astype(str).str.strip().str.lower()
         working['status'] = working['status'].replace({'': pd.NA, 'nan': pd.NA, '<na>': pd.NA})
 
+    if 'longitude' not in working.columns:
+        working['longitude'] = pd.NA
+    if 'latitude' not in working.columns:
+        working['latitude'] = pd.NA
+    if 'center_long' not in working.columns:
+        working['center_long'] = pd.NA
+    if 'center_lat' not in working.columns:
+        working['center_lat'] = pd.NA
+
+    working['longitude'] = working['longitude'].fillna(working['center_long'])
+    working['latitude'] = working['latitude'].fillna(working['center_lat'])
+    working['center_long'] = working['center_long'].fillna(working['longitude'])
+    working['center_lat'] = working['center_lat'].fillna(working['latitude'])
+
     return working
 
 # Indicator computation
