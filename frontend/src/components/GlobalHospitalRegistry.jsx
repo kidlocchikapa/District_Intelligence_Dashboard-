@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useMemo, useState } from "react";
 import {
   Search,
   AlertCircle,
@@ -51,10 +51,11 @@ function GlobalHospitalRegistry({ data, loading }) {
   const [wardFilter, setWardFilter] = useState("");
   const [statusFilter, setStatusFilter] = useState("all"); // all, underserved, high_demand
 
-  useEffect(() => {
+  function handleScopeChange(nextScope) {
+    setRegistryScope(nextScope);
     setTypeFilter("");
     setWardFilter("");
-  }, [registryScope]);
+  }
 
   const facilities = useMemo(() => {
     if (!data?.features) return [];
@@ -153,9 +154,9 @@ function GlobalHospitalRegistry({ data, loading }) {
 
   if (loading) {
     return (
-      <div className="mt-10 border border-gray-100 rounded p-8 shadow-sm bg-white animate-pulse">
+      <div className="mt-10 rounded border border-gray-100 bg-white p-4 shadow-sm animate-pulse sm:p-6 lg:p-8">
         <div className="h-8 w-64 bg-gray-200 rounded mb-8" />
-        <div className="flex gap-4 mb-10">
+        <div className="mb-10 flex flex-col gap-4 sm:flex-row">
           <div className="h-10 w-full max-w-sm bg-gray-100 rounded" />
           <div className="h-10 w-40 bg-gray-100 rounded" />
           <div className="h-10 w-40 bg-gray-100 rounded" />
@@ -170,8 +171,8 @@ function GlobalHospitalRegistry({ data, loading }) {
   }
 
   return (
-    <div className="mt-10 border border-gray-100 rounded p-8 shadow-sm bg-white group transition-all duration-300">
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-6 mb-6">
+    <div className="group mt-10 rounded border border-gray-100 bg-white p-4 shadow-sm transition-all duration-300 sm:p-6 lg:p-8">
+      <div className="mb-6 flex flex-col justify-between gap-4 md:flex-row md:items-center md:gap-6">
         <div>
           <h3 className="text-[18px] font-extrabold tracking-tight text-black flex items-center gap-3">
             <Building2 className="h-5 w-5" />
@@ -182,7 +183,7 @@ function GlobalHospitalRegistry({ data, loading }) {
             {districtCount} districts.
           </p>
         </div>
-        <div className="text-right">
+        <div className="text-left md:text-right">
           <p className="text-[11px] font-black uppercase tracking-wider text-gray-400">
             {filteredFacilities.length} Result
             {filteredFacilities.length !== 1 ? "s" : ""}
@@ -194,7 +195,7 @@ function GlobalHospitalRegistry({ data, loading }) {
         </div>
       </div>
 
-      <div className="mb-5 inline-flex rounded border border-gray-100 overflow-hidden">
+      <div className="mb-5 flex w-full overflow-x-auto rounded border border-gray-100 sm:inline-flex sm:w-auto">
         {[
           { id: "providers", label: "All Providers", icon: Stethoscope },
           { id: "hospitals", label: "Hospitals Only", icon: Building2 },
@@ -205,8 +206,8 @@ function GlobalHospitalRegistry({ data, loading }) {
             <button
               key={scope.id}
               type="button"
-              onClick={() => setRegistryScope(scope.id)}
-              className={`px-4 py-2 text-[11px] font-black uppercase tracking-wider transition-all flex items-center gap-2 border-r border-gray-100 last:border-r-0 ${
+              onClick={() => handleScopeChange(scope.id)}
+              className={`flex shrink-0 items-center gap-2 border-r border-gray-100 px-4 py-2 text-[11px] font-black uppercase tracking-wider transition-all last:border-r-0 ${
                 isActive
                   ? "bg-black text-white"
                   : "bg-white text-gray-500 hover:bg-gray-50"
@@ -219,7 +220,7 @@ function GlobalHospitalRegistry({ data, loading }) {
         })}
       </div>
 
-      <div className="flex flex-col xl:flex-row gap-4 mb-8">
+      <div className="mb-8 flex flex-col gap-4 xl:flex-row">
         <div className="relative flex-1 group">
           <Search className="absolute left-4 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
           <input
@@ -243,10 +244,10 @@ function GlobalHospitalRegistry({ data, loading }) {
           )}
         </div>
 
-        <div className="flex flex-wrap items-center gap-3">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:flex xl:flex-wrap xl:items-center">
           <div className="relative">
             <select
-              className="bg-black text-white rounded px-5 py-2 text-[13px] font-bold appearance-none cursor-pointer min-w-[140px]"
+              className="w-full cursor-pointer appearance-none rounded bg-black px-5 py-2 text-[13px] font-bold text-white sm:min-w-[140px]"
               value={districtFilter}
               onChange={(event) => setDistrictFilter(event.target.value)}
             >
@@ -261,7 +262,7 @@ function GlobalHospitalRegistry({ data, loading }) {
 
           <div className="relative">
             <select
-              className="bg-black text-white rounded px-5 py-2 text-[13px] font-bold appearance-none cursor-pointer min-w-[140px]"
+              className="w-full cursor-pointer appearance-none rounded bg-black px-5 py-2 text-[13px] font-bold text-white sm:min-w-[140px]"
               value={typeFilter}
               onChange={(event) => setTypeFilter(event.target.value)}
             >
@@ -276,7 +277,7 @@ function GlobalHospitalRegistry({ data, loading }) {
 
           <div className="relative">
             <select
-              className="bg-black text-white rounded px-5 py-2 text-[13px] font-bold appearance-none cursor-pointer min-w-[140px]"
+              className="w-full cursor-pointer appearance-none rounded bg-black px-5 py-2 text-[13px] font-bold text-white sm:min-w-[140px]"
               value={wardFilter}
               onChange={(event) => setWardFilter(event.target.value)}
             >
@@ -289,7 +290,7 @@ function GlobalHospitalRegistry({ data, loading }) {
             </select>
           </div>
 
-          <div className="flex border border-gray-100 rounded overflow-hidden">
+          <div className="flex overflow-x-auto rounded border border-gray-100 sm:col-span-2 xl:col-span-1">
             {[
               { id: "all", label: "All" },
               { id: "underserved", label: "Underserved" },
@@ -298,7 +299,7 @@ function GlobalHospitalRegistry({ data, loading }) {
               <button
                 key={status.id}
                 onClick={() => setStatusFilter(status.id)}
-                className={`px-4 py-2.5 text-[11px] font-black uppercase tracking-wider transition-all border-r border-gray-100 last:border-r-0 ${
+                className={`shrink-0 border-r border-gray-100 px-4 py-2.5 text-[11px] font-black uppercase tracking-wider transition-all last:border-r-0 ${
                   statusFilter === status.id
                     ? "bg-black text-white"
                     : "bg-white text-gray-500 hover:bg-gray-50"
@@ -311,9 +312,9 @@ function GlobalHospitalRegistry({ data, loading }) {
         </div>
       </div>
 
-      <div className="overflow-hidden border border-gray-100 rounded bg-white flex flex-col max-h-[600px]">
+      <div className="flex max-h-[520px] flex-col overflow-hidden rounded border border-gray-100 bg-white sm:max-h-[600px]">
         <div className="overflow-x-auto custom-scrollbar">
-          <table className="w-full text-left border-collapse">
+          <table className="min-w-[780px] w-full border-collapse text-left">
             <thead className="sticky top-0 z-10 bg-gray-50 border-b border-gray-100">
               <tr>
                 <th className="px-6 py-4 text-[12px] font-bold text-gray-500 text-left">

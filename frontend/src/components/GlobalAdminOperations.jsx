@@ -138,7 +138,7 @@ export default function GlobalAdminOperations({ onJobQueued, onStatus }) {
   }
 
   return (
-    <div className="grid h-full grid-cols-1 gap-8 overflow-auto pb-8 lg:grid-cols-2">
+    <div className="grid h-full grid-cols-1 gap-5 overflow-auto pb-8 lg:grid-cols-2 lg:gap-8">
       <Panel
         title="Administrative Boundaries"
         subtitle="Upload district, TA, or village boundary shapefiles (SHP, GeoJSON, ZIP)."
@@ -176,7 +176,7 @@ export default function GlobalAdminOperations({ onJobQueued, onStatus }) {
             type="button"
             disabled={busy}
             onClick={() => handleWorldPopSync("wpgppop")}
-            className="flex items-center justify-between rounded-2xl border border-slate-100 p-4 text-left hover:bg-slate-50 disabled:opacity-60"
+            className="flex items-center justify-between gap-3 rounded-2xl border border-slate-100 p-4 text-left hover:bg-slate-50 disabled:opacity-60"
           >
             <div>
               <div className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-widest text-emerald-600">
@@ -193,7 +193,7 @@ export default function GlobalAdminOperations({ onJobQueued, onStatus }) {
             type="button"
             disabled={busy}
             onClick={() => handleWorldPopSync("wpgpas")}
-            className="flex items-center justify-between rounded-2xl border border-slate-100 p-4 text-left hover:bg-slate-50 disabled:opacity-60"
+            className="flex items-center justify-between gap-3 rounded-2xl border border-slate-100 p-4 text-left hover:bg-slate-50 disabled:opacity-60"
           >
             <div>
               <div className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-widest text-emerald-600">
@@ -210,7 +210,7 @@ export default function GlobalAdminOperations({ onJobQueued, onStatus }) {
             type="button"
             disabled={busy}
             onClick={() => handleRunTask("roads_overpass_sync")}
-            className="flex items-center justify-between rounded-2xl border border-slate-100 p-4 text-left hover:bg-slate-50 disabled:opacity-60"
+            className="flex items-center justify-between gap-3 rounded-2xl border border-slate-100 p-4 text-left hover:bg-slate-50 disabled:opacity-60"
           >
             <div>
               <div className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-widest text-sky-600">
@@ -231,7 +231,7 @@ export default function GlobalAdminOperations({ onJobQueued, onStatus }) {
         surface="solid"
         className="lg:col-span-2"
       >
-        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
           {GLOBAL_TASKS.map((task) => (
             <div
               key={task.key}

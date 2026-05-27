@@ -14,7 +14,11 @@ import {
   ShieldAlert,
   Lightbulb,
 } from "lucide-react";
+<<<<<<< HEAD
 import { useEffect, useMemo, useState } from "react";
+=======
+import { useMemo, useState, useRef } from "react";
+>>>>>>> bf09a442cafeaa1ce5c2b826218b7b36401d51a4
 import DataTable from "../components/DataTable";
 import { useDashboardData } from "../hooks/useDashboardData";
 import { useDistrict } from "../context/DistrictContext";
@@ -347,6 +351,7 @@ function EducationPage() {
   });
   const [schoolRiskPreview, setSchoolRiskPreview] = useState(null);
   const { contentRef, exportDataPdf } = usePdfExport("Education_Report.pdf");
+  const mapRef = useRef(null);
   const activeEducationRasterLayer =
     EDUCATION_RASTER_LAYERS.find(
       (layer) => layer.key === activeEducationRasterKey,
@@ -357,7 +362,7 @@ function EducationPage() {
     buildDashboardPath("/dashboard/education/summary", {
       district: selectedDistrict,
       ta: selectedTa,
-      admin_type: "District",
+      admin_type: selectedTa ? "TA" : "District",
     }),
   );
   const schoolLocations = useDashboardData(
@@ -374,7 +379,8 @@ function EducationPage() {
   const educationIntegration = useDashboardData(
     buildDashboardPath("/dashboard/welfare/integration", {
       district: selectedDistrict,
-      admin_type: "District",
+      ta: selectedTa,
+      admin_type: selectedTa ? "TA" : "District",
     }),
   );
   const educationRasterMetadata = useDashboardData(
@@ -445,7 +451,7 @@ function EducationPage() {
   };
 
   const handleDownloadReport = async () => {
-    const selectedInsightRow = selectedInsight || {};
+    const selectedInsightRow = selectedTa ? selectedInsight || {} : {};
     const rows = [
       {
         metric: "Total Schools",
@@ -533,6 +539,7 @@ function EducationPage() {
                 ],
         },
       ],
+      mapNode: mapRef.current?.querySelector("[data-map-export]"),
     });
   };
 
@@ -581,6 +588,7 @@ function EducationPage() {
     isSelected: selectedTa
       ? normalizeTaName(row.admin_unit_name) === normalizeTaName(selectedTa)
       : selectedDistrict
+<<<<<<< HEAD
         ? row.district.toLowerCase() === selectedDistrict.toLowerCase()
         : false,
   }));
@@ -588,6 +596,29 @@ function EducationPage() {
     selectedTa || selectedDistrict
       ? chartRows.filter((row) => row.isSelected)
       : [];
+=======
+        ? insightRows[0] || null
+        : null;
+  const districtSchoolCount = insightRows.reduce(
+    (sum, row) => sum + Number(row.school_count || 0),
+    0,
+  );
+  const chartRows = sourceInsightRows.map(
+    (row) => ({
+      ...row,
+      z: Math.max(Number(row.school_age_population_total || 0), 1),
+      fill: getInsightColor(row.insight_label),
+      isSelected: selectedTa
+        ? normalizeTaName(row.admin_unit_name) === normalizeTaName(selectedTa)
+        : selectedDistrict
+          ? row.district.toLowerCase() === selectedDistrict.toLowerCase()
+          : false,
+    }),
+  );
+  const highlightedRows = selectedTa || selectedDistrict
+    ? chartRows.filter((row) => row.isSelected)
+    : [];
+>>>>>>> bf09a442cafeaa1ce5c2b826218b7b36401d51a4
 
   const pressureByTaId = useMemo(() => {
     const lookup = new Map();
@@ -1000,9 +1031,11 @@ function EducationPage() {
                 {
                   label: "Total Schools",
                   value: formatStat(
-                    selectedInsight?.school_count ||
-                      educationSummary.data?.school_count ||
-                      0,
+                    selectedTa
+                      ? selectedInsight?.school_count || 0
+                      : districtSchoolCount ||
+                          educationSummary.data?.school_count ||
+                          0,
                   ),
                   icon: School,
                 },
@@ -1146,7 +1179,7 @@ function EducationPage() {
           )}
         </div>
 
-        <div className="grid grid-cols-1 xl:grid-cols-[1.55fr_0.75fr] gap-8 mb-10">
+        <div className="grid grid-cols-1 gap-5 xl:grid-cols-[1.55fr_0.75fr] xl:gap-8 mb-10">
           {districtInsights.loading ? (
             <>
               <div className="h-[620px] animate-pulse rounded border border-gray-100 bg-gray-50" />
@@ -1155,7 +1188,7 @@ function EducationPage() {
           ) : (
             <>
               <div className="space-y-8">
-                <div className="border border-gray-100 rounded p-8 shadow-sm bg-white">
+                <div className="rounded border border-gray-100 bg-white p-4 shadow-sm sm:p-6 lg:p-8">
                   <div className="mb-6 flex items-start justify-between gap-4">
                     <div>
                       <h3 className="text-[16px] font-extrabold">
@@ -1188,7 +1221,7 @@ function EducationPage() {
                     </div>
                   </div>
 
-                  <div className="h-[250px]">
+                  <div className="h-[220px] sm:h-[250px]">
                     <ResponsiveContainer width="100%" height="100%">
                       <ScatterChart
                         margin={{ top: 16, right: 18, left: 8, bottom: 24 }}
@@ -1280,8 +1313,8 @@ function EducationPage() {
                   </div>
                 </div>
 
-                <div className="border border-gray-100 rounded p-8 shadow-sm bg-white">
-                  <div className="h-[250px]">
+                <div className="rounded border border-gray-100 bg-white p-4 shadow-sm sm:p-6 lg:p-8">
+                  <div className="h-[220px] sm:h-[250px]">
                     <ResponsiveContainer width="100%" height="100%">
                       <PieChart>
                         <Pie
@@ -1333,7 +1366,7 @@ function EducationPage() {
                 </div>
               </div>
 
-              <div className="border border-gray-100 rounded p-8 shadow-sm bg-white">
+              <div className="rounded border border-gray-100 bg-white p-4 shadow-sm sm:p-6 lg:p-8">
                 <h3 className="text-[16px] font-extrabold">Signal Board</h3>
                 <p className="mt-2 text-sm leading-6 text-gray-500">
                   The strongest flagged TAs from the current benchmark.
@@ -1411,9 +1444,9 @@ function EducationPage() {
           )}
         </div>
 
-        <div className="grid grid-cols-1 xl:grid-cols-2 gap-8">
+        <div className="grid grid-cols-1 gap-5 xl:grid-cols-2 xl:gap-8">
           {/* ── School Infrastructure Map ─────────────────────────── */}
-          <div className="border border-gray-100 rounded p-8 shadow-sm bg-white h-[600px] flex flex-col">
+          <div className="rounded border border-gray-100 bg-white p-4 shadow-sm sm:p-6 lg:p-8 min-h-[420px] h-[70vh] max-h-[600px] flex flex-col">
             <h3 className="text-[16px] font-extrabold">
               School Infrastructure Mapping
             </h3>
@@ -1463,7 +1496,7 @@ function EducationPage() {
               </button>
             </div>
 
-            <div className="flex-1 rounded overflow-hidden relative border border-gray-50 bg-gray-50">
+            <div ref={mapRef} className="flex-1 rounded overflow-hidden relative border border-gray-50 bg-gray-50">
               {schoolLocations.loading ? (
                 <div className="absolute inset-0 flex items-center justify-center animate-pulse">
                   <span className="text-gray-400 font-bold uppercase tracking-widest">
@@ -1473,6 +1506,9 @@ function EducationPage() {
               ) : (
                 <MapPanel
                   geojson={schoolLocationsForMap}
+                  exportTitle="School Locations and Risk"
+                  exportSubtitle="School points coloured by classroom and teacher pressure."
+                  pointExportLabel="Schools"
                   loading={schoolLocations.loading}
                   pointColor={SCHOOL_RISK_COLORS["OK"]}
                   pointColorResolver={(feature) =>
@@ -1498,7 +1534,7 @@ function EducationPage() {
           </div>
 
           {/* ── At-Risk Schools Table ─────────────────────────────── */}
-          <div className="border border-gray-100 rounded p-8 shadow-sm bg-white h-[600px] flex flex-col">
+          <div className="rounded border border-gray-100 bg-white p-4 shadow-sm sm:p-6 lg:p-8 min-h-[420px] h-[70vh] max-h-[600px] flex flex-col">
             <div className="flex items-start justify-between gap-4 mb-1">
               <div>
                 <h3 className="text-[16px] font-extrabold flex items-center gap-2">
@@ -1751,9 +1787,9 @@ function EducationPage() {
           </div>
         </div>
 
-        <div className="mt-8 border border-gray-100 rounded p-8 shadow-sm bg-white">
+        <div className="mt-8 rounded border border-gray-100 bg-white p-4 shadow-sm sm:p-6 lg:p-8">
           {districtInsights.loading ? (
-            <div className="h-[280px] w-full animate-pulse rounded bg-gray-50" />
+            <div className="h-[240px] sm:h-[280px] w-full animate-pulse rounded bg-gray-50" />
           ) : (
             <DataTable
               title={
@@ -1809,7 +1845,10 @@ function PlanningRecommendations({
   planningPriorities,
 }) {
   const [metricPreview, setMetricPreview] = useState(null);
+<<<<<<< HEAD
   const thresholds = districtInsights.data?.thresholds || {};
+=======
+>>>>>>> bf09a442cafeaa1ce5c2b826218b7b36401d51a4
   const allRows = useMemo(
     () =>
       districtInsights.data?.all_districts ??
@@ -1978,6 +2017,7 @@ function PlanningRecommendations({
     });
   }
 
+<<<<<<< HEAD
   const priorityLedRecommendations = rankedPriorities
     .slice(0, 2)
     .map((row, index) => ({
@@ -1997,6 +2037,15 @@ function PlanningRecommendations({
         row.recommended_actions?.[0] ||
         "Prioritise the top-ranked TA in the next education planning cycle",
     }));
+=======
+  const priorityLedRecommendations = rankedPriorities.slice(0, 2).map((row, index) => ({
+    priority: index === 0 ? "high" : row.priority_band === "Critical" || row.priority_band === "High" ? "high" : "medium",
+    icon: row.education_vulnerability_score >= row.health_vulnerability_score ? School : ShieldAlert,
+    title: `Start education support in ${row.admin_unit_name}`,
+    body: `This area has a high education need score of ${formatNumber(row.education_vulnerability_score, 1)} and may also be hard to reach during floods. It should be reviewed first for classrooms, teachers, school supplies, or learner support.`,
+    action: row.recommended_actions?.[0] || "Use this TA as the first place to review for the next education plan",
+  }));
+>>>>>>> bf09a442cafeaa1ce5c2b826218b7b36401d51a4
 
   const recommendations = [
     ...priorityLedRecommendations,
@@ -2004,30 +2053,35 @@ function PlanningRecommendations({
     infraGapTAs.length > 0 && {
       priority: "high",
       icon: School,
-      title: "New School Construction Needed",
-      body: `${infraGapTAs.length} TA${infraGapTAs.length > 1 ? "s" : ""} fall below the minimum school density threshold of ${formatNumber(thresholds.schools_per_10k_low, 1)} schools per 10,000 residents.${worstInfra ? ` ${worstInfra.admin_unit_name} is the most underserved at ${formatNumber(worstInfra.schools_per_10k, 1)} schools/10k with a population of ${formatNumber(worstInfra.population_total, 0)}.` : ""} Prioritise capital investment in these areas.`,
-      action: "Target capital budget for school construction in flagged TAs",
+      title: "Some Areas Need More Schools",
+      body: `${infraGapTAs.length} TA${infraGapTAs.length > 1 ? "s have" : " has"} too few schools for the number of people living there.${worstInfra ? ` ${worstInfra.admin_unit_name} has the lowest school coverage, with ${formatNumber(worstInfra.schools_per_10k, 1)} schools for every 10,000 people.` : ""} These areas should be checked first for new schools or added classrooms.`,
+      action: "Review the flagged TAs first when planning school construction funds",
       metricLinks: [
         {
           id: "infra-gap-ta-count",
-          label: "Infrastructure-Gap TAs",
+          label: "Areas Short of Schools",
           value: formatNumber(infraGapTAs.length, 0),
           onClick: () =>
             openMetricPreview({
-              title: "Infrastructure-Gap TA List",
+              title: "Areas Short of Schools",
               rows: infraGapPreviewRows,
               columns: taRowColumns,
             }),
         },
         {
           id: "worst-schools-density",
+<<<<<<< HEAD
           label: "Lowest Schools/10k",
           value: worstInfra
             ? formatNumber(worstInfra.schools_per_10k, 1)
             : "N/A",
+=======
+          label: "Lowest School Coverage",
+          value: worstInfra ? formatNumber(worstInfra.schools_per_10k, 1) : "N/A",
+>>>>>>> bf09a442cafeaa1ce5c2b826218b7b36401d51a4
           onClick: () =>
             openMetricPreview({
-              title: "Infrastructure-Gap TA List",
+              title: "Areas Short of Schools",
               rows: infraGapPreviewRows,
               columns: taRowColumns,
             }),
@@ -2038,30 +2092,35 @@ function PlanningRecommendations({
     overcrowdingTAs.length > 0 && {
       priority: "high",
       icon: Users,
-      title: "Classroom Expansion Required",
-      body: `${overcrowdingTAs.length} TA${overcrowdingTAs.length > 1 ? "s" : ""} exceed the overcrowding threshold of ${formatNumber(thresholds.students_per_school_high, 0)} students per school.${worstCrowd ? ` ${worstCrowd.admin_unit_name} averages ${formatNumber(worstCrowd.students_per_school, 0)} students per school.` : ""} Additional classrooms or satellite schools are needed to reduce pressure.`,
-      action: "Commission classroom block additions in overcrowded TAs",
+      title: "Some Schools Are Too Crowded",
+      body: `${overcrowdingTAs.length} TA${overcrowdingTAs.length > 1 ? "s have" : " has"} too many learners for the available schools.${worstCrowd ? ` ${worstCrowd.admin_unit_name} averages about ${formatNumber(worstCrowd.students_per_school, 0)} learners per school.` : ""} These areas may need more classrooms, extra school blocks, or nearby satellite schools.`,
+      action: "Plan extra classrooms first in the most crowded TAs",
       metricLinks: [
         {
           id: "overcrowding-ta-count",
-          label: "Overcrowding TAs",
+          label: "Crowded TAs",
           value: formatNumber(overcrowdingTAs.length, 0),
           onClick: () =>
             openMetricPreview({
-              title: "Overcrowding TA List",
+              title: "Crowded TAs",
               rows: overcrowdingPreviewRows,
               columns: taRowColumns,
             }),
         },
         {
           id: "worst-overcrowding-value",
+<<<<<<< HEAD
           label: "Worst Students/School",
           value: worstCrowd
             ? formatNumber(worstCrowd.students_per_school, 0)
             : "N/A",
+=======
+          label: "Most Crowded",
+          value: worstCrowd ? formatNumber(worstCrowd.students_per_school, 0) : "N/A",
+>>>>>>> bf09a442cafeaa1ce5c2b826218b7b36401d51a4
           onClick: () =>
             openMetricPreview({
-              title: "Overcrowding TA List",
+              title: "Crowded TAs",
               rows: overcrowdingPreviewRows,
               columns: taRowColumns,
             }),
@@ -2069,6 +2128,7 @@ function PlanningRecommendations({
       ],
     },
     // 3 - Teacher ratio
+<<<<<<< HEAD
     teacherRatio !== null &&
       teacherRatio > 60 && {
         priority: "high",
@@ -2102,22 +2162,61 @@ function PlanningRecommendations({
           },
         ],
       },
+=======
+    teacherRatio !== null && teacherRatio > 60 && {
+      priority: "high",
+      icon: BookOpen,
+      title: "More Teachers Are Needed",
+      body: `There is about 1 teacher for every ${teacherRatio} learners. This can make classes hard to manage and reduce learning quality. The busiest schools should receive extra teachers first.`,
+      action: "Send new or reassigned teachers to the schools with the biggest classes first",
+      metricLinks: [
+        {
+          id: "teacher-ratio",
+          label: "Teacher Ratio",
+          value: `1:${formatNumber(teacherRatio, 0)}`,
+          onClick: () =>
+            openMetricPreview({
+              title: "Education Workforce Summary",
+              rows: summaryRows,
+              columns: summaryColumns,
+            }),
+        },
+        {
+          id: "teacher-total",
+          label: "Total Teachers",
+          value: formatNumber(teacherTotal, 0),
+          onClick: () =>
+            openMetricPreview({
+              title: "Education Workforce Summary",
+              rows: summaryRows,
+              columns: summaryColumns,
+            }),
+        },
+      ],
+    },
+>>>>>>> bf09a442cafeaa1ce5c2b826218b7b36401d51a4
     // 4 - Underutilized schools
     underutilizedTAs.length > 0 && {
       priority: "medium",
       icon: TrendingUp,
+<<<<<<< HEAD
       title: "Optimise Underutilised School Capacity",
       body: `${underutilizedTAs.length} TA${underutilizedTAs.length > 1 ? "s" : ""} have schools operating well below capacity. Before building new schools, consider redistribution of students from overcrowded neighbouring TAs or repurposing spare capacity for adult literacy or vocational programmes.`,
       action:
         "Map underutilised schools against overcrowded neighbours for redistribution planning",
+=======
+      title: "Some Schools Have Space Available",
+      body: `${underutilizedTAs.length} TA${underutilizedTAs.length > 1 ? "s have" : " has"} schools with unused space. Before building nearby, check whether learners can be supported to use these schools or whether the space can support adult learning or skills training.`,
+      action: "Compare schools with extra space against nearby crowded schools",
+>>>>>>> bf09a442cafeaa1ce5c2b826218b7b36401d51a4
       metricLinks: [
         {
           id: "underutilized-ta-count",
-          label: "Underutilized TAs",
+          label: "TAs with Space",
           value: formatNumber(underutilizedTAs.length, 0),
           onClick: () =>
             openMetricPreview({
-              title: "Underutilized TA List",
+              title: "TAs with School Space",
               rows: underutilizedPreviewRows,
               columns: taRowColumns,
             }),
@@ -2128,7 +2227,7 @@ function PlanningRecommendations({
           value: formatNumber(underutilizedSchoolCount, 0),
           onClick: () =>
             openMetricPreview({
-              title: "Underutilized TA List",
+              title: "TAs with School Space",
               rows: underutilizedPreviewRows,
               columns: taRowColumns,
             }),
@@ -2139,10 +2238,16 @@ function PlanningRecommendations({
     floodSummary.exposed_schools > 0 && {
       priority: "high",
       icon: ShieldAlert,
+<<<<<<< HEAD
       title: "Flood-Resilient School Infrastructure",
       body: `${floodSummary.exposed_schools} schools with ${formatNumber(floodSummary.students_at_risk, 0)} enrolled students sit within flood-exposed zones. All are currently classified as low-risk, but infrastructure investment in these schools should include flood-resilient design standards and contingency relocation plans.`,
       action:
         "Integrate flood-resilient construction standards for all schools in Ta Mwambo and adjacent flood zones",
+=======
+      title: "Protect Schools from Flood Disruption",
+      body: `${floodSummary.exposed_schools} schools with ${formatNumber(floodSummary.students_at_risk, 0)} learners are in flood-exposed areas. Even if the current risk level is low, these schools should have safe learning plans before the rainy season.`,
+      action: "Prepare safe learning spaces and flood-ready building plans for exposed schools",
+>>>>>>> bf09a442cafeaa1ce5c2b826218b7b36401d51a4
       metricLinks: [
         {
           id: "exposed-schools",
@@ -2172,10 +2277,16 @@ function PlanningRecommendations({
     outOfSchoolTotal > 0 && {
       priority: "medium",
       icon: UserRoundX,
+<<<<<<< HEAD
       title: "Address Out-of-School Children",
       body: `An estimated ${formatNumber(outOfSchoolTotal, 0)} school-age children are not enrolled. This gap is largest in TAs with infrastructure deficits, suggesting access barriers rather than demand issues. Community outreach combined with school construction will be most effective.`,
       action:
         "Combine school construction with targeted enrolment drives in underserved TAs",
+=======
+      title: "Help Children Who Are Not in School",
+      body: `About ${formatNumber(outOfSchoolTotal, 0)} school-age children are not enrolled. Many are likely in areas where schools are too far away or too crowded. Outreach should be paired with school construction or classroom expansion.`,
+      action: "Run enrolment outreach in the same TAs being reviewed for new classrooms or schools",
+>>>>>>> bf09a442cafeaa1ce5c2b826218b7b36401d51a4
       metricLinks: [
         {
           id: "out-of-school-total",
@@ -2205,10 +2316,16 @@ function PlanningRecommendations({
     {
       priority: "low",
       icon: Lightbulb,
+<<<<<<< HEAD
       title: "Link Education Planning to Welfare Data",
       body: `The integrated welfare context shows flood-affected beneficiaries and school-age unenrolled populations overlap significantly. Social cash transfer programmes should include school attendance conditionality to improve enrolment in high-poverty, low-access TAs.`,
       action:
         "Introduce school attendance conditionality in social protection programmes for targeted TAs",
+=======
+      title: "Use Welfare Support to Keep Children in School",
+      body: `Some welfare-supported households are also in areas with flood risk or children who are not enrolled. Education and welfare teams should work together so vulnerable households get support that helps children stay in school.`,
+      action: "Link school follow-up with welfare support in the most vulnerable TAs",
+>>>>>>> bf09a442cafeaa1ce5c2b826218b7b36401d51a4
     },
   ]
     .filter(Boolean)
@@ -2252,14 +2369,19 @@ function PlanningRecommendations({
     <div className="mt-10 relative z-10">
       <div className="flex items-center gap-3 mb-2">
         <Lightbulb className="h-5 w-5 text-amber-500" />
-        <h3 className="text-[16px] font-extrabold">Planning Recommendations</h3>
+        <h3 className="text-[16px] font-extrabold">Insights & Recommendations</h3>
       </div>
       <p className="text-sm text-gray-500 font-semibold mb-6">
+<<<<<<< HEAD
         Data-driven actions derived from the infrastructure mapping, pressure
         analysis, and flood exposure above.
         {selectedDistrict
           ? ` Scoped to ${selectedDistrict}.`
           : " Covering all districts."}
+=======
+        Use these cards to see what needs attention first, which schools or TAs need support, and what action to take next.
+        {selectedDistrict ? ` Scoped to ${selectedDistrict}.` : " Covering all districts."}
+>>>>>>> bf09a442cafeaa1ce5c2b826218b7b36401d51a4
       </p>
 
       <InteractiveRecommendations
@@ -2379,7 +2501,7 @@ function FloodImpactMap({ geojson, loading, coverageFocusDistrict }) {
   }, [coverageFocusDistrict]);
 
   return (
-    <div className="h-[420px] rounded overflow-hidden border border-gray-100">
+    <div className="h-[320px] overflow-hidden rounded border border-gray-100 sm:h-[420px]">
       <PopulationRasterPanel
         geojson={taGeojson}
         pointsGeojson={schoolGeojson}
@@ -2557,7 +2679,7 @@ function FloodImpactSection({
       )}
 
       {/* Map + chart split */}
-      <div className="grid grid-cols-1 xl:grid-cols-[1.2fr_0.8fr] gap-6">
+      <div className="grid grid-cols-1 gap-5 xl:grid-cols-[1.2fr_0.8fr] xl:gap-6">
         {/* Map */}
         <div className="relative isolate border border-gray-100 rounded p-4 shadow-sm bg-white">
           <p className="text-[13px] font-extrabold mb-3">Flood Exposure Map</p>
@@ -2635,7 +2757,7 @@ function FloodImpactSection({
                 value={floodTaSearch}
                 onChange={(event) => setFloodTaSearch(event.target.value)}
                 placeholder="Search TA..."
-                className="min-w-[160px] flex-1 rounded-full border border-gray-200 px-3 py-1.5 text-xs font-semibold text-gray-700 outline-none focus:border-gray-900"
+                className="w-full flex-1 rounded-full border border-gray-200 px-3 py-1.5 text-xs font-semibold text-gray-700 outline-none focus:border-gray-900 sm:min-w-[160px]"
               />
             </div>
             <p className="mt-2 text-[11px] font-semibold text-gray-500">
@@ -2643,9 +2765,9 @@ function FloodImpactSection({
             </p>
           </div>
           {floodImpact.loading ? (
-            <div className="h-[380px] animate-pulse rounded bg-gray-50" />
+            <div className="h-[320px] animate-pulse rounded bg-gray-50 sm:h-[380px]" />
           ) : chartData.length === 0 ? (
-            <div className="h-[380px] flex items-center justify-center text-sm text-gray-400 font-semibold">
+            <div className="flex h-[320px] items-center justify-center text-sm font-semibold text-gray-400 sm:h-[380px]">
               No flood-impact TA rows match the current filters.
             </div>
           ) : (
@@ -2757,3 +2879,9 @@ function FloodImpactSection({
 }
 
 export default EducationPage;
+<<<<<<< HEAD
+=======
+
+
+
+>>>>>>> bf09a442cafeaa1ce5c2b826218b7b36401d51a4

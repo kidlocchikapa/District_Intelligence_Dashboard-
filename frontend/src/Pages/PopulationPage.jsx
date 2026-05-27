@@ -100,7 +100,7 @@ function PopulationPage() {
     buildDashboardPath("/dashboard/welfare/integration", {
       district: selectedDistrict,
       ta: selectedTa,
-      admin_type: "District",
+      admin_type: selectedTa ? "TA" : "District",
     }),
   );
 
@@ -176,9 +176,19 @@ function PopulationPage() {
       },
     ];
 
-    const topRows = [...chartData]
-      .sort((left, right) => Number(right.population || 0) - Number(left.population || 0))
-      .slice(0, 8)
+    const locationRows = selectedTa
+      ? chartData.filter(
+          (item) =>
+            item.label?.trim().toLowerCase() === selectedTa.trim().toLowerCase(),
+        )
+      : [...chartData]
+          .sort(
+            (left, right) =>
+              Number(right.population || 0) - Number(left.population || 0),
+          )
+          .slice(0, 8);
+
+    const topRows = locationRows
       .map((item) => ({
         metric: item.label,
         value: Number(item.population || 0).toLocaleString(),
@@ -197,7 +207,9 @@ function PopulationPage() {
           rows,
         },
         {
-          title: "Top Location Population",
+          title: selectedTa
+            ? "Selected TA Population"
+            : "Top Location Population",
           columns: [
             { key: "metric", label: selectedDistrict ? "TA" : "District", width: 260 },
             { key: "value", label: "Population", width: 180 },
@@ -389,7 +401,7 @@ function PopulationPage() {
             Showing {filteredChartData.length} of {chartData.length}{" "}
             {selectedDistrict ? "TAs" : "districts"}.
           </p>
-          <div className="h-[420px] overflow-x-auto">
+          <div className="h-[340px] overflow-x-auto sm:h-[420px]">
             {filteredChartData.length ? (
               <div className="h-full min-w-[620px] sm:min-w-0">
                 <ResponsiveContainer width="100%" height="100%">
@@ -487,3 +499,4 @@ function PopulationPage() {
 }
 
 export default PopulationPage;
+

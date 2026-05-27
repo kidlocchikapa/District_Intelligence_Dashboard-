@@ -810,7 +810,12 @@ router.get("/facility-buffers/geojson", async (req, res) => {
  *         description: Education summary
  */
 router.get("/summary", async (req, res) => {
-  const { district } = req.query;
+  const {
+    district,
+    ta,
+    admin_type: adminType = "District",
+  } = req.query;
+  const normalizedAdminType = normalizeAdminType(ta ? "TA" : adminType);
 
   try {
     const conditions = ["ef.geom IS NOT NULL"];
@@ -827,6 +832,12 @@ router.get("/summary", async (req, res) => {
         )} = $${params.length}`,
       );
     }
+    appendOptionalTaCondition(
+      conditions,
+      params,
+      "COALESCE(direct_ta.name, spatial_ta.name, '')",
+      ta,
+    );
     const whereClause = conditions.length
       ? `WHERE ${conditions.join(" AND ")}`
       : "";
@@ -838,6 +849,12 @@ router.get("/summary", async (req, res) => {
           teacher_count,
           teacher_distribution
         FROM education_facilities ef
+        LEFT JOIN admin3_units direct_ta
+          ON direct_ta.id = ef.ta_id
+        LEFT JOIN admin3_units spatial_ta
+          ON spatial_ta.geom IS NOT NULL
+         AND ef.geom IS NOT NULL
+         AND ST_Intersects(ef.geom, spatial_ta.geom)
         LEFT JOIN districts direct_district
           ON direct_district.id = ef.district_id
         LEFT JOIN districts spatial_district
@@ -871,13 +888,22 @@ router.get("/summary", async (req, res) => {
       "admin_unit_type = $1",
       "worldpop_year = (SELECT MAX(worldpop_year) FROM worldpop_age_sex)",
     ];
-    const worldpopParams = ["District"];
-    appendDistrictNameCondition(
-      worldpopConditions,
-      worldpopParams,
-      "admin_unit_name",
-      district,
-    );
+    const worldpopParams = [normalizedAdminType];
+    if (normalizedAdminType === "TA") {
+      appendOptionalTaCondition(
+        worldpopConditions,
+        worldpopParams,
+        "admin_unit_name",
+        ta,
+      );
+    } else {
+      appendDistrictNameCondition(
+        worldpopConditions,
+        worldpopParams,
+        "admin_unit_name",
+        district,
+      );
+    }
 
     const worldpopResult = await db.query(
       `

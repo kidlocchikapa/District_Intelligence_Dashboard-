@@ -37,6 +37,8 @@ function PopulationRasterPanel({
   pointsGeojson,
   title,
   subtitle,
+  exportTitle,
+  exportSubtitle,
   metadataUrl = DEFAULT_METADATA_URL,
   heightClass = "h-[460px]",
   loading = false,
@@ -421,6 +423,20 @@ function PopulationRasterPanel({
     return `linear-gradient(90deg, ${colors.join(", ")})`;
   }
 
+  const exportLegendItems = [
+    legend
+      ? {
+          label: legend.label || title || "Raster surface",
+          color: Array.isArray(legend.colors) && legend.colors.length
+            ? legend.colors[Math.floor(legend.colors.length / 2)]
+            : "#56ab91",
+        }
+      : { label: title || "Raster surface", color: "#56ab91" },
+    features.length ? { label: "TA boundary", color: "#5f6d5b", type: "line" } : null,
+    selectedFeatureName ? { label: "Selected area", color: "#111827" } : null,
+    hasPointLayer ? { label: resolvedPointLayerLabel, color: "#f59e0b" } : null,
+  ].filter(Boolean);
+
   const zoomToBounds = (targetBounds) => {
     if (!mapInstance || !Array.isArray(targetBounds)) {
       return;
@@ -463,6 +479,10 @@ function PopulationRasterPanel({
         </div>
       ) : null}
       <div
+        data-map-export
+        data-map-title={exportTitle || title || "Map"}
+        data-map-subtitle={exportSubtitle || subtitle || ""}
+        data-map-legend={JSON.stringify(exportLegendItems)}
         className={`relative ${heightClass} min-h-0 overflow-hidden rounded-[1.5rem] border border-fog bg-[#f8f8f3] group`}
         onMouseLeave={() => {
           setHoveredDistrict(null);
@@ -699,6 +719,7 @@ function PopulationRasterPanel({
 
         {legend ? (
           <div
+            data-map-export-skip
             className={`absolute z-[401] w-[185px] max-h-[calc(100%-1rem)] overflow-y-auto rounded-xl border border-white/80 bg-white/92 px-3 py-2 shadow-md backdrop-blur-md sm:w-[220px] sm:rounded-2xl sm:px-4 sm:py-3 ${legendPositionClass}`}
           >
             <p className="text-[10px] font-bold uppercase tracking-[0.15em] text-slate/50">

@@ -1314,12 +1314,12 @@ export default function AdminDataStewardship({ department, deptConfig }) {
           </div>
         </div>
 
-        <div className="flex items-center gap-2 overflow-x-auto !bg-white px-4 pb-4 pt-1">
+        <div className="flex items-center gap-2 overflow-x-auto !bg-white px-3 pb-4 pt-1 sm:px-4">
           {selectedTable?.canCreate && (
             <button
               type="button"
               onClick={handleOpenCreator}
-              className="flex shrink-0 items-center gap-2 rounded border border-emerald-600 bg-emerald-600 px-4 py-2 text-sm font-bold text-white transition-all duration-200 ease-out hover:bg-emerald-700"
+              className="flex shrink-0 items-center gap-2 rounded border border-emerald-600 bg-emerald-600 px-3 py-2 text-xs font-bold text-white transition-all duration-200 ease-out hover:bg-emerald-700 sm:px-4 sm:text-sm"
             >
               <Plus size={15} />
               {selectedTable.createType === "welfare_program"
@@ -1347,7 +1347,7 @@ export default function AdminDataStewardship({ department, deptConfig }) {
                   borderColor: isActive ? "#000000" : "#e5e7eb",
                   color: isActive ? "#ffffff" : "#374151",
                 }}
-                className="flex shrink-0 items-center gap-2 rounded border px-4 py-2 text-sm font-bold transition-all duration-200 ease-out hover:brightness-95"
+                className="flex shrink-0 items-center gap-2 rounded border px-3 py-2 text-xs font-bold transition-all duration-200 ease-out hover:brightness-95 sm:px-4 sm:text-sm"
               >
                 <table.icon size={15} style={{ color: isActive ? "#ffffff" : "#4b5563" }} />
                 {table.label}
@@ -1363,14 +1363,14 @@ export default function AdminDataStewardship({ department, deptConfig }) {
         </div>
       )}
 
-      <main className="relative flex-1 !bg-white">
+      <main className="relative flex-1 overflow-auto !bg-white">
         {loading && (
           <div className="absolute inset-0 z-20 flex items-center justify-center bg-white/70 backdrop-blur-[1px]">
             <RefreshCw size={24} className="animate-spin text-slate-500" />
           </div>
         )}
 
-        <table className="w-full min-w-[1500px] border-collapse !bg-white text-left">
+        <table className="min-w-[920px] w-full border-collapse !bg-white text-left lg:min-w-[1200px] xl:min-w-[1500px]">
           <thead className="sticky top-0 z-10 !bg-white">
             <tr>
               {columns.map((col) => (
@@ -1475,7 +1475,7 @@ export default function AdminDataStewardship({ department, deptConfig }) {
       </footer>
 
       {editingRecord && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/45 px-4 py-6">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/45 px-3 py-4 sm:px-4 sm:py-6">
           {department === "health" ? (
             <form
               onSubmit={saveHealthRecord}
@@ -1546,7 +1546,7 @@ export default function AdminDataStewardship({ department, deptConfig }) {
                 </aside>
               </div>
 
-              <div className="flex justify-end gap-3 border-t border-slate-200 bg-slate-50 p-4">
+              <div className="flex flex-col gap-3 border-t border-slate-200 bg-slate-50 p-4 sm:flex-row sm:justify-end">
                 <button
                   type="button"
                   onClick={() => setEditingRecord(null)}
@@ -1634,7 +1634,7 @@ export default function AdminDataStewardship({ department, deptConfig }) {
                 </aside>
               </div>
 
-              <div className="flex justify-end gap-3 border-t border-slate-200 bg-slate-50 p-4">
+              <div className="flex flex-col gap-3 border-t border-slate-200 bg-slate-50 p-4 sm:flex-row sm:justify-end">
                 <button
                   type="button"
                   onClick={() => setEditingRecord(null)}
@@ -1737,7 +1737,7 @@ export default function AdminDataStewardship({ department, deptConfig }) {
                 </aside>
               </div>
 
-              <div className="flex justify-end gap-3 border-t border-slate-200 bg-slate-50 p-4">
+              <div className="flex flex-col gap-3 border-t border-slate-200 bg-slate-50 p-4 sm:flex-row sm:justify-end">
                 <button
                   type="button"
                   onClick={() => setEditingRecord(null)}
@@ -1760,7 +1760,7 @@ export default function AdminDataStewardship({ department, deptConfig }) {
       )}
 
       {creatingRecord && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/45 px-4 py-6">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/45 px-3 py-4 sm:px-4 sm:py-6">
           {/* ── Health facility create form ── */}
           {department === "health" && selectedTable?.canCreate && (
             <form
@@ -1794,7 +1794,7 @@ export default function AdminDataStewardship({ department, deptConfig }) {
                   ))}
                 </div>
               </div>
-              <div className="flex justify-end gap-3 border-t border-slate-200 bg-slate-50 p-4">
+              <div className="flex flex-col gap-3 border-t border-slate-200 bg-slate-50 p-4 sm:flex-row sm:justify-end">
                 <button type="button" onClick={() => { setCreatingRecord(false); setErrorMessage(""); }} className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-bold text-slate-700 hover:bg-slate-100">Cancel</button>
                 <button type="submit" disabled={saving} className="flex items-center gap-2 rounded-xl bg-emerald-600 px-4 py-2 text-sm font-bold text-white hover:bg-emerald-700 disabled:opacity-60">
                   {saving ? <RefreshCw size={16} className="animate-spin" /> : <Plus size={16} />}
@@ -1837,7 +1837,7 @@ export default function AdminDataStewardship({ department, deptConfig }) {
                   ))}
                 </div>
               </div>
-              <div className="flex justify-end gap-3 border-t border-slate-200 bg-slate-50 p-4">
+              <div className="flex flex-col gap-3 border-t border-slate-200 bg-slate-50 p-4 sm:flex-row sm:justify-end">
                 <button type="button" onClick={() => { setCreatingRecord(false); setErrorMessage(""); }} className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-bold text-slate-700 hover:bg-slate-100">Cancel</button>
                 <button type="submit" disabled={saving} className="flex items-center gap-2 rounded-xl bg-emerald-600 px-4 py-2 text-sm font-bold text-white hover:bg-emerald-700 disabled:opacity-60">
                   {saving ? <RefreshCw size={16} className="animate-spin" /> : <Plus size={16} />}
@@ -1875,7 +1875,7 @@ export default function AdminDataStewardship({ department, deptConfig }) {
                   ))}
                 </div>
               </div>
-              <div className="flex justify-end gap-3 border-t border-slate-200 bg-slate-50 p-4">
+              <div className="flex flex-col gap-3 border-t border-slate-200 bg-slate-50 p-4 sm:flex-row sm:justify-end">
                 <button type="button" onClick={() => { setCreatingRecord(false); setErrorMessage(""); }} className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-bold text-slate-700 hover:bg-slate-100">Cancel</button>
                 <button type="submit" disabled={saving} className="flex items-center gap-2 rounded-xl bg-emerald-600 px-4 py-2 text-sm font-bold text-white hover:bg-emerald-700 disabled:opacity-60">
                   {saving ? <RefreshCw size={16} className="animate-spin" /> : <Plus size={16} />}
@@ -1959,7 +1959,7 @@ export default function AdminDataStewardship({ department, deptConfig }) {
                   ))}
                 </div>
               </div>
-              <div className="flex justify-end gap-3 border-t border-slate-200 bg-slate-50 p-4">
+              <div className="flex flex-col gap-3 border-t border-slate-200 bg-slate-50 p-4 sm:flex-row sm:justify-end">
                 <button type="button" onClick={() => { setCreatingRecord(false); setErrorMessage(""); }} className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-bold text-slate-700 hover:bg-slate-100">Cancel</button>
                 <button type="submit" disabled={saving} className="flex items-center gap-2 rounded-xl bg-emerald-600 px-4 py-2 text-sm font-bold text-white hover:bg-emerald-700 disabled:opacity-60">
                   {saving ? <RefreshCw size={16} className="animate-spin" /> : <Plus size={16} />}

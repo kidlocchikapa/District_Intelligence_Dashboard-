@@ -50,7 +50,7 @@ const TAAnalyticsTable = ({
 
   if (loading) {
     return (
-      <div className="h-[420px] flex items-center justify-center text-gray-500">
+      <div className="flex h-[320px] items-center justify-center text-gray-500 sm:h-[420px]">
         Loading TA Analytics...
       </div>
     );

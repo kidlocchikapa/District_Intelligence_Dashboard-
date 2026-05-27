@@ -236,20 +236,26 @@ function App() {
                     <button
                       onClick={() => setIsChangePasswordOpen(true)}
                       title={isCompactSidebar ? "Change Password" : ""}
-                      className={`rounded border border-gray-300 bg-white text-gray-800 transition-all duration-200 hover:bg-gray-100 active:scale-[0.98] ${isCompactSidebar ? 'p-3' : 'w-full px-4 py-3 text-sm font-bold'
+                      className={`inline-flex items-center justify-center gap-3 rounded border border-gray-300 bg-white text-gray-800 transition-all duration-200 hover:bg-gray-100 active:scale-[0.98] ${isCompactSidebar ? 'p-3' : 'w-full px-4 py-3 text-sm font-bold'
                         }`}
                     >
-                      {isCompactSidebar ? <KeyRound size={20} /> : "Change Password"}
+                      <KeyRound size={isCompactSidebar ? 20 : 18} />
+                      {!isCompactSidebar ? <span>Change Password</span> : null}
                     </button>
                   ) : null}
 
                   <button
                     onClick={handleSessionAction}
                     title={isCompactSidebar ? (isAuthenticated ? "Sign Out" : "Sign In") : ""}
-                    className={`rounded bg-black text-white transition-all duration-200 hover:bg-gray-800 shadow-lg active:scale-[0.98] ${isCompactSidebar ? 'p-3' : 'w-full px-4 py-3 text-sm font-bold'
+                    className={`inline-flex items-center justify-center gap-3 rounded bg-black text-white shadow-lg transition-all duration-200 hover:bg-gray-800 active:scale-[0.98] ${isCompactSidebar ? 'p-3' : 'w-full px-4 py-3 text-sm font-bold'
                       }`}
                   >
-                    {isCompactSidebar ? (isAuthenticated ? <LogOut size={20} /> : <LogIn size={20} />) : (isAuthenticated ? "Sign Out" : "Sign In")}
+                    {isAuthenticated ? (
+                      <LogOut size={isCompactSidebar ? 20 : 18} />
+                    ) : (
+                      <LogIn size={isCompactSidebar ? 20 : 18} />
+                    )}
+                    {!isCompactSidebar ? <span>{isAuthenticated ? "Sign Out" : "Sign In"}</span> : null}
                   </button>
                 </div>
               </div>

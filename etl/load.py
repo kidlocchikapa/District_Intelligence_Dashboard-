@@ -397,6 +397,9 @@ def prepare_dataframe_for_load(df, dataset_type):
     if 'metadata' in working.columns:
         working['metadata'] = working['metadata'].apply(_sanitize_json_value)
 
+    if 'is_active' in working.columns:
+        working['is_active'] = working['is_active'].apply(_coerce_boolean)
+
     return working[load_columns]
 
 # Sanitize JSON values by converting pandas NA and NaN to None
@@ -428,6 +431,20 @@ def _coerce_array(value):
     if isinstance(value, list):
         return value
     return [item.strip() for item in str(value).split(',') if item.strip()]
+
+
+def _coerce_boolean(value):
+    if value is None or pd.isna(value):
+        return True
+    if isinstance(value, bool):
+        return value
+
+    normalized = str(value).strip().lower()
+    if normalized in {'true', 't', '1', 'yes', 'y', 'active'}:
+        return True
+    if normalized in {'false', 'f', '0', 'no', 'n', 'inactive'}:
+        return False
+    return True
 
 
 def _load_health_facilities_with_upsert(session, load_df):
@@ -483,7 +500,8 @@ def _load_health_facilities_with_upsert(session, load_df):
                         services_offered,
                         ta_id,
                         district_id,
-                        geom
+                        geom,
+                        is_active
                     )
                     SELECT
                         code,
@@ -505,7 +523,8 @@ def _load_health_facilities_with_upsert(session, load_df):
                         services_offered,
                         ta_id,
                         district_id,
-                        geom
+                        geom,
+                        COALESCE(is_active, TRUE)
                     FROM {staging_table}
                     ON CONFLICT (code) WHERE code IS NOT NULL DO UPDATE
                     SET
@@ -527,7 +546,8 @@ def _load_health_facilities_with_upsert(session, load_df):
                         services_offered = EXCLUDED.services_offered,
                         ta_id = EXCLUDED.ta_id,
                         district_id = EXCLUDED.district_id,
-                        geom = EXCLUDED.geom
+                        geom = EXCLUDED.geom,
+                        is_active = EXCLUDED.is_active
                     """
                 )
             )

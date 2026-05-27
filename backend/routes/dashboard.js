@@ -4,6 +4,7 @@ const db = require("../db");
 const {
   appendDistrictGeometryCondition,
   appendDistrictNameCondition,
+  buildCanonicalDistrictExpression,
 } = require("./queryFilters");
 
 function normalizeAdminType(adminType) {
@@ -269,11 +270,15 @@ router.get("/summary", async (req, res) => {
     } else if (district) {
       const schoolConditions = ["ef.geom IS NOT NULL"];
       const schoolParams = [];
-      appendDistrictGeometryCondition(
-        schoolConditions,
-        schoolParams,
-        "ef.geom",
-        district,
+      schoolParams.push(
+        String(district).trim().toLowerCase().startsWith("zomba")
+          ? "zomba"
+          : String(district).trim().toLowerCase(),
+      );
+      schoolConditions.push(
+        `${buildCanonicalDistrictExpression(
+          "COALESCE(direct_district.name, spatial_district.name, '')",
+        )} = $${schoolParams.length}`,
       );
 
       const schoolWhereClause = schoolConditions.length
@@ -284,6 +289,12 @@ router.get("/summary", async (req, res) => {
         `
                 SELECT COUNT(*)
                 FROM education_facilities ef
+                LEFT JOIN districts direct_district
+                  ON direct_district.id = ef.district_id
+                LEFT JOIN districts spatial_district
+                  ON spatial_district.geom IS NOT NULL
+                 AND ef.geom IS NOT NULL
+                 AND ST_Intersects(ef.geom, spatial_district.geom)
                 ${schoolWhereClause}
                 `,
         schoolParams,

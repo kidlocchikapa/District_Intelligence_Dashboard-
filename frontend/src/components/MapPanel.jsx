@@ -131,6 +131,9 @@ function MapPanel({
   colorByField,
   title,
   subtitle,
+  exportTitle,
+  exportSubtitle,
+  pointExportLabel,
   defaultCenter = [-13.5, 34.3],
   zoom = 7,
   popupFields = [],
@@ -219,6 +222,24 @@ function MapPanel({
   const colorStops =
     CHOROPLETH_PALETTES[palette] || CHOROPLETH_PALETTES.default;
   const legendStops = getLegendStops(range.min, range.max, colorStops);
+  const exportLegendItems = [
+    hasAreaFeatures
+      ? {
+          label: legendTitle || titleizeMetric(metricName) || "TA areas",
+          color:
+            isPriorityBandPalette
+              ? "#f97316"
+              : isRiskBandPalette
+                ? "#dc2626"
+                : outlineOnly
+                  ? "#5f6d5b"
+                  : colorStops[Math.floor(colorStops.length / 2)] || "#2563eb",
+          type: outlineOnly ? "line" : "fill",
+        }
+      : null,
+    selectedFeatureName ? { label: "Selected area", color: "#111827" } : null,
+    hasPointFeatures ? { label: pointExportLabel || "Point locations", color: pointColor || "#c56a3d" } : null,
+  ].filter(Boolean);
   function popupContent(feature) {
     const properties = feature?.properties || {};
     const titleValue =
@@ -401,6 +422,10 @@ function MapPanel({
       )}
 
       <div
+        data-map-export
+        data-map-title={exportTitle || title || legendTitle || "Map"}
+        data-map-subtitle={exportSubtitle || subtitle || ""}
+        data-map-legend={JSON.stringify(exportLegendItems)}
         className={`relative ${useStackedLayout ? "flex-1 min-h-0" : ""} ${heightClass} w-full overflow-hidden rounded-[1.5rem] border border-fog`}
       >
         <MapContainer

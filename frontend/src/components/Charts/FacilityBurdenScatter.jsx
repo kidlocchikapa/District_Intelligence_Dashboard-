@@ -50,11 +50,11 @@ const FacilityBurdenScatter = () => {
   }, []);
 
   if (loading) {
-    return <div className="h-[400px] flex items-center justify-center text-gray-500">Loading Facility Analytics...</div>;
+    return <div className="flex h-[320px] items-center justify-center text-gray-500 sm:h-[400px]">Loading Facility Analytics...</div>;
   }
 
   return (
-    <div className="w-full h-[400px]">
+    <div className="h-[320px] w-full sm:h-[400px]">
       <ResponsiveContainer width="100%" height="100%">
         <ScatterChart margin={{ top: 20, right: 20, bottom: 20, left: 20 }}>
           <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e5e7eb" />

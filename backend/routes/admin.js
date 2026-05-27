@@ -2009,18 +2009,6 @@ router.post("/upload", [auth, upload.single("file")], async (req, res) => {
       .json({ status: "error", message: "No file uploaded" });
   }
 
-  if (
-    type === "welfare_beneficiary" &&
-    (programId === undefined ||
-      programId === null ||
-      String(programId).trim() === "")
-  ) {
-    return res.status(400).json({
-      status: "error",
-      message: "Program id is required for welfare beneficiary uploads",
-    });
-  }
-
   const department = DATASET_DEPARTMENT_MAP[type];
   if (department) {
     const allowed = await requireDepartmentCapability(

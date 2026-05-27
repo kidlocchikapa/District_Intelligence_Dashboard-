@@ -290,6 +290,24 @@ router.get("/summary", async (req, res) => {
     const params = [analysisType, normalizedAdminType];
     if (normalizedAdminType === "TA") {
       appendOptionalTaCondition(conditions, params, "admin_unit_name", ta);
+      const districtConditions = [];
+      appendDistrictNameCondition(
+        districtConditions,
+        params,
+        "d.name",
+        district,
+      );
+      if (districtConditions.length) {
+        conditions.push(`
+          EXISTS (
+            SELECT 1
+            FROM admin3_units a3
+            JOIN districts d ON d.id = a3.district_id
+            WHERE a3.id = analysis_results.admin_unit_id
+              AND ${districtConditions.join(" AND ")}
+          )
+        `);
+      }
     } else {
       appendDistrictNameCondition(
         conditions,
@@ -360,6 +378,24 @@ router.get("/served-population", async (req, res) => {
     const params = [normalizedAdminType, bufferKm];
     if (normalizedAdminType === "TA") {
       appendOptionalTaCondition(conditions, params, "admin_unit_name", ta);
+      const districtConditions = [];
+      appendDistrictNameCondition(
+        districtConditions,
+        params,
+        "d.name",
+        district,
+      );
+      if (districtConditions.length) {
+        conditions.push(`
+          EXISTS (
+            SELECT 1
+            FROM admin3_units a3
+            JOIN districts d ON d.id = a3.district_id
+            WHERE a3.id = analysis_results.admin_unit_id
+              AND ${districtConditions.join(" AND ")}
+          )
+        `);
+      }
     } else {
       appendDistrictNameCondition(
         conditions,
