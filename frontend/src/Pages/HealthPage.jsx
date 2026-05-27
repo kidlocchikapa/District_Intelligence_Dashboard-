@@ -435,7 +435,7 @@ function HealthPage() {
           ],
         },
       ],
-      mapNode: mapRef.current?.querySelector('.leaflet-container'),
+      mapNode: mapRef.current?.querySelector("[data-map-export]"),
     });
   };
 
