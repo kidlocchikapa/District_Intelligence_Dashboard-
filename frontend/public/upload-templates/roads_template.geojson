@@ -1,0 +1,23 @@
+﻿{
+  "type": "FeatureCollection",
+  "features": [
+    {
+      "type": "Feature",
+      "properties": {
+        "road_name": "M3 Link Segment",
+        "road_class": "primary",
+        "surface": "asphalt",
+        "speed_kmh": 60,
+        "oneway": "no"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [35.3105, -15.4012],
+          [35.3189, -15.3951],
+          [35.3274, -15.3898]
+        ]
+      }
+    }
+  ]
+}
