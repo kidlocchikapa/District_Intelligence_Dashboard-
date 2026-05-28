@@ -105,6 +105,8 @@ function formatAdminUnitAxisLabel(value) {
 // Classroom : student 1 : 40 â†’ classroom_ratio > 40 = infrastructure gap
 const TEACHER_RATIO_THRESHOLD = 60;
 const CLASSROOM_RATIO_THRESHOLD = 40;
+const EDUCATION_ACCESS_DISTANCE_KM = 5;
+const EDUCATION_ACCESS_DISTANCE_LABEL = `${EDUCATION_ACCESS_DISTANCE_KM} km`;
 
 // Per-school risk categories (distinct from TA-level pressure categories)
 const SCHOOL_RISK_CATEGORIES = [
@@ -260,9 +262,9 @@ function getEducationRasterAsset(assets, key) {
 const EDUCATION_RASTER_LAYERS = [
   {
     key: "education_buffer_coverage",
-    shortLabel: "5 km Coverage",
-    title: "School Service Coverage (5 km)",
-    subtitle: "Population served within 5 km of the nearest school.",
+    shortLabel: `${EDUCATION_ACCESS_DISTANCE_LABEL} Coverage`,
+    title: `School Service Coverage (${EDUCATION_ACCESS_DISTANCE_LABEL})`,
+    subtitle: `Population served within ${EDUCATION_ACCESS_DISTANCE_LABEL} of the nearest school.`,
   },
   {
     key: "education_network_distance",
@@ -277,6 +279,39 @@ const EDUCATION_RASTER_LAYERS = [
     subtitle: "Average beneficiary travel time (minutes) by area.",
   },
 ];
+
+function summarizeEducationBufferMetrics(rows) {
+  const summary = rows.reduce(
+    (totals, row) => {
+      totals.school_population_served_total += Number(
+        row?.school_population_served_total || 0,
+      );
+      totals.school_population_unserved_total += Number(
+        row?.school_population_unserved_total || 0,
+      );
+      return totals;
+    },
+    {
+      school_population_served_total: 0,
+      school_population_unserved_total: 0,
+      school_population_served_pct: 0,
+      school_population_unserved_pct: 0,
+    },
+  );
+
+  const populationTotal =
+    summary.school_population_served_total +
+    summary.school_population_unserved_total;
+
+  if (populationTotal > 0) {
+    summary.school_population_served_pct =
+      (summary.school_population_served_total * 100) / populationTotal;
+    summary.school_population_unserved_pct =
+      (summary.school_population_unserved_total * 100) / populationTotal;
+  }
+
+  return summary;
+}
 
 const EDUCATION_CHART_LIMITS = [
   { value: 8, label: "Top 8" },
@@ -382,6 +417,7 @@ function EducationPage() {
   const educationRasterMetadata = useDashboardData(
     buildDashboardPath("/dashboard/education/raster-metadata", {
       district: coverageFocusDistrict,
+      buffer_km: EDUCATION_ACCESS_DISTANCE_KM,
     }),
   );
   const educationRasterMetadataUrl = appendCacheBuster(
@@ -574,7 +610,10 @@ function EducationPage() {
         return lookup;
       }
 
-      lookup[key] ||= {};
+      lookup[key] ||= {
+        admin_unit_id: properties.admin_unit_id,
+        admin_unit_name: properties.admin_unit_name || properties.name,
+      };
       lookup[key][metricName] = Number(properties.metric_value || 0);
       return lookup;
     }, {});
@@ -587,6 +626,32 @@ function EducationPage() {
     : selectedDistrict
       ? insightRows[0] || null
       : null;
+  const selectedEducationBufferStats = useMemo(() => {
+    const metricRows = Object.values(schoolPopulationBufferLookup);
+
+    if (!metricRows.length) {
+      return null;
+    }
+
+    if (selectedTa) {
+      const selectedKey =
+        selectedInsight?.admin_unit_id !== undefined &&
+        selectedInsight?.admin_unit_id !== null
+          ? `id:${String(selectedInsight.admin_unit_id)}`
+          : null;
+
+      return (
+        (selectedKey ? schoolPopulationBufferLookup[selectedKey] : null) ||
+        metricRows.find(
+          (row) =>
+            normalizeTaName(row.admin_unit_name) === normalizeTaName(selectedTa),
+        ) ||
+        null
+      );
+    }
+
+    return summarizeEducationBufferMetrics(metricRows);
+  }, [schoolPopulationBufferLookup, selectedInsight, selectedTa]);
   const districtSchoolCount = insightRows.reduce(
     (sum, row) => sum + Number(row.school_count || 0),
     0,
@@ -827,8 +892,6 @@ function EducationPage() {
         const key = getEducationUnitKey(properties, feature);
         const insight = insightLookup[key];
         const bufferMetrics = schoolPopulationBufferLookup[key] || {};
-        const hasBufferMetrics =
-          Object.keys(bufferMetrics).length > 0;
         const schoolAgePopulationTotal = Number(
           insight?.school_age_population_total ??
             properties.school_age_population_total ??
@@ -843,8 +906,11 @@ function EducationPage() {
           bufferMetrics.school_population_served_total;
         const outsideBufferPopulation =
           bufferMetrics.school_population_unserved_total;
+        const hasServedMetrics =
+          bufferMetrics.school_population_served_total !== undefined ||
+          bufferMetrics.school_population_unserved_total !== undefined;
 
-        if (!insight && !hasBufferMetrics) {
+        if (!insight && !hasServedMetrics) {
           return feature;
         }
 
@@ -1012,7 +1078,7 @@ function EducationPage() {
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-5 gap-6 mb-10">
-          {educationSummary.loading
+          {educationSummary.loading || schoolPopulationBufferGeojson.loading
             ? [...Array(5)].map((_, index) => <StatCardSkeleton key={index} />)
             : [
                 {
@@ -1054,13 +1120,19 @@ function EducationPage() {
                   icon: UserRoundCheck,
                 },
                 {
-                  label: "Not in School",
+                  label: `Outside ${EDUCATION_ACCESS_DISTANCE_LABEL}`,
                   value: formatStat(
-                    selectedInsight?.school_age_population_unenrolled ||
-                      selectedInsight?.not_in_school_total ||
-                      educationSummary.data?.not_in_school_total ||
+                    selectedEducationBufferStats?.school_population_unserved_total ||
                       0,
                   ),
+                  detail:
+                    selectedEducationBufferStats?.school_population_unserved_pct !==
+                    undefined
+                      ? `${formatStat(
+                          selectedEducationBufferStats.school_population_unserved_pct,
+                          1,
+                        )}% outside ${EDUCATION_ACCESS_DISTANCE_LABEL}`
+                      : null,
                   icon: UserRoundX,
                 },
               ].map((stat, index) => (
@@ -1077,6 +1149,11 @@ function EducationPage() {
                   <div className="mt-4 text-[32px] font-extrabold tracking-tight">
                     {stat.value}
                   </div>
+                  {stat.detail ? (
+                    <p className="mt-1 text-xs font-semibold text-gray-400">
+                      {stat.detail}
+                    </p>
+                  ) : null}
                 </div>
               ))}
         </div>
@@ -1729,10 +1806,12 @@ function EducationPage() {
             <div className="mt-4 border border-gray-100 rounded p-3 bg-white">
               <PopulationRasterPanel
                 geojson={educationRasterTooltipGeojson}
+                pointsGeojson={schoolLocationsForMap}
                 title={activeEducationRasterLayer.title}
                 subtitle={activeEducationRasterLayer.subtitle}
                 metadataUrl={educationRasterMetadataUrl}
                 heightClass="h-[430px]"
+                pointLayerLabel="Schools"
                 loading={
                   educationCoverageTaGeojson.loading ||
                   educationRasterMetadata.loading
@@ -1750,12 +1829,12 @@ function EducationPage() {
                   },
                   {
                     key: "school_population_served_total",
-                    label: "Population Served",
+                    label: `Within ${EDUCATION_ACCESS_DISTANCE_LABEL}`,
                     digits: 0,
                   },
                   {
                     key: "school_population_unserved_total",
-                    label: "Population Outside Buffer",
+                    label: `Outside ${EDUCATION_ACCESS_DISTANCE_LABEL}`,
                     digits: 0,
                   },
                 ]}

@@ -186,7 +186,10 @@ function findPreviewAssetPath(
     : null;
 
   if (asset?.[extension]) {
-    return normalizePreviewAssetPath(asset[extension], publicDirName);
+    const normalizedAssetPath = String(asset[extension]);
+    if (!fallbackPattern || normalizedAssetPath.includes(fallbackPattern)) {
+      return normalizePreviewAssetPath(asset[extension], publicDirName);
+    }
   }
 
   const fallbackPaths = (previewAssets || [])

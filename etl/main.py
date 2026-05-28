@@ -1080,7 +1080,7 @@ def main():
                 api_headers=headers,
                 program_id=args.program_id,
                 health_dist_km=args.coverage_distance_km if args.coverage_distance_km != 5.0 else 8.0,
-                school_dist_km=3.0 if args.coverage_distance_km == 5.0 else args.coverage_distance_km,
+                school_dist_km=args.coverage_distance_km,
             )
             run_step(
                 step_name='post_welfare_beneficiary_routing_refresh',
