@@ -127,9 +127,24 @@ WHERE code IS NOT NULL;
 UPDATE health_facilities
 SET code = NULL
 WHERE code = '';
-CREATE UNIQUE INDEX IF NOT EXISTS uq_health_facilities_code
-ON health_facilities(code)
-WHERE code IS NOT NULL;
+DO $$
+BEGIN
+    IF EXISTS (
+        SELECT 1
+        FROM health_facilities
+        WHERE code IS NOT NULL
+        GROUP BY code
+        HAVING COUNT(*) > 1
+    ) THEN
+        RAISE NOTICE 'Skipping uq_health_facilities_code because duplicate normalized health codes already exist';
+    ELSE
+        EXECUTE '
+            CREATE UNIQUE INDEX IF NOT EXISTS uq_health_facilities_code
+            ON health_facilities(code)
+            WHERE code IS NOT NULL
+        ';
+    END IF;
+END $$;
 
 -- Welfare Beneficiaries (Aggregate)
 CREATE TABLE IF NOT EXISTS welfare_beneficiaries (
@@ -439,14 +454,26 @@ CREATE TABLE IF NOT EXISTS data_load_log (
 CREATE TABLE IF NOT EXISTS admin_data_edits (
     id SERIAL PRIMARY KEY,
     table_name VARCHAR(100) NOT NULL,
-    record_id BIGINT NOT NULL,
+    record_id BIGINT,
     action VARCHAR(50) NOT NULL,
     changed_by_user_id INTEGER REFERENCES users(id),
     before_data JSONB,
     after_data JSONB,
     changed_fields JSONB DEFAULT '[]'::jsonb,
+    status VARCHAR(20) NOT NULL DEFAULT 'approved',
+    request_payload JSONB,
+    reviewed_by_user_id INTEGER REFERENCES users(id),
+    reviewed_at TIMESTAMP,
+    review_notes TEXT,
     changed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
+
+ALTER TABLE IF EXISTS admin_data_edits ADD COLUMN IF NOT EXISTS status VARCHAR(20) NOT NULL DEFAULT 'approved';
+ALTER TABLE IF EXISTS admin_data_edits ADD COLUMN IF NOT EXISTS request_payload JSONB;
+ALTER TABLE IF EXISTS admin_data_edits ADD COLUMN IF NOT EXISTS reviewed_by_user_id INTEGER REFERENCES users(id);
+ALTER TABLE IF EXISTS admin_data_edits ADD COLUMN IF NOT EXISTS reviewed_at TIMESTAMP;
+ALTER TABLE IF EXISTS admin_data_edits ADD COLUMN IF NOT EXISTS review_notes TEXT;
+ALTER TABLE IF EXISTS admin_data_edits ALTER COLUMN record_id DROP NOT NULL;
 
 -- Spatial Indexes
 CREATE INDEX IF NOT EXISTS idx_districts_geom ON districts USING GIST(geom);
@@ -482,6 +509,7 @@ CREATE INDEX IF NOT EXISTS idx_worldpop_age_sex_lookup ON worldpop_age_sex(admin
 CREATE INDEX IF NOT EXISTS idx_analysis_results_lookup ON analysis_results(analysis_type, metric_name, admin_unit_id);
 CREATE INDEX IF NOT EXISTS idx_analysis_results_geom ON analysis_results USING GIST(geom);
 CREATE INDEX IF NOT EXISTS idx_admin_data_edits_lookup ON admin_data_edits(table_name, record_id, changed_at DESC);
+CREATE INDEX IF NOT EXISTS idx_admin_data_edits_status_lookup ON admin_data_edits(status, changed_at DESC);
 CREATE INDEX IF NOT EXISTS idx_edu_facilities_is_active ON education_facilities(is_active);
 CREATE INDEX IF NOT EXISTS idx_disaster_zones_is_active ON disaster_zones(is_active);
 

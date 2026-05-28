@@ -17,6 +17,10 @@ load_dotenv(os.path.join(os.path.dirname(__file__), '../.env'))
 def normalize_database_url(connection_string):
     cleaned = connection_string.strip()
     cleaned = re.sub(r"\s+\?", "?", cleaned)
+    cleaned = cleaned.replace(
+        "?sslmode=require&channel_binding=require",
+        "?sslmode=require",
+    )
     return cleaned
 
 

@@ -5,9 +5,17 @@ require("dotenv").config({ path: path.resolve(__dirname, "../.env") });
 function normalizeConnectionString(connectionString) {
   try {
     const url = new URL(connectionString.trim());
+    if (
+      url.searchParams.get("sslmode") === "require" &&
+      url.searchParams.get("channel_binding") === "require"
+    ) {
+      url.searchParams.delete("channel_binding");
+    }
     return url.toString();
   } catch {
-    return connectionString.trim();
+    return connectionString
+      .trim()
+      .replace("?sslmode=require&channel_binding=require", "?sslmode=require");
   }
 }
 
