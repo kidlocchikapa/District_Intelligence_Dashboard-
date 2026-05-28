@@ -3,6 +3,7 @@ import json
 import logging
 import math
 import os
+import shutil
 from datetime import datetime, timezone
 
 import geopandas as gpd
@@ -47,6 +48,9 @@ DEFAULT_HEALTH_ACCESS_RENDER_DPI = 220
 DEFAULT_HEALTH_ACCESS_NODATA = -9999.0
 DEFAULT_PREVIEW_OUTPUT_DIR = os.path.join(
     os.path.dirname(__file__), "..", "frontend", "public", "health-access"
+)
+DEFAULT_DIST_PREVIEW_OUTPUT_DIR = os.path.join(
+    os.path.dirname(__file__), "..", "frontend", "dist", "health-access"
 )
 DEFAULT_EDUCATION_PREVIEW_OUTPUT_DIR = os.path.join(
     os.path.dirname(__file__), "..", "frontend", "public", "education-access"
@@ -1089,6 +1093,29 @@ def _save_preview_metadata(output_json, image_name, bounds, legend_label, low_la
         json.dump(metadata, handle, indent=2)
 
 
+def _mirror_preview_assets_to_dist(generated_assets, dist_output_dir=DEFAULT_DIST_PREVIEW_OUTPUT_DIR):
+    if not dist_output_dir or not os.path.isdir(dist_output_dir):
+        return
+
+    os.makedirs(dist_output_dir, exist_ok=True)
+
+    for asset in generated_assets:
+        for key in ("png", "json", "tif"):
+            source_path = asset.get(key)
+            if not source_path or not os.path.exists(source_path):
+                continue
+
+            target_path = os.path.join(dist_output_dir, os.path.basename(source_path))
+            try:
+                shutil.copy2(source_path, target_path)
+            except Exception as exc:
+                log_step(
+                    "mirror_preview_assets",
+                    f"Could not mirror {os.path.basename(source_path)} to dist: {exc}",
+                    level="warning",
+                )
+
+
 def _build_preview_version_token():
     return datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
 
@@ -1456,6 +1483,7 @@ def generate_health_access_previews(
             "tif": tif_path,
         })
 
+    _mirror_preview_assets_to_dist(generated)
     return generated
 
 # Helper function to generate education access previews using school and beneficiary data
