@@ -30,23 +30,30 @@ const GLOBAL_TABLES = {
     fromSql: `
       FROM admin_data_edits ade
       LEFT JOIN users u ON u.id = ade.changed_by_user_id
+      LEFT JOIN users reviewer ON reviewer.id = ade.reviewed_by_user_id
     `,
     selectSql: `
       ade.id,
       ade.table_name,
       ade.record_id,
       ade.action,
+      ade.status,
       ade.changed_by_user_id,
       u.email AS changed_by_email,
       u.full_name AS changed_by_full_name,
+      reviewer.full_name AS reviewed_by_full_name,
       ade.changed_fields,
+      ade.review_notes,
       ade.changed_at
     `,
     searchColumns: [
       "ade.table_name",
       "ade.action",
+      "ade.status",
       "u.email",
       "u.full_name",
+      "reviewer.full_name",
+      "ade.review_notes",
     ],
     defaultOrder: "ade.changed_at DESC, ade.id DESC",
   },

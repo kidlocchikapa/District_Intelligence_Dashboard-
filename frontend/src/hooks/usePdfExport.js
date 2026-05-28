@@ -331,7 +331,17 @@ export function usePdfExport(filename = 'district-report.pdf') {
     }
   };
 
-  const exportDataPdf = async ({ title, selectedArea, sections, mapNode, mapNodes, mapLegend }) => {
+  const exportDataPdf = async ({
+    title,
+    selectedArea,
+    sections,
+    mapNode,
+    mapNodes,
+    mapLegend,
+    showHeader = true,
+    showMapCaptions = true,
+    showFooterDivider = true,
+  }) => {
     const loadingToast = toast.loading('Preparing easy-to-read report...');
 
     try {
@@ -340,12 +350,6 @@ export function usePdfExport(filename = 'district-report.pdf') {
       let y = 50;
       const pageHeight = pdf.internal.pageSize.height;
       const readableSections = (sections || []).map(makeSectionReadable);
-      const areaName = cleanAreaName(selectedArea) || friendlyTitle(title);
-      const isGenericSelectedAreaTitle = /selected\s+area/i.test(title || '');
-      const reportSubtitle =
-        !isGenericSelectedAreaTitle && areaName && friendlyTitle(title) !== areaName
-          ? friendlyTitle(title)
-          : '';
       const exportedAt = new Date().toLocaleString();
       const mapBlocks = normalizeMapBlocks({
         mapNode,
@@ -363,18 +367,27 @@ export function usePdfExport(filename = 'district-report.pdf') {
         });
       }
 
-      pdf.setFont('helvetica', 'bold');
-      pdf.setFontSize(20);
-      pdf.text(areaName, margin, y);
-      y += 24;
+      if (showHeader) {
+        const areaName = cleanAreaName(selectedArea) || friendlyTitle(title);
+        const isGenericSelectedAreaTitle = /selected\s+area/i.test(title || '');
+        const reportSubtitle =
+          !isGenericSelectedAreaTitle && areaName && friendlyTitle(title) !== areaName
+            ? friendlyTitle(title)
+            : '';
 
-      if (reportSubtitle) {
-        pdf.setFont('helvetica', 'normal');
-        pdf.setFontSize(11);
-        pdf.setTextColor(90, 90, 90);
-        pdf.text(reportSubtitle, margin, y);
-        pdf.setTextColor(0, 0, 0);
-        y += 22;
+        pdf.setFont('helvetica', 'bold');
+        pdf.setFontSize(20);
+        pdf.text(areaName, margin, y);
+        y += 24;
+
+        if (reportSubtitle) {
+          pdf.setFont('helvetica', 'normal');
+          pdf.setFontSize(11);
+          pdf.setTextColor(90, 90, 90);
+          pdf.text(reportSubtitle, margin, y);
+          pdf.setTextColor(0, 0, 0);
+          y += 22;
+        }
       }
 
       for (const mapBlock of mapBlocks) {
@@ -385,12 +398,12 @@ export function usePdfExport(filename = 'district-report.pdf') {
         }
 
         try {
-          if (y + 240 > pageHeight - 58) {
+          if (y + 320 > pageHeight - 58) {
             pdf.addPage();
             y = margin;
           }
 
-          if (mapBlock.title) {
+          if (showMapCaptions && mapBlock.title) {
             pdf.setFont('helvetica', 'bold');
             pdf.setFontSize(12);
             pdf.setTextColor(15, 23, 42);
@@ -398,7 +411,7 @@ export function usePdfExport(filename = 'district-report.pdf') {
             y += 16;
           }
 
-          if (mapBlock.subtitle) {
+          if (showMapCaptions && mapBlock.subtitle) {
             pdf.setFont('helvetica', 'normal');
             pdf.setFontSize(9);
             pdf.setTextColor(71, 85, 105);
@@ -423,9 +436,8 @@ export function usePdfExport(filename = 'district-report.pdf') {
           const imgSize = await loadImageSize(mapImgData);
           const pageWidth = pdf.internal.pageSize.width;
           const availableWidth = pageWidth - margin * 2;
-          const maxMapHeight = 280;
+          const maxMapHeight = Math.max(360, pageHeight - y - 110);
           const scale = Math.min(
-            1,
             availableWidth / imgSize.width,
             maxMapHeight / imgSize.height,
           );
@@ -474,8 +486,10 @@ export function usePdfExport(filename = 'district-report.pdf') {
       pdf.setTextColor(90, 90, 90);
       for (let pageNumber = 1; pageNumber <= pageCount; pageNumber += 1) {
         pdf.setPage(pageNumber);
-        pdf.setDrawColor(226, 232, 240);
-        pdf.line(margin, pageHeight - 40, pageWidth - margin, pageHeight - 40);
+        if (showFooterDivider) {
+          pdf.setDrawColor(226, 232, 240);
+          pdf.line(margin, pageHeight - 40, pageWidth - margin, pageHeight - 40);
+        }
         pdf.text(`Exported on: ${exportedAt}`, pageWidth - margin, pageHeight - 24, {
           align: 'right',
         });

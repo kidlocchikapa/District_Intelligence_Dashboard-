@@ -1259,18 +1259,12 @@ function OverviewPage() {
                 selectedFeatureName={selectedTa}
                 customTooltipMetrics={[
                   { key: "schools_count", label: "Schools" },
-<<<<<<< HEAD
                   {
                     key: "health_facilities_count",
-                    label: "Health Facilities",
-=======
-                  { key: "health_facilities_count", label: "Health Providers" },
-                  { key: "hospitals_count", label: "Hospitals in Providers" },
-                  {
-                    key: "non_hospital_providers_count",
-                    label: "Non-Hospital Providers",
->>>>>>> bf09a442cafeaa1ce5c2b826218b7b36401d51a4
+                    label: "Health Providers",
                   },
+                  { key: "hospitals_count", label: "Hospitals" },
+                  { key: "non_hospital_providers_count", label: "Non-Hospital Providers" },
                   { key: "beneficiaries_count", label: "Beneficiaries" },
                   { key: "exposed_population", label: "Flood Exposed" },
                   {

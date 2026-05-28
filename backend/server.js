@@ -8,7 +8,11 @@ const { buildSwaggerSpec } = require("./swagger");
 
 const app = express();
 const port = process.env.PORT || 5000;
-const baseUrl = process.env.API_BASE_URL || `http://localhost:${port}`;
+const baseUrl =
+  process.env.API_BASE_URL ||
+  process.env.BaseUrl ||
+  process.env.BASE_URL ||
+  `http://localhost:${port}`;
 
 function parseAllowedOrigins() {
   const configured = String(process.env.CORS_ALLOWED_ORIGINS || "")

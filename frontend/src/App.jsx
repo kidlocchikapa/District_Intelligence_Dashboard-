@@ -1,6 +1,6 @@
 import { ShieldAlert, Users2, Menu, X, ChevronLeft, ChevronRight, LogIn, LogOut, GraduationCap, Activity, UserCheck, LayoutDashboard, Database, KeyRound } from 'lucide-react';
 import { useState, useEffect } from 'react';
-import { NavLink, Route, Routes, useNavigate } from 'react-router-dom';
+import { NavLink, Navigate, Route, Routes, useNavigate } from 'react-router-dom';
 import { Toaster } from 'react-hot-toast';
 import { setAuthToken, hydrateAuthToken, AUTH_EVENT_NAME } from './lib/api';
 import Login from './Login';
@@ -100,7 +100,9 @@ function App() {
       <Routes>
         {/* Super Admin Branch */}
         <Route path="/superadmin/*" element={
-          isSuperAdmin ? (
+          !isAuthenticated ? (
+            <Navigate to="/login" replace />
+          ) : isSuperAdmin ? (
             <SuperAdminLayout>
               <Routes>
                 <Route index element={<SuperAdminPage />} />
@@ -271,7 +273,10 @@ function App() {
                 <Route path="/disaster" element={<DisasterPage />} />
                 <Route path="/welfare" element={<WelfarePage />} />
                 <Route path="/population" element={<PopulationPage />} />
-                <Route path="/admin" element={<AdminPage />} />
+                <Route
+                  path="/admin"
+                  element={isAuthenticated ? <AdminPage /> : <Navigate to="/login" replace />}
+                />
               </Routes>
             </main>
 

@@ -30,6 +30,22 @@ api.interceptors.request.use((config) => {
   return Promise.reject(error);
 });
 
+api.interceptors.response.use(
+  (response) => response,
+  (error) => {
+    const statusCode = error?.response?.status;
+    const hasStoredToken =
+      typeof window !== "undefined" &&
+      Boolean(localStorage.getItem("district_token"));
+
+    if (statusCode === 401 && hasStoredToken) {
+      setAuthToken(null);
+    }
+
+    return Promise.reject(error);
+  },
+);
+
 const AUTH_EVENT_NAME = "district-auth-changed";
 
 function emitAuthChange(token) {

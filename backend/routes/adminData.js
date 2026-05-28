@@ -7,6 +7,7 @@ const db = require("../db");
 const auth = require("../middleware/auth");
 const requireDepartmentAccess = require("../middleware/requireDepartmentAccess");
 const ensureAdminDataSchema = require("../helpers/adminDataSchema");
+const requireGlobalAdmin = require("../middleware/requireGlobalAdmin");
 const {
   validateEducationCreate,
   validateEducationUpdate,
@@ -61,6 +62,17 @@ const RECOMPUTE_DEFINITION = {
     task: "disaster_insights",
     analysisTypes: ["disaster_vulnerability"],
   },
+};
+
+const REVIEW_TABLES_BY_DEPARTMENT = {
+  education: ["education_facilities"],
+  health: ["health_facilities"],
+  social_welfare: [
+    "welfare_beneficiary",
+    "welfare_programs",
+    "welfare_beneficiaries",
+  ],
+  disaster: ["disaster_zones"],
 };
 
 const recomputeState = {
@@ -173,8 +185,8 @@ const EDUCATION_SELECT_FIELDS = `
   ef.blocks_count,
   ef.water_equipment_facility_count,
   ef.toilets_count,
-  ef.classroom_pressure,
-  ef.teacher_pressure,
+  ROUND(ef.classroom_pressure::numeric, 2) AS classroom_pressure,
+  ROUND(ef.teacher_pressure::numeric, 2) AS teacher_pressure,
   ef.x_coordinate,
   ef.y_coordinate,
   to_jsonb(ef)->>'osm_id' AS osm_id,
@@ -312,6 +324,57 @@ const DISASTER_SELECT_FIELDS = `
   ST_AsGeoJSON(dz.geom)::jsonb AS geometry
 `;
 
+async function stagePendingAdminDataEdit(
+  client,
+  {
+    tableName,
+    recordId = null,
+    action,
+    userId,
+    beforeData = null,
+    requestPayload = null,
+  },
+) {
+  await writeAuditEntry(client, {
+    tableName,
+    recordId,
+    action,
+    userId,
+    beforeData,
+    afterData: requestPayload,
+    status: "pending",
+    requestPayload,
+  });
+}
+
+async function fetchPendingReviewById(client, reviewId) {
+  const result = await client.query(
+    `
+      SELECT *
+      FROM admin_data_edits
+      WHERE id = $1
+      LIMIT 1
+    `,
+    [reviewId],
+  );
+
+  return result.rows[0] || null;
+}
+
+async function lockPendingReviewById(client, reviewId) {
+  const result = await client.query(
+    `
+      SELECT *
+      FROM admin_data_edits
+      WHERE id = $1
+      FOR UPDATE
+    `,
+    [reviewId],
+  );
+
+  return result.rows[0] || null;
+}
+
 router.use(auth);
 router.use(async (req, res, next) => {
   try {
@@ -431,6 +494,28 @@ function mergeRecomputeStaleState() {
   return recomputeState;
 }
 
+async function resolveCurrentAuthUser(req) {
+  const authUser = getAuthUser(req);
+
+  if (authUser.id && !authUser.role) {
+    const userResult = await db.query(
+      `
+        SELECT role
+        FROM users
+        WHERE id = $1
+        LIMIT 1
+      `,
+      [authUser.id],
+    );
+
+    if (userResult.rowCount) {
+      authUser.role = userResult.rows[0].role;
+    }
+  }
+
+  return authUser;
+}
+
 function spawnEtlProcess(args) {
   const scriptPath = path.resolve(__dirname, "../../etl/main.py");
   const configuredPython = process.env.ETL_PYTHON_PATH;
@@ -440,6 +525,27 @@ function spawnEtlProcess(args) {
     (fs.existsSync(localVenvPython) ? localVenvPython : "python3");
 
   return spawn(pythonBinary, [scriptPath, ...args]);
+}
+
+function triggerApprovedReviewRecompute(department) {
+  if (!Object.prototype.hasOwnProperty.call(RECOMPUTE_DEFINITION, department)) {
+    return false;
+  }
+
+  try {
+    runRecomputeInBackground(department, {
+      adminLevel: "District",
+      coverageDistanceKm: 5,
+      worldpopYear: 2020,
+    });
+    return true;
+  } catch (error) {
+    console.warn(
+      `Unable to auto-start recompute for ${department} after approval:`,
+      error.message,
+    );
+    return false;
+  }
 }
 
 function runRecomputeInBackground(
@@ -3271,7 +3377,7 @@ router.post("/education", async (req, res) => {
 
   try {
     const authUser = getAuthUser(req);
-    const createdRecord = await db.pool.connect().then(async (client) => {
+    const pendingRequest = await db.pool.connect().then(async (client) => {
       try {
         await client.query("BEGIN");
         await validateDistrictWardRelationship(
@@ -3280,77 +3386,17 @@ router.post("/education", async (req, res) => {
           value.wardId,
         );
 
-        const insertedResult = await client.query(
-          `
-            INSERT INTO education_facilities (
-              school_name,
-              operator,
-              status,
-              student_enrollment_total,
-              student_classroom_ratio,
-              special_needs_students,
-              teacher_distribution,
-              teacher_count,
-              blocks_count,
-              water_equipment_facility_count,
-              toilets_count,
-              classroom_pressure,
-              teacher_pressure,
-              district_id,
-              ta_id,
-              x_coordinate,
-              y_coordinate,
-              geom,
-              is_active,
-              updated_at
-            )
-            VALUES (
-              $1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
-              $11, $12, $13, $14,
-              ST_SetSRID(ST_MakePoint($15, $16), 4326),
-              COALESCE($17, TRUE),
-              CURRENT_TIMESTAMP
-            )
-            RETURNING school_id
-          `,
-          [
-            value.name,
-            value.operatorType ?? null,
-            value.status ?? null,
-            value.studentEnrollmentTotal ?? null,
-            value.studentClassroomRatio ?? null,
-            value.specialNeedsStudents ?? null,
-            value.teacherDistribution ?? null,
-            value.teacherCount ?? null,
-            value.blocksCount ?? null,
-            value.waterEquipmentFacilityCount ?? null,
-            value.toiletsCount ?? null,
-            value.classroomPressure ?? null,
-            value.teacherPressure ?? null,
-            value.districtId ?? null,
-            value.wardId ?? null,
-            value.longitude,
-            value.latitude,
-            value.longitude,
-            value.latitude,
-            value.isActive,
-          ],
-        );
-
-        const schoolId = insertedResult.rows[0].school_id;
-        const record = await fetchEducationRecord(client, schoolId);
-
-        await writeAuditEntry(client, {
+        await stagePendingAdminDataEdit(client, {
           tableName: "education_facilities",
-          recordId: schoolId,
+          recordId: null,
           action: "create",
           userId: authUser.id,
           beforeData: null,
-          afterData: record,
+          requestPayload: value,
         });
 
         await client.query("COMMIT");
-        return record;
+        return true;
       } catch (err) {
         await client.query("ROLLBACK");
         throw err;
@@ -3359,12 +3405,10 @@ router.post("/education", async (req, res) => {
       }
     });
 
-    markDepartmentStale("education");
-
-    return res.status(201).json({
-      status: "success",
-      message: "Education record created successfully",
-      data: { record: createdRecord },
+    return res.status(202).json({
+      status: "pending",
+      message: "Education record submitted for verification",
+      data: { review_pending: Boolean(pendingRequest) },
     });
   } catch (err) {
     console.error("Admin education create error:", err.message);
@@ -3402,7 +3446,7 @@ router.post("/health", async (req, res) => {
 
   try {
     const authUser = getAuthUser(req);
-    const createdRecord = await db.pool.connect().then(async (client) => {
+    const pendingRequest = await db.pool.connect().then(async (client) => {
       try {
         await client.query("BEGIN");
         await validateDistrictWardRelationship(
@@ -3411,79 +3455,17 @@ router.post("/health", async (req, res) => {
           value.wardId,
         );
 
-        const insertedResult = await client.query(
-          `
-            INSERT INTO health_facilities (
-              code,
-              name,
-              common_name,
-              type,
-              ownership,
-              "capacity:persons",
-              zone,
-              district,
-              status,
-              doctor_count,
-              nurse_midwife_count,
-              bed_capacity,
-              beds_count,
-              patient_visits_total,
-              services_offered,
-              district_id,
-              ta_id,
-              latitude,
-              longitude,
-              geom,
-              is_active,
-              updated_at
-            )
-            VALUES (
-              $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15,
-              $16, $17, $18, $19,
-              ST_SetSRID(ST_MakePoint($19, $18), 4326),
-              COALESCE($20, TRUE),
-              CURRENT_TIMESTAMP
-            )
-            RETURNING id
-          `,
-          [
-            value.code ?? null,
-            value.name,
-            value.commonName ?? null,
-            value.type ?? null,
-            value.ownership ?? null,
-            value.capacityPersons ?? null,
-            value.zone ?? null,
-            value.districtLabel ?? null,
-            value.status ?? null,
-            value.doctorCount ?? null,
-            value.nurseMidwifeCount ?? null,
-            value.bedCapacity ?? null,
-            value.bedsCount ?? null,
-            value.patientVisitsTotal ?? null,
-            normalizeHealthServicesOffered(value.servicesOffered) ?? [],
-            value.districtId ?? null,
-            value.wardId ?? null,
-            value.latitude,
-            value.longitude,
-            value.isActive,
-          ],
-        );
-
-        const id = insertedResult.rows[0].id;
-        const record = await fetchHealthRecord(client, id);
-
-        await writeAuditEntry(client, {
+        await stagePendingAdminDataEdit(client, {
           tableName: "health_facilities",
-          recordId: id,
+          recordId: null,
           action: "create",
           userId: authUser.id,
           beforeData: null,
-          afterData: record,
+          requestPayload: value,
         });
 
         await client.query("COMMIT");
-        return record;
+        return true;
       } catch (err) {
         await client.query("ROLLBACK");
         throw err;
@@ -3492,12 +3474,10 @@ router.post("/health", async (req, res) => {
       }
     });
 
-    markDepartmentStale("health");
-
-    return res.status(201).json({
-      status: "success",
-      message: "Health record created successfully",
-      data: { record: createdRecord },
+    return res.status(202).json({
+      status: "pending",
+      message: "Health record submitted for verification",
+      data: { review_pending: Boolean(pendingRequest) },
     });
   } catch (err) {
     console.error("Admin health create error:", err.message);
@@ -3534,17 +3514,31 @@ router.post("/social_welfare/programs", async (req, res) => {
   }
 
   try {
-    const result = await db.query(
-      `INSERT INTO welfare_programs (program_name, department, description)
-       VALUES ($1, $2, $3)
-       RETURNING program_id`,
-      [value.program_name, value.department, value.description],
-    );
+    const authUser = getAuthUser(req);
+    await db.pool.connect().then(async (client) => {
+      try {
+        await client.query("BEGIN");
+        await stagePendingAdminDataEdit(client, {
+          tableName: "welfare_programs",
+          recordId: null,
+          action: "create",
+          userId: authUser.id,
+          beforeData: null,
+          requestPayload: value,
+        });
+        await client.query("COMMIT");
+      } catch (err) {
+        await client.query("ROLLBACK");
+        throw err;
+      } finally {
+        client.release();
+      }
+    });
 
-    res.status(201).json({
-      status: "success",
-      message: "Welfare program created successfully",
-      data: { program_id: result.rows[0].program_id },
+    return res.status(202).json({
+      status: "pending",
+      message: "Welfare program submitted for verification",
+      data: { review_pending: true },
     });
   } catch (err) {
     console.error("Admin welfare program create error:", err.message);
@@ -3600,96 +3594,21 @@ router.post("/social_welfare/beneficiary", async (req, res) => {
         });
       }
 
-      const insertResult = await client.query(
-        `
-          INSERT INTO welfare_beneficiary (
-            program_id,
-            firstname,
-            lastname,
-            gender,
-            age,
-            household_size,
-            status,
-            start_date,
-            end_date,
-            district_id,
-            ta_id,
-            geom,
-            updated_at
-          )
-          VALUES (
-            $1, $2, $3, $4, $5, $6, $7,
-            $8::date, $9::date,
-            $10, $11,
-            ST_SetSRID(ST_MakePoint($13, $12), 4326),
-            CURRENT_TIMESTAMP
-          )
-          RETURNING id
-        `,
-        [
-          value.programId,
-          value.firstname,
-          value.lastname,
-          value.gender ?? null,
-          value.age ?? null,
-          value.householdSize ?? null,
-          value.status ?? null,
-          value.startDate ?? null,
-          value.endDate ?? null,
-          value.districtId ?? null,
-          value.taId ?? null,
-          value.latitude,
-          value.longitude,
-        ],
-      );
-
-      const newId = insertResult.rows[0].id;
-
-      // Fetch the created record to return
-      const recordResult = await client.query(
-        `
-          SELECT
-            wb.id,
-            wb.program_id,
-            COALESCE(wp.program_name, CONCAT('Program ', wb.program_id::text)) AS program_name,
-            wb.firstname,
-            wb.lastname,
-            wb.gender,
-            wb.age,
-            wb.household_size,
-            wb.status,
-            wb.start_date,
-            wb.end_date,
-            d.name  AS district_name,
-            a3.name AS ta_name,
-            wb.created_at,
-            wb.updated_at,
-            ST_Y(wb.geom) AS latitude,
-            ST_X(wb.geom) AS longitude
-          FROM welfare_beneficiary wb
-          LEFT JOIN welfare_programs wp ON wp.program_id = wb.program_id
-          LEFT JOIN districts d         ON d.id  = wb.district_id
-          LEFT JOIN admin3_units a3     ON a3.id = wb.ta_id
-          WHERE wb.id = $1
-        `,
-        [newId],
-      );
-
-      await writeAuditEntry(client, {
+      await stagePendingAdminDataEdit(client, {
         tableName: "welfare_beneficiary",
-        recordId: newId,
+        recordId: null,
         action: "create",
         userId: authUser.id,
         beforeData: null,
-        afterData: recordResult.rows[0],
+        requestPayload: value,
       });
 
       await client.query("COMMIT");
 
-      return res.status(201).json({
-        status: "success",
-        message: "Welfare beneficiary created successfully",
-        data: { record: recordResult.rows[0] },
+      return res.status(202).json({
+        status: "pending",
+        message: "Beneficiary submitted for verification",
+        data: { review_pending: true },
       });
     } catch (err) {
       await client.query("ROLLBACK");
@@ -3753,94 +3672,20 @@ router.patch("/social_welfare/beneficiary/:id", async (req, res) => {
         return res.status(404).json({ status: "error", message: "Beneficiary not found" });
       }
 
-      const setClauses = [];
-      const params = [];
-
-      const columnMap = {
-        programId: "program_id",
-        firstname: "firstname",
-        lastname: "lastname",
-        gender: "gender",
-        age: "age",
-        householdSize: "household_size",
-        status: "status",
-        startDate: "start_date",
-        endDate: "end_date",
-        districtId: "district_id",
-        taId: "ta_id",
-      };
-
-      Object.entries(columnMap).forEach(([payloadKey, col]) => {
-        if (Object.prototype.hasOwnProperty.call(payload, payloadKey)) {
-          params.push(payload[payloadKey] ?? null);
-          setClauses.push(`${col} = $${params.length}`);
-        }
-      });
-
-      const hasLat = Object.prototype.hasOwnProperty.call(payload, "latitude");
-      const hasLng = Object.prototype.hasOwnProperty.call(payload, "longitude");
-      if (hasLat || hasLng) {
-        const existingCoordinateResult = await client.query(
-          "SELECT ST_Y(geom) AS latitude, ST_X(geom) AS longitude FROM welfare_beneficiary WHERE id = $1",
-          [id],
-        );
-        const currentLatitude = existingCoordinateResult.rows[0]?.latitude;
-        const currentLongitude = existingCoordinateResult.rows[0]?.longitude;
-        const nextLatitude = hasLat ? payload.latitude : currentLatitude;
-        const nextLongitude = hasLng ? payload.longitude : currentLongitude;
-
-        if (
-          nextLatitude === null ||
-          nextLatitude === undefined ||
-          nextLongitude === null ||
-          nextLongitude === undefined
-        ) {
-          throw new Error("Latitude and longitude are required to update beneficiary geometry");
-        }
-        params.push(nextLatitude, nextLongitude);
-        setClauses.push(
-          `geom = ST_SetSRID(ST_MakePoint($${params.length}, $${params.length - 1}), 4326)`
-        );
-      }
-
-      setClauses.push("updated_at = CURRENT_TIMESTAMP");
-      params.push(id);
-
-      await client.query(
-        `UPDATE welfare_beneficiary SET ${setClauses.join(", ")} WHERE id = $${params.length}`,
-        params,
-      );
-
-      const updated = await client.query(
-        `SELECT wb.id, wb.program_id,
-           COALESCE(wp.program_name, CONCAT('Program ', wb.program_id::text)) AS program_name,
-           wb.firstname, wb.lastname, wb.gender, wb.age, wb.household_size,
-           wb.status, wb.start_date, wb.end_date, wb.district_id, wb.ta_id,
-           d.name AS district_name, a3.name AS ta_name,
-           wb.created_at, wb.updated_at,
-           ST_Y(wb.geom) AS latitude, ST_X(wb.geom) AS longitude
-         FROM welfare_beneficiary wb
-         LEFT JOIN welfare_programs wp ON wp.program_id = wb.program_id
-         LEFT JOIN districts d ON d.id = wb.district_id
-         LEFT JOIN admin3_units a3 ON a3.id = wb.ta_id
-         WHERE wb.id = $1`,
-        [id],
-      );
-
-      await writeAuditEntry(client, {
+      await stagePendingAdminDataEdit(client, {
         tableName: "welfare_beneficiary",
         recordId: id,
         action: "update",
         userId: authUser.id,
         beforeData: existing.rows[0],
-        afterData: updated.rows[0],
+        requestPayload: payload,
       });
 
       await client.query("COMMIT");
-      return res.json({
-        status: "success",
-        message: "Beneficiary updated successfully",
-        data: { record: updated.rows[0] },
+      return res.status(202).json({
+        status: "pending",
+        message: "Beneficiary update submitted for verification",
+        data: { review_pending: true },
       });
     } catch (err) {
       await client.query("ROLLBACK");
@@ -3888,19 +3733,21 @@ router.delete("/social_welfare/beneficiary/:id", async (req, res) => {
         return res.status(404).json({ status: "error", message: "Beneficiary not found" });
       }
 
-      await client.query("DELETE FROM welfare_beneficiary WHERE id = $1", [id]);
-
-      await writeAuditEntry(client, {
+      await stagePendingAdminDataEdit(client, {
         tableName: "welfare_beneficiary",
         recordId: id,
         action: "delete",
         userId: authUser.id,
         beforeData: existing.rows[0],
-        afterData: null,
+        requestPayload: null,
       });
 
       await client.query("COMMIT");
-      return res.json({ status: "success", message: "Beneficiary deleted successfully" });
+      return res.status(202).json({
+        status: "pending",
+        message: "Beneficiary deletion submitted for verification",
+        data: { review_pending: true },
+      });
     } catch (err) {
       await client.query("ROLLBACK");
       throw err;
@@ -3954,21 +3801,57 @@ router.patch("/social_welfare/programs/:id", async (req, res) => {
     return res.status(400).json({ status: "error", message: "No editable fields provided" });
   }
 
-  setClauses.push("updated_at = CURRENT_TIMESTAMP");
-  params.push(id);
-
   try {
-    const result = await db.query(
-      `UPDATE welfare_programs SET ${setClauses.join(", ")} WHERE program_id = $${params.length} RETURNING *`,
-      params,
-    );
-    if (!result.rows.length) {
+    const authUser = getAuthUser(req);
+    const pendingRequest = await db.pool.connect().then(async (client) => {
+      try {
+        await client.query("BEGIN");
+        const existing = await client.query(
+          "SELECT * FROM welfare_programs WHERE program_id = $1",
+          [id],
+        );
+        if (!existing.rows.length) {
+          await client.query("ROLLBACK");
+          return null;
+        }
+
+        await stagePendingAdminDataEdit(client, {
+          tableName: "welfare_programs",
+          recordId: id,
+          action: "update",
+          userId: authUser.id,
+          beforeData: existing.rows[0],
+          requestPayload: {
+            ...(Object.prototype.hasOwnProperty.call(req.body, "program_name")
+              ? { program_name: program_name == null ? null : String(program_name).trim() }
+              : {}),
+            ...(Object.prototype.hasOwnProperty.call(req.body, "department")
+              ? { department: department ?? null }
+              : {}),
+            ...(Object.prototype.hasOwnProperty.call(req.body, "description")
+              ? { description: description ?? null }
+              : {}),
+          },
+        });
+
+        await client.query("COMMIT");
+        return true;
+      } catch (err) {
+        await client.query("ROLLBACK");
+        throw err;
+      } finally {
+        client.release();
+      }
+    });
+
+    if (!pendingRequest) {
       return res.status(404).json({ status: "error", message: "Program not found" });
     }
-    return res.json({
-      status: "success",
-      message: "Program updated successfully",
-      data: { record: result.rows[0] },
+
+    return res.status(202).json({
+      status: "pending",
+      message: "Program update submitted for verification",
+      data: { review_pending: true },
     });
   } catch (err) {
     console.error("Admin welfare program update error:", err.message);
@@ -3997,14 +3880,47 @@ router.delete("/social_welfare/programs/:id", async (req, res) => {
   }
 
   try {
-    const result = await db.query(
-      "DELETE FROM welfare_programs WHERE program_id = $1 RETURNING program_id",
-      [id],
-    );
-    if (!result.rows.length) {
+    const authUser = getAuthUser(req);
+    const pendingRequest = await db.pool.connect().then(async (client) => {
+      try {
+        await client.query("BEGIN");
+        const existing = await client.query(
+          "SELECT * FROM welfare_programs WHERE program_id = $1",
+          [id],
+        );
+        if (!existing.rows.length) {
+          await client.query("ROLLBACK");
+          return null;
+        }
+
+        await stagePendingAdminDataEdit(client, {
+          tableName: "welfare_programs",
+          recordId: id,
+          action: "delete",
+          userId: authUser.id,
+          beforeData: existing.rows[0],
+          requestPayload: null,
+        });
+
+        await client.query("COMMIT");
+        return true;
+      } catch (err) {
+        await client.query("ROLLBACK");
+        throw err;
+      } finally {
+        client.release();
+      }
+    });
+
+    if (!pendingRequest) {
       return res.status(404).json({ status: "error", message: "Program not found" });
     }
-    return res.json({ status: "success", message: "Program deleted successfully" });
+
+    return res.status(202).json({
+      status: "pending",
+      message: "Program deletion submitted for verification",
+      data: { review_pending: true },
+    });
   } catch (err) {
     console.error("Admin welfare program delete error:", err.message);
     return res.status(500).json({
@@ -4040,57 +3956,22 @@ router.post("/social_welfare", async (req, res) => {
   }
 
   try {
-    const welfareWardColumn = await getWelfareWardColumn();
     const authUser = getAuthUser(req);
-    const createdRecord = await db.pool.connect().then(async (client) => {
+    await db.pool.connect().then(async (client) => {
       try {
         await client.query("BEGIN");
         await validateWardExists(client, value.wardId);
 
-        const insertedResult = await client.query(
-          `
-            INSERT INTO welfare_beneficiaries (
-              program_name,
-              beneficiary_count,
-              ${welfareWardColumn},
-              geom,
-              is_active,
-              updated_at
-            )
-            VALUES (
-              $1,
-              $2,
-              $3,
-              ST_SetSRID(ST_MakePoint($4, $5), 4326),
-              COALESCE($6, TRUE),
-              CURRENT_TIMESTAMP
-            )
-            RETURNING id
-          `,
-          [
-            value.programName,
-            value.beneficiaryCount ?? null,
-            value.wardId,
-            value.longitude,
-            value.latitude,
-            value.isActive,
-          ],
-        );
-
-        const id = insertedResult.rows[0].id;
-        const record = await fetchWelfareRecord(client, id, welfareWardColumn);
-
-        await writeAuditEntry(client, {
+        await stagePendingAdminDataEdit(client, {
           tableName: "welfare_beneficiaries",
-          recordId: id,
+          recordId: null,
           action: "create",
           userId: authUser.id,
           beforeData: null,
-          afterData: record,
+          requestPayload: value,
         });
 
         await client.query("COMMIT");
-        return record;
       } catch (err) {
         await client.query("ROLLBACK");
         throw err;
@@ -4099,12 +3980,10 @@ router.post("/social_welfare", async (req, res) => {
       }
     });
 
-    markDepartmentStale("welfare");
-
-    return res.status(201).json({
-      status: "success",
-      message: "Welfare record created successfully",
-      data: { record: createdRecord },
+    return res.status(202).json({
+      status: "pending",
+      message: "Welfare record submitted for verification",
+      data: { review_pending: true },
     });
   } catch (err) {
     console.error("Admin welfare create error:", err.message);
@@ -4149,53 +4028,21 @@ router.post("/disaster", async (req, res) => {
         .json({ status: "error", message: "geometryGeoJson is required" });
     }
 
-    const createdRecord = await db.pool.connect().then(async (client) => {
+    const pendingRequest = await db.pool.connect().then(async (client) => {
       try {
         await client.query("BEGIN");
 
-        const insertedResult = await client.query(
-          `
-            INSERT INTO disaster_zones (
-              event_type,
-              risk_level,
-              population_at_risk,
-              geom,
-              is_active,
-              updated_at
-            )
-            VALUES (
-              $1,
-              $2,
-              $3,
-              ST_Multi(ST_SetSRID(ST_GeomFromGeoJSON($4), 4326)),
-              COALESCE($5, TRUE),
-              CURRENT_TIMESTAMP
-            )
-            RETURNING id
-          `,
-          [
-            value.eventType,
-            value.riskLevel,
-            value.populationAtRisk ?? null,
-            geometryPayload,
-            value.isActive,
-          ],
-        );
-
-        const id = insertedResult.rows[0].id;
-        const record = await fetchDisasterRecord(client, id);
-
-        await writeAuditEntry(client, {
+        await stagePendingAdminDataEdit(client, {
           tableName: "disaster_zones",
-          recordId: id,
+          recordId: null,
           action: "create",
           userId: authUser.id,
           beforeData: null,
-          afterData: record,
+          requestPayload: value,
         });
 
         await client.query("COMMIT");
-        return record;
+        return true;
       } catch (err) {
         await client.query("ROLLBACK");
         throw err;
@@ -4204,12 +4051,10 @@ router.post("/disaster", async (req, res) => {
       }
     });
 
-    markDepartmentStale("disaster");
-
-    return res.status(201).json({
-      status: "success",
-      message: "Disaster record created successfully",
-      data: { record: createdRecord },
+    return res.status(202).json({
+      status: "pending",
+      message: "Disaster record submitted for verification",
+      data: { review_pending: Boolean(pendingRequest) },
     });
   } catch (err) {
     console.error("Admin disaster create error:", err.message);
@@ -4278,8 +4123,7 @@ router.patch("/education/:id", async (req, res) => {
 
   try {
     const authUser = getAuthUser(req);
-
-    const updatedRecord = await db.pool.connect().then(async (client) => {
+    const pendingRequest = await db.pool.connect().then(async (client) => {
       try {
         await client.query("BEGIN");
 
@@ -4315,46 +4159,17 @@ router.patch("/education/:id", async (req, res) => {
           );
         }
 
-        const setClauses = [];
-        const params = [];
-
-        pendingUpdates.forEach(({ columnName, value: columnValue }) => {
-          params.push(columnValue ?? null);
-          setClauses.push(`${columnName} = $${params.length}`);
-        });
-
-        if (includesGeometryUpdate) {
-          params.push(value.longitude, value.latitude);
-          setClauses.push(
-            `geom = ST_SetSRID(ST_MakePoint($${params.length - 1}, $${params.length}), 4326)`,
-          );
-        }
-
-        setClauses.push("updated_at = CURRENT_TIMESTAMP");
-        params.push(schoolId);
-
-        await client.query(
-          `
-            UPDATE education_facilities
-            SET ${setClauses.join(", ")}
-            WHERE school_id = $${params.length}
-          `,
-          params,
-        );
-
-        const record = await fetchEducationRecord(client, schoolId);
-
-        await writeAuditEntry(client, {
+        await stagePendingAdminDataEdit(client, {
           tableName: "education_facilities",
           recordId: schoolId,
           action: "update",
           userId: authUser.id,
           beforeData: existingRecord,
-          afterData: record,
+          requestPayload: value,
         });
 
         await client.query("COMMIT");
-        return record;
+        return true;
       } catch (err) {
         await client.query("ROLLBACK");
         throw err;
@@ -4363,18 +4178,10 @@ router.patch("/education/:id", async (req, res) => {
       }
     });
 
-    if (!updatedRecord) {
-      return res
-        .status(404)
-        .json({ status: "error", message: "Education record not found" });
-    }
-
-    markDepartmentStale("education");
-
-    return res.json({
-      status: "success",
-      message: "Education record updated successfully",
-      data: { record: updatedRecord },
+    return res.status(202).json({
+      status: "pending",
+      message: "Education update submitted for verification",
+      data: { review_pending: Boolean(pendingRequest) },
     });
   } catch (err) {
     console.error("Admin education update error:", err.message);
@@ -4444,8 +4251,7 @@ router.patch("/health/:id", async (req, res) => {
 
   try {
     const authUser = getAuthUser(req);
-
-    const updatedRecord = await db.pool.connect().then(async (client) => {
+    const pendingRequest = await db.pool.connect().then(async (client) => {
       try {
         await client.query("BEGIN");
 
@@ -4481,50 +4287,17 @@ router.patch("/health/:id", async (req, res) => {
           );
         }
 
-        const setClauses = [];
-        const params = [];
-
-        pendingUpdates.forEach(({ columnName, value: columnValue }) => {
-          params.push(columnValue ?? null);
-          setClauses.push(
-            `${quoteSqlIdentifier(columnName)} = $${params.length}`,
-          );
-        });
-
-        if (includesGeometryUpdate) {
-          params.push(value.longitude, value.latitude);
-          setClauses.push(
-            `geom = ST_SetSRID(ST_MakePoint($${params.length - 1}, $${params.length}), 4326)`,
-            `longitude = $${params.length - 1}`,
-            `latitude = $${params.length}`,
-          );
-        }
-
-        setClauses.push("updated_at = CURRENT_TIMESTAMP");
-        params.push(id);
-
-        await client.query(
-          `
-            UPDATE health_facilities
-            SET ${setClauses.join(", ")}
-            WHERE id = $${params.length}
-          `,
-          params,
-        );
-
-        const record = await fetchHealthRecord(client, id);
-
-        await writeAuditEntry(client, {
+        await stagePendingAdminDataEdit(client, {
           tableName: "health_facilities",
           recordId: id,
           action: "update",
           userId: authUser.id,
           beforeData: existingRecord,
-          afterData: record,
+          requestPayload: value,
         });
 
         await client.query("COMMIT");
-        return record;
+        return true;
       } catch (err) {
         await client.query("ROLLBACK");
         throw err;
@@ -4533,18 +4306,10 @@ router.patch("/health/:id", async (req, res) => {
       }
     });
 
-    if (!updatedRecord) {
-      return res
-        .status(404)
-        .json({ status: "error", message: "Health record not found" });
-    }
-
-    markDepartmentStale("health");
-
-    return res.json({
-      status: "success",
-      message: "Health record updated successfully",
-      data: { record: updatedRecord },
+    return res.status(202).json({
+      status: "pending",
+      message: "Health update submitted for verification",
+      data: { review_pending: Boolean(pendingRequest) },
     });
   } catch (err) {
     console.error("Admin health update error:", err.message);
@@ -4616,8 +4381,7 @@ router.patch("/social_welfare/:id", async (req, res) => {
     }
 
     const authUser = getAuthUser(req);
-
-    const updatedRecord = await db.pool.connect().then(async (client) => {
+    const pendingRequest = await db.pool.connect().then(async (client) => {
       try {
         await client.query("BEGIN");
 
@@ -4637,50 +4401,17 @@ router.patch("/social_welfare/:id", async (req, res) => {
 
         await validateWardExists(client, nextWardId);
 
-        const setClauses = [];
-        const params = [];
-
-        pendingUpdates.forEach(({ columnName, value: columnValue }) => {
-          params.push(columnValue ?? null);
-          setClauses.push(`${columnName} = $${params.length}`);
-        });
-
-        if (includesGeometryUpdate) {
-          params.push(value.longitude, value.latitude);
-          setClauses.push(
-            `geom = ST_SetSRID(ST_MakePoint($${params.length - 1}, $${params.length}), 4326)`,
-          );
-        }
-
-        setClauses.push("updated_at = CURRENT_TIMESTAMP");
-        params.push(id);
-
-        await client.query(
-          `
-            UPDATE welfare_beneficiaries
-            SET ${setClauses.join(", ")}
-            WHERE id = $${params.length}
-          `,
-          params,
-        );
-
-        const record = await fetchWelfareRecord(
-          client,
-          id,
-          welfareWardColumn,
-        );
-
-        await writeAuditEntry(client, {
+        await stagePendingAdminDataEdit(client, {
           tableName: "welfare_beneficiaries",
           recordId: id,
           action: "update",
           userId: authUser.id,
           beforeData: existingRecord,
-          afterData: record,
+          requestPayload: value,
         });
 
         await client.query("COMMIT");
-        return record;
+        return true;
       } catch (err) {
         await client.query("ROLLBACK");
         throw err;
@@ -4689,18 +4420,10 @@ router.patch("/social_welfare/:id", async (req, res) => {
       }
     });
 
-    if (!updatedRecord) {
-      return res
-        .status(404)
-        .json({ status: "error", message: "Welfare record not found" });
-    }
-
-    markDepartmentStale("welfare");
-
-    return res.json({
-      status: "success",
-      message: "Welfare record updated successfully",
-      data: { record: updatedRecord },
+    return res.status(202).json({
+      status: "pending",
+      message: "Welfare update submitted for verification",
+      data: { review_pending: Boolean(pendingRequest) },
     });
   } catch (err) {
     console.error("Admin welfare update error:", err.message);
@@ -4764,7 +4487,7 @@ router.patch("/disaster/:id", async (req, res) => {
 
   try {
     const authUser = getAuthUser(req);
-    const updatedRecord = await db.pool.connect().then(async (client) => {
+    const pendingRequest = await db.pool.connect().then(async (client) => {
       try {
         await client.query("BEGIN");
 
@@ -4774,51 +4497,24 @@ router.patch("/disaster/:id", async (req, res) => {
           return null;
         }
 
-        const setClauses = [];
-        const params = [];
-
-        pendingUpdates.forEach(({ columnName, value: columnValue }) => {
-          params.push(columnValue ?? null);
-          setClauses.push(`${columnName} = $${params.length}`);
-        });
-
         if (includesGeometryUpdate) {
           const geometryPayload = parseDisasterGeometry(value.geometryGeoJson);
           if (!geometryPayload) {
             throw new Error("geometryGeoJson cannot be empty when provided");
           }
-
-          params.push(geometryPayload);
-          setClauses.push(
-            `geom = ST_Multi(ST_SetSRID(ST_GeomFromGeoJSON($${params.length}), 4326))`,
-          );
         }
 
-        setClauses.push("updated_at = CURRENT_TIMESTAMP");
-        params.push(id);
-
-        await client.query(
-          `
-            UPDATE disaster_zones
-            SET ${setClauses.join(", ")}
-            WHERE id = $${params.length}
-          `,
-          params,
-        );
-
-        const record = await fetchDisasterRecord(client, id);
-
-        await writeAuditEntry(client, {
+        await stagePendingAdminDataEdit(client, {
           tableName: "disaster_zones",
           recordId: id,
           action: "update",
           userId: authUser.id,
           beforeData: existingRecord,
-          afterData: record,
+          requestPayload: value,
         });
 
         await client.query("COMMIT");
-        return record;
+        return true;
       } catch (err) {
         await client.query("ROLLBACK");
         throw err;
@@ -4827,18 +4523,10 @@ router.patch("/disaster/:id", async (req, res) => {
       }
     });
 
-    if (!updatedRecord) {
-      return res
-        .status(404)
-        .json({ status: "error", message: "Disaster record not found" });
-    }
-
-    markDepartmentStale("disaster");
-
-    return res.json({
-      status: "success",
-      message: "Disaster record updated successfully",
-      data: { record: updatedRecord },
+    return res.status(202).json({
+      status: "pending",
+      message: "Disaster update submitted for verification",
+      data: { review_pending: Boolean(pendingRequest) },
     });
   } catch (err) {
     console.error("Admin disaster update error:", err.message);
@@ -4878,7 +4566,7 @@ router.post("/education/:id/archive", async (req, res) => {
 
   try {
     const authUser = getAuthUser(req);
-    const archivedRecord = await db.pool.connect().then(async (client) => {
+    const pendingRequest = await db.pool.connect().then(async (client) => {
       try {
         await client.query("BEGIN");
 
@@ -4888,29 +4576,17 @@ router.post("/education/:id/archive", async (req, res) => {
           return null;
         }
 
-        await client.query(
-          `
-            UPDATE education_facilities
-            SET is_active = FALSE,
-                updated_at = CURRENT_TIMESTAMP
-            WHERE school_id = $1
-          `,
-          [schoolId],
-        );
-
-        const record = await fetchEducationRecord(client, schoolId);
-
-        await writeAuditEntry(client, {
+        await stagePendingAdminDataEdit(client, {
           tableName: "education_facilities",
           recordId: schoolId,
           action: "archive",
           userId: authUser.id,
           beforeData: existingRecord,
-          afterData: record,
+          requestPayload: null,
         });
 
         await client.query("COMMIT");
-        return record;
+        return true;
       } catch (err) {
         await client.query("ROLLBACK");
         throw err;
@@ -4919,18 +4595,10 @@ router.post("/education/:id/archive", async (req, res) => {
       }
     });
 
-    if (!archivedRecord) {
-      return res
-        .status(404)
-        .json({ status: "error", message: "Education record not found" });
-    }
-
-    markDepartmentStale("education");
-
-    return res.json({
-      status: "success",
-      message: "Education record archived successfully",
-      data: { record: archivedRecord },
+    return res.status(202).json({
+      status: "pending",
+      message: "Education archive submitted for verification",
+      data: { review_pending: Boolean(pendingRequest) },
     });
   } catch (err) {
     console.error("Admin education archive error:", err.message);
@@ -4971,7 +4639,7 @@ router.post("/health/:id/archive", async (req, res) => {
 
   try {
     const authUser = getAuthUser(req);
-    const archivedRecord = await db.pool.connect().then(async (client) => {
+    const pendingRequest = await db.pool.connect().then(async (client) => {
       try {
         await client.query("BEGIN");
 
@@ -4981,29 +4649,17 @@ router.post("/health/:id/archive", async (req, res) => {
           return null;
         }
 
-        await client.query(
-          `
-            UPDATE health_facilities
-            SET is_active = FALSE,
-                updated_at = CURRENT_TIMESTAMP
-            WHERE id = $1
-          `,
-          [id],
-        );
-
-        const record = await fetchHealthRecord(client, id);
-
-        await writeAuditEntry(client, {
+        await stagePendingAdminDataEdit(client, {
           tableName: "health_facilities",
           recordId: id,
           action: "archive",
           userId: authUser.id,
           beforeData: existingRecord,
-          afterData: record,
+          requestPayload: null,
         });
 
         await client.query("COMMIT");
-        return record;
+        return true;
       } catch (err) {
         await client.query("ROLLBACK");
         throw err;
@@ -5012,18 +4668,10 @@ router.post("/health/:id/archive", async (req, res) => {
       }
     });
 
-    if (!archivedRecord) {
-      return res
-        .status(404)
-        .json({ status: "error", message: "Health record not found" });
-    }
-
-    markDepartmentStale("health");
-
-    return res.json({
-      status: "success",
-      message: "Health record archived successfully",
-      data: { record: archivedRecord },
+    return res.status(202).json({
+      status: "pending",
+      message: "Health archive submitted for verification",
+      data: { review_pending: Boolean(pendingRequest) },
     });
   } catch (err) {
     console.error("Admin health archive error:", err.message);
@@ -5065,7 +4713,7 @@ router.post("/social_welfare/:id/archive", async (req, res) => {
   try {
     const welfareWardColumn = await getWelfareWardColumn();
     const authUser = getAuthUser(req);
-    const archivedRecord = await db.pool.connect().then(async (client) => {
+    const pendingRequest = await db.pool.connect().then(async (client) => {
       try {
         await client.query("BEGIN");
 
@@ -5079,33 +4727,17 @@ router.post("/social_welfare/:id/archive", async (req, res) => {
           return null;
         }
 
-        await client.query(
-          `
-            UPDATE welfare_beneficiaries
-            SET is_active = FALSE,
-                updated_at = CURRENT_TIMESTAMP
-            WHERE id = $1
-          `,
-          [id],
-        );
-
-        const record = await fetchWelfareRecord(
-          client,
-          id,
-          welfareWardColumn,
-        );
-
-        await writeAuditEntry(client, {
+        await stagePendingAdminDataEdit(client, {
           tableName: "welfare_beneficiaries",
           recordId: id,
           action: "archive",
           userId: authUser.id,
           beforeData: existingRecord,
-          afterData: record,
+          requestPayload: null,
         });
 
         await client.query("COMMIT");
-        return record;
+        return true;
       } catch (err) {
         await client.query("ROLLBACK");
         throw err;
@@ -5114,18 +4746,10 @@ router.post("/social_welfare/:id/archive", async (req, res) => {
       }
     });
 
-    if (!archivedRecord) {
-      return res
-        .status(404)
-        .json({ status: "error", message: "Welfare record not found" });
-    }
-
-    markDepartmentStale("welfare");
-
-    return res.json({
-      status: "success",
-      message: "Welfare record archived successfully",
-      data: { record: archivedRecord },
+    return res.status(202).json({
+      status: "pending",
+      message: "Welfare archive submitted for verification",
+      data: { review_pending: Boolean(pendingRequest) },
     });
   } catch (err) {
     console.error("Admin welfare archive error:", err.message);
@@ -5166,7 +4790,7 @@ router.post("/disaster/:id/archive", async (req, res) => {
 
   try {
     const authUser = getAuthUser(req);
-    const archivedRecord = await db.pool.connect().then(async (client) => {
+    const pendingRequest = await db.pool.connect().then(async (client) => {
       try {
         await client.query("BEGIN");
 
@@ -5176,29 +4800,17 @@ router.post("/disaster/:id/archive", async (req, res) => {
           return null;
         }
 
-        await client.query(
-          `
-            UPDATE disaster_zones
-            SET is_active = FALSE,
-                updated_at = CURRENT_TIMESTAMP
-            WHERE id = $1
-          `,
-          [id],
-        );
-
-        const record = await fetchDisasterRecord(client, id);
-
-        await writeAuditEntry(client, {
+        await stagePendingAdminDataEdit(client, {
           tableName: "disaster_zones",
           recordId: id,
           action: "archive",
           userId: authUser.id,
           beforeData: existingRecord,
-          afterData: record,
+          requestPayload: null,
         });
 
         await client.query("COMMIT");
-        return record;
+        return true;
       } catch (err) {
         await client.query("ROLLBACK");
         throw err;
@@ -5207,24 +4819,1366 @@ router.post("/disaster/:id/archive", async (req, res) => {
       }
     });
 
-    if (!archivedRecord) {
-      return res
-        .status(404)
-        .json({ status: "error", message: "Disaster record not found" });
-    }
-
-    markDepartmentStale("disaster");
-
-    return res.json({
-      status: "success",
-      message: "Disaster record archived successfully",
-      data: { record: archivedRecord },
+    return res.status(202).json({
+      status: "pending",
+      message: "Disaster archive submitted for verification",
+      data: { review_pending: Boolean(pendingRequest) },
     });
   } catch (err) {
     console.error("Admin disaster archive error:", err.message);
     return res.status(400).json({
       status: "error",
       message: err.message || "Unable to archive disaster record",
+    });
+  }
+});
+
+function normalizeReviewPayload(payload) {
+  if (payload == null) {
+    return null;
+  }
+
+  if (typeof payload === "string") {
+    try {
+      return JSON.parse(payload);
+    } catch (_err) {
+      return payload;
+    }
+  }
+
+  return payload;
+}
+
+async function finalizePendingReview(
+  client,
+  { reviewId, reviewerId, reviewNotes, recordId, afterData, status },
+) {
+  await client.query(
+    `
+      UPDATE admin_data_edits
+      SET status = $1,
+          reviewed_by_user_id = $2,
+          reviewed_at = CURRENT_TIMESTAMP,
+          review_notes = $3,
+          record_id = COALESCE($4, record_id),
+          after_data = $5::jsonb
+      WHERE id = $6
+    `,
+    [
+      status,
+      reviewerId || null,
+      reviewNotes || null,
+      recordId || null,
+      JSON.stringify(afterData ?? null),
+      reviewId,
+    ],
+  );
+}
+
+async function applyPendingAdminDataReview(client, review) {
+  const requestPayload = normalizeReviewPayload(review.request_payload) || {};
+  const tableName = review.table_name;
+  const action = review.action;
+
+  if (tableName === "education_facilities") {
+    if (action === "create") {
+      const { error, value } = validateEducationCreate(requestPayload);
+      if (error) {
+        throw new Error(error);
+      }
+
+      await validateDistrictWardRelationship(client, value.districtId, value.wardId);
+
+      const insertedResult = await client.query(
+        `
+          INSERT INTO education_facilities (
+            school_name,
+            operator,
+            status,
+            student_enrollment_total,
+            student_classroom_ratio,
+            special_needs_students,
+            teacher_distribution,
+            teacher_count,
+            blocks_count,
+            water_equipment_facility_count,
+            toilets_count,
+            classroom_pressure,
+            teacher_pressure,
+            district_id,
+            ta_id,
+            x_coordinate,
+            y_coordinate,
+            geom,
+            is_active,
+            updated_at
+          )
+          VALUES (
+            $1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
+            $11, $12, $13, $14,
+            ST_SetSRID(ST_MakePoint($15, $16), 4326),
+            COALESCE($17, TRUE),
+            CURRENT_TIMESTAMP
+          )
+          RETURNING school_id
+        `,
+        [
+          value.name,
+          value.operatorType ?? null,
+          value.status ?? null,
+          value.studentEnrollmentTotal ?? null,
+          value.studentClassroomRatio ?? null,
+          value.specialNeedsStudents ?? null,
+          value.teacherDistribution ?? null,
+          value.teacherCount ?? null,
+          value.blocksCount ?? null,
+          value.waterEquipmentFacilityCount ?? null,
+          value.toiletsCount ?? null,
+          value.classroomPressure ?? null,
+          value.teacherPressure ?? null,
+          value.districtId ?? null,
+          value.wardId ?? null,
+          value.longitude,
+          value.latitude,
+          value.isActive,
+        ],
+      );
+
+      const schoolId = insertedResult.rows[0].school_id;
+      const record = await fetchEducationRecord(client, schoolId);
+      return { department: "education", recordId: schoolId, afterData: record };
+    }
+
+    if (action === "update") {
+      const { error, value } = validateEducationUpdate(requestPayload);
+      if (error) {
+        throw new Error(error);
+      }
+
+      requireLatLngTogether(value);
+
+      const pendingUpdates = mapEducationPayloadToColumns(value);
+      const includesGeometryUpdate = Object.prototype.hasOwnProperty.call(
+        value,
+        "latitude",
+      );
+
+      if (!pendingUpdates.length && !includesGeometryUpdate) {
+        throw new Error("No editable fields were provided");
+      }
+
+      const existingRecord = await fetchEducationRecord(client, review.record_id);
+      if (!existingRecord) {
+        throw new Error("Education record not found");
+      }
+
+      const hasDistrictUpdate = Object.prototype.hasOwnProperty.call(value, "districtId");
+      const hasWardUpdate = Object.prototype.hasOwnProperty.call(value, "wardId");
+      const nextDistrictId = hasDistrictUpdate ? value.districtId : existingRecord.district_id;
+      const nextWardId = hasWardUpdate ? value.wardId : existingRecord.ward_id;
+
+      if (hasDistrictUpdate || hasWardUpdate) {
+        await validateDistrictWardRelationship(client, nextDistrictId, nextWardId);
+      }
+
+      const setClauses = [];
+      const params = [];
+
+      pendingUpdates.forEach(({ columnName, value: columnValue }) => {
+        params.push(columnValue ?? null);
+        setClauses.push(`${columnName} = $${params.length}`);
+      });
+
+      if (includesGeometryUpdate) {
+        params.push(value.longitude, value.latitude);
+        setClauses.push(
+          `geom = ST_SetSRID(ST_MakePoint($${params.length - 1}, $${params.length}), 4326)`,
+        );
+      }
+
+      setClauses.push("updated_at = CURRENT_TIMESTAMP");
+      params.push(review.record_id);
+
+      await client.query(
+        `
+          UPDATE education_facilities
+          SET ${setClauses.join(", ")}
+          WHERE school_id = $${params.length}
+        `,
+        params,
+      );
+
+      const record = await fetchEducationRecord(client, review.record_id);
+      return {
+        department: "education",
+        recordId: review.record_id,
+        afterData: record,
+      };
+    }
+
+    if (action === "archive") {
+      const existingRecord = await fetchEducationRecord(client, review.record_id);
+      if (!existingRecord) {
+        throw new Error("Education record not found");
+      }
+
+      await client.query(
+        `
+          UPDATE education_facilities
+          SET is_active = FALSE,
+              updated_at = CURRENT_TIMESTAMP
+          WHERE school_id = $1
+        `,
+        [review.record_id],
+      );
+
+      const record = await fetchEducationRecord(client, review.record_id);
+      return {
+        department: "education",
+        recordId: review.record_id,
+        afterData: record,
+      };
+    }
+  }
+
+  if (tableName === "health_facilities") {
+    if (action === "create") {
+      const { error, value } = validateHealthCreate(requestPayload);
+      if (error) {
+        throw new Error(error);
+      }
+
+      await validateDistrictWardRelationship(client, value.districtId, value.wardId);
+
+      const insertedResult = await client.query(
+        `
+          INSERT INTO health_facilities (
+            code,
+            name,
+            common_name,
+            type,
+            ownership,
+            "capacity:persons",
+            zone,
+            district,
+            status,
+            doctor_count,
+            nurse_midwife_count,
+            bed_capacity,
+            beds_count,
+            patient_visits_total,
+            services_offered,
+            district_id,
+            ta_id,
+            latitude,
+            longitude,
+            geom,
+            is_active,
+            updated_at
+          )
+          VALUES (
+            $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15,
+            $16, $17, $18, $19,
+            ST_SetSRID(ST_MakePoint($19, $18), 4326),
+            COALESCE($20, TRUE),
+            CURRENT_TIMESTAMP
+          )
+          RETURNING id
+        `,
+        [
+          value.code ?? null,
+          value.name,
+          value.commonName ?? null,
+          value.type ?? null,
+          value.ownership ?? null,
+          value.capacityPersons ?? null,
+          value.zone ?? null,
+          value.districtLabel ?? null,
+          value.status ?? null,
+          value.doctorCount ?? null,
+          value.nurseMidwifeCount ?? null,
+          value.bedCapacity ?? null,
+          value.bedsCount ?? null,
+          value.patientVisitsTotal ?? null,
+          normalizeHealthServicesOffered(value.servicesOffered) ?? [],
+          value.districtId ?? null,
+          value.wardId ?? null,
+          value.latitude,
+          value.longitude,
+          value.isActive,
+        ],
+      );
+
+      const id = insertedResult.rows[0].id;
+      const record = await fetchHealthRecord(client, id);
+      return { department: "health", recordId: id, afterData: record };
+    }
+
+    if (action === "update") {
+      const { error, value } = validateHealthUpdate(requestPayload);
+      if (error) {
+        throw new Error(error);
+      }
+
+      requireLatLngTogether(value);
+
+      const pendingUpdates = mapHealthPayloadToColumns(value);
+      const includesGeometryUpdate = Object.prototype.hasOwnProperty.call(
+        value,
+        "latitude",
+      );
+
+      if (!pendingUpdates.length && !includesGeometryUpdate) {
+        throw new Error("No editable fields were provided");
+      }
+
+      const existingRecord = await fetchHealthRecord(client, review.record_id);
+      if (!existingRecord) {
+        throw new Error("Health record not found");
+      }
+
+      const hasDistrictUpdate = Object.prototype.hasOwnProperty.call(value, "districtId");
+      const hasWardUpdate = Object.prototype.hasOwnProperty.call(value, "wardId");
+      const nextDistrictId = hasDistrictUpdate ? value.districtId : existingRecord.district_id;
+      const nextWardId = hasWardUpdate ? value.wardId : existingRecord.ward_id;
+
+      if (hasDistrictUpdate || hasWardUpdate) {
+        await validateDistrictWardRelationship(client, nextDistrictId, nextWardId);
+      }
+
+      const setClauses = [];
+      const params = [];
+
+      pendingUpdates.forEach(({ columnName, value: columnValue }) => {
+        params.push(columnValue ?? null);
+        setClauses.push(`${quoteSqlIdentifier(columnName)} = $${params.length}`);
+      });
+
+      if (includesGeometryUpdate) {
+        params.push(value.longitude, value.latitude);
+        setClauses.push(
+          `geom = ST_SetSRID(ST_MakePoint($${params.length - 1}, $${params.length}), 4326)`,
+          `longitude = $${params.length - 1}`,
+          `latitude = $${params.length}`,
+        );
+      }
+
+      setClauses.push("updated_at = CURRENT_TIMESTAMP");
+      params.push(review.record_id);
+
+      await client.query(
+        `
+          UPDATE health_facilities
+          SET ${setClauses.join(", ")}
+          WHERE id = $${params.length}
+        `,
+        params,
+      );
+
+      const record = await fetchHealthRecord(client, review.record_id);
+      return { department: "health", recordId: review.record_id, afterData: record };
+    }
+
+    if (action === "archive") {
+      const existingRecord = await fetchHealthRecord(client, review.record_id);
+      if (!existingRecord) {
+        throw new Error("Health record not found");
+      }
+
+      await client.query(
+        `
+          UPDATE health_facilities
+          SET is_active = FALSE,
+              updated_at = CURRENT_TIMESTAMP
+          WHERE id = $1
+        `,
+        [review.record_id],
+      );
+
+      const record = await fetchHealthRecord(client, review.record_id);
+      return { department: "health", recordId: review.record_id, afterData: record };
+    }
+  }
+
+  if (tableName === "welfare_beneficiaries") {
+    const welfareWardColumn = await getWelfareWardColumn();
+
+    if (action === "create") {
+      const { error, value } = validateWelfareCreate(requestPayload);
+      if (error) {
+        throw new Error(error);
+      }
+
+      await validateWardExists(client, value.wardId);
+
+      const insertedResult = await client.query(
+        `
+          INSERT INTO welfare_beneficiaries (
+            program_name,
+            beneficiary_count,
+            ${welfareWardColumn},
+            geom,
+            is_active,
+            updated_at
+          )
+          VALUES (
+            $1,
+            $2,
+            $3,
+            ST_SetSRID(ST_MakePoint($4, $5), 4326),
+            COALESCE($6, TRUE),
+            CURRENT_TIMESTAMP
+          )
+          RETURNING id
+        `,
+        [
+          value.programName,
+          value.beneficiaryCount ?? null,
+          value.wardId,
+          value.longitude,
+          value.latitude,
+          value.isActive,
+        ],
+      );
+
+      const id = insertedResult.rows[0].id;
+      const record = await fetchWelfareRecord(client, id, welfareWardColumn);
+      return {
+        department: "welfare",
+        recordId: id,
+        afterData: record,
+      };
+    }
+
+    if (action === "update") {
+      const { error, value } = validateWelfareUpdate(requestPayload);
+      if (error) {
+        throw new Error(error);
+      }
+
+      requireLatLngTogether(value);
+
+      const pendingUpdates = mapWelfarePayloadToColumns(value, welfareWardColumn);
+      const includesGeometryUpdate = Object.prototype.hasOwnProperty.call(
+        value,
+        "latitude",
+      );
+
+      if (!pendingUpdates.length && !includesGeometryUpdate) {
+        throw new Error("No editable fields were provided");
+      }
+
+      const existingRecord = await fetchWelfareRecord(
+        client,
+        review.record_id,
+        welfareWardColumn,
+      );
+      if (!existingRecord) {
+        throw new Error("Welfare record not found");
+      }
+
+      const nextWardId = Object.prototype.hasOwnProperty.call(value, "wardId")
+        ? value.wardId
+        : existingRecord.ward_id;
+      await validateWardExists(client, nextWardId);
+
+      const setClauses = [];
+      const params = [];
+
+      pendingUpdates.forEach(({ columnName, value: columnValue }) => {
+        params.push(columnValue ?? null);
+        setClauses.push(`${columnName} = $${params.length}`);
+      });
+
+      if (includesGeometryUpdate) {
+        params.push(value.longitude, value.latitude);
+        setClauses.push(
+          `geom = ST_SetSRID(ST_MakePoint($${params.length - 1}, $${params.length}), 4326)`,
+        );
+      }
+
+      setClauses.push("updated_at = CURRENT_TIMESTAMP");
+      params.push(review.record_id);
+
+      await client.query(
+        `
+          UPDATE welfare_beneficiaries
+          SET ${setClauses.join(", ")}
+          WHERE id = $${params.length}
+        `,
+        params,
+      );
+
+      const record = await fetchWelfareRecord(client, review.record_id, welfareWardColumn);
+      return { department: "welfare", recordId: review.record_id, afterData: record };
+    }
+
+    if (action === "archive") {
+      const existingRecord = await fetchWelfareRecord(
+        client,
+        review.record_id,
+        welfareWardColumn,
+      );
+      if (!existingRecord) {
+        throw new Error("Welfare record not found");
+      }
+
+      await client.query(
+        `
+          UPDATE welfare_beneficiaries
+          SET is_active = FALSE,
+              updated_at = CURRENT_TIMESTAMP
+          WHERE id = $1
+        `,
+        [review.record_id],
+      );
+
+      const record = await fetchWelfareRecord(client, review.record_id, welfareWardColumn);
+      return { department: "welfare", recordId: review.record_id, afterData: record };
+    }
+  }
+
+  if (tableName === "welfare_beneficiary") {
+    if (action === "create") {
+      const { error, value } = validateWelfareBeneficiaryCreate(requestPayload);
+      if (error) {
+        throw new Error(error);
+      }
+
+      const programCheck = await client.query(
+        "SELECT program_id FROM welfare_programs WHERE program_id = $1",
+        [value.programId],
+      );
+      if (!programCheck.rows.length) {
+        throw new Error(`Program with id ${value.programId} does not exist`);
+      }
+
+      const insertResult = await client.query(
+        `
+          INSERT INTO welfare_beneficiary (
+            program_id,
+            firstname,
+            lastname,
+            gender,
+            age,
+            household_size,
+            status,
+            start_date,
+            end_date,
+            district_id,
+            ta_id,
+            geom,
+            updated_at
+          )
+          VALUES (
+            $1, $2, $3, $4, $5, $6, $7,
+            $8::date, $9::date,
+            $10, $11,
+            ST_SetSRID(ST_MakePoint($13, $12), 4326),
+            CURRENT_TIMESTAMP
+          )
+          RETURNING id
+        `,
+        [
+          value.programId,
+          value.firstname,
+          value.lastname,
+          value.gender ?? null,
+          value.age ?? null,
+          value.householdSize ?? null,
+          value.status ?? null,
+          value.startDate ?? null,
+          value.endDate ?? null,
+          value.districtId ?? null,
+          value.taId ?? null,
+          value.latitude,
+          value.longitude,
+        ],
+      );
+
+      const newId = insertResult.rows[0].id;
+      const recordResult = await client.query(
+        `
+          SELECT
+            wb.id,
+            wb.program_id,
+            COALESCE(wp.program_name, CONCAT('Program ', wb.program_id::text)) AS program_name,
+            wb.firstname,
+            wb.lastname,
+            wb.gender,
+            wb.age,
+            wb.household_size,
+            wb.status,
+            wb.start_date,
+            wb.end_date,
+            d.name  AS district_name,
+            a3.name AS ta_name,
+            wb.created_at,
+            wb.updated_at,
+            ST_Y(wb.geom) AS latitude,
+            ST_X(wb.geom) AS longitude
+          FROM welfare_beneficiary wb
+          LEFT JOIN welfare_programs wp ON wp.program_id = wb.program_id
+          LEFT JOIN districts d         ON d.id  = wb.district_id
+          LEFT JOIN admin3_units a3     ON a3.id = wb.ta_id
+          WHERE wb.id = $1
+        `,
+        [newId],
+      );
+
+      return {
+        department: "welfare",
+        recordId: newId,
+        afterData: recordResult.rows[0],
+      };
+    }
+
+    if (action === "update") {
+      const allowed = [
+        "programId",
+        "firstname",
+        "lastname",
+        "gender",
+        "age",
+        "householdSize",
+        "status",
+        "startDate",
+        "endDate",
+        "districtId",
+        "taId",
+        "latitude",
+        "longitude",
+      ];
+      const payload = {};
+      allowed.forEach((key) => {
+        if (Object.prototype.hasOwnProperty.call(requestPayload, key)) {
+          payload[key] = requestPayload[key];
+        }
+      });
+
+      const existing = await client.query(
+        "SELECT * FROM welfare_beneficiary WHERE id = $1",
+        [review.record_id],
+      );
+      if (!existing.rows.length) {
+        throw new Error("Beneficiary not found");
+      }
+
+      const setClauses = [];
+      const params = [];
+      const columnMap = {
+        programId: "program_id",
+        firstname: "firstname",
+        lastname: "lastname",
+        gender: "gender",
+        age: "age",
+        householdSize: "household_size",
+        status: "status",
+        startDate: "start_date",
+        endDate: "end_date",
+        districtId: "district_id",
+        taId: "ta_id",
+      };
+
+      Object.entries(columnMap).forEach(([payloadKey, col]) => {
+        if (Object.prototype.hasOwnProperty.call(payload, payloadKey)) {
+          params.push(payload[payloadKey] ?? null);
+          setClauses.push(`${col} = $${params.length}`);
+        }
+      });
+
+      const hasLat = Object.prototype.hasOwnProperty.call(payload, "latitude");
+      const hasLng = Object.prototype.hasOwnProperty.call(payload, "longitude");
+      if (hasLat || hasLng) {
+        const existingCoordinateResult = await client.query(
+          "SELECT ST_Y(geom) AS latitude, ST_X(geom) AS longitude FROM welfare_beneficiary WHERE id = $1",
+          [review.record_id],
+        );
+        const currentLatitude = existingCoordinateResult.rows[0]?.latitude;
+        const currentLongitude = existingCoordinateResult.rows[0]?.longitude;
+        const nextLatitude = hasLat ? payload.latitude : currentLatitude;
+        const nextLongitude = hasLng ? payload.longitude : currentLongitude;
+
+        if (
+          nextLatitude === null ||
+          nextLatitude === undefined ||
+          nextLongitude === null ||
+          nextLongitude === undefined
+        ) {
+          throw new Error("Latitude and longitude are required to update beneficiary geometry");
+        }
+        params.push(nextLatitude, nextLongitude);
+        setClauses.push(
+          `geom = ST_SetSRID(ST_MakePoint($${params.length}, $${params.length - 1}), 4326)`,
+        );
+      }
+
+      setClauses.push("updated_at = CURRENT_TIMESTAMP");
+      params.push(review.record_id);
+
+      await client.query(
+        `UPDATE welfare_beneficiary SET ${setClauses.join(", ")} WHERE id = $${params.length}`,
+        params,
+      );
+
+      const updated = await client.query(
+        `SELECT wb.id, wb.program_id,
+           COALESCE(wp.program_name, CONCAT('Program ', wb.program_id::text)) AS program_name,
+           wb.firstname, wb.lastname, wb.gender, wb.age, wb.household_size,
+           wb.status, wb.start_date, wb.end_date, wb.district_id, wb.ta_id,
+           d.name AS district_name, a3.name AS ta_name,
+           wb.created_at, wb.updated_at,
+           ST_Y(wb.geom) AS latitude, ST_X(wb.geom) AS longitude
+         FROM welfare_beneficiary wb
+         LEFT JOIN welfare_programs wp ON wp.program_id = wb.program_id
+         LEFT JOIN districts d ON d.id = wb.district_id
+         LEFT JOIN admin3_units a3 ON a3.id = wb.ta_id
+         WHERE wb.id = $1`,
+        [review.record_id],
+      );
+
+      return {
+        department: "welfare",
+        recordId: review.record_id,
+        afterData: updated.rows[0],
+      };
+    }
+
+    if (action === "delete") {
+      const existing = await client.query(
+        "SELECT * FROM welfare_beneficiary WHERE id = $1",
+        [review.record_id],
+      );
+      if (!existing.rows.length) {
+        throw new Error("Beneficiary not found");
+      }
+
+      await client.query("DELETE FROM welfare_beneficiary WHERE id = $1", [
+        review.record_id,
+      ]);
+
+      return {
+        department: "welfare",
+        recordId: review.record_id,
+        afterData: null,
+      };
+    }
+  }
+
+  if (tableName === "welfare_programs") {
+    if (action === "create") {
+      const { error, value } = validateWelfareProgramCreate(requestPayload);
+      if (error) {
+        throw new Error(error);
+      }
+
+      const result = await client.query(
+        `
+          INSERT INTO welfare_programs (program_name, department, description)
+          VALUES ($1, $2, $3)
+          RETURNING *
+        `,
+        [value.program_name, value.department, value.description],
+      );
+
+      return {
+        department: "welfare",
+        recordId: result.rows[0].program_id,
+        afterData: result.rows[0],
+      };
+    }
+
+    if (action === "update") {
+      const payload = normalizeReviewPayload(review.request_payload) || {};
+      const setClauses = [];
+      const params = [];
+
+      if (Object.prototype.hasOwnProperty.call(payload, "program_name")) {
+        params.push(payload.program_name == null ? null : String(payload.program_name).trim());
+        setClauses.push(`program_name = $${params.length}`);
+      }
+      if (Object.prototype.hasOwnProperty.call(payload, "department")) {
+        params.push(payload.department ?? null);
+        setClauses.push(`department = $${params.length}`);
+      }
+      if (Object.prototype.hasOwnProperty.call(payload, "description")) {
+        params.push(payload.description ?? null);
+        setClauses.push(`description = $${params.length}`);
+      }
+
+      if (!setClauses.length) {
+        throw new Error("No editable fields provided");
+      }
+
+      setClauses.push("updated_at = CURRENT_TIMESTAMP");
+      params.push(review.record_id);
+
+      const result = await client.query(
+        `UPDATE welfare_programs SET ${setClauses.join(", ")} WHERE program_id = $${params.length} RETURNING *`,
+        params,
+      );
+
+      if (!result.rows.length) {
+        throw new Error("Program not found");
+      }
+
+      return {
+        department: "welfare",
+        recordId: review.record_id,
+        afterData: result.rows[0],
+      };
+    }
+
+    if (action === "delete") {
+      const result = await client.query(
+        "DELETE FROM welfare_programs WHERE program_id = $1 RETURNING program_id",
+        [review.record_id],
+      );
+      if (!result.rows.length) {
+        throw new Error("Program not found");
+      }
+
+      return {
+        department: "welfare",
+        recordId: review.record_id,
+        afterData: null,
+      };
+    }
+  }
+
+  if (tableName === "disaster_zones") {
+    if (action === "create") {
+      const { error, value } = validateDisasterCreate(requestPayload);
+      if (error) {
+        throw new Error(error);
+      }
+
+      const geometryPayload = parseDisasterGeometry(value.geometryGeoJson);
+      if (!geometryPayload) {
+        throw new Error("geometryGeoJson is required");
+      }
+
+      const insertedResult = await client.query(
+        `
+          INSERT INTO disaster_zones (
+            event_type,
+            risk_level,
+            population_at_risk,
+            geom,
+            is_active,
+            updated_at
+          )
+          VALUES (
+            $1,
+            $2,
+            $3,
+            ST_Multi(ST_SetSRID(ST_GeomFromGeoJSON($4), 4326)),
+            COALESCE($5, TRUE),
+            CURRENT_TIMESTAMP
+          )
+          RETURNING id
+        `,
+        [
+          value.eventType,
+          value.riskLevel,
+          value.populationAtRisk ?? null,
+          geometryPayload,
+          value.isActive,
+        ],
+      );
+
+      const id = insertedResult.rows[0].id;
+      const record = await fetchDisasterRecord(client, id);
+      return { department: "disaster", recordId: id, afterData: record };
+    }
+
+    if (action === "update") {
+      const { error, value } = validateDisasterUpdate(requestPayload);
+      if (error) {
+        throw new Error(error);
+      }
+
+      const pendingUpdates = mapDisasterPayloadToColumns(value);
+      const includesGeometryUpdate = Object.prototype.hasOwnProperty.call(
+        value,
+        "geometryGeoJson",
+      );
+
+      if (!pendingUpdates.length && !includesGeometryUpdate) {
+        throw new Error("No editable fields were provided");
+      }
+
+      const existingRecord = await fetchDisasterRecord(client, review.record_id);
+      if (!existingRecord) {
+        throw new Error("Disaster record not found");
+      }
+
+      const setClauses = [];
+      const params = [];
+
+      pendingUpdates.forEach(({ columnName, value: columnValue }) => {
+        params.push(columnValue ?? null);
+        setClauses.push(`${columnName} = $${params.length}`);
+      });
+
+      if (includesGeometryUpdate) {
+        const geometryPayload = parseDisasterGeometry(value.geometryGeoJson);
+        if (!geometryPayload) {
+          throw new Error("geometryGeoJson cannot be empty when provided");
+        }
+
+        params.push(geometryPayload);
+        setClauses.push(
+          `geom = ST_Multi(ST_SetSRID(ST_GeomFromGeoJSON($${params.length}), 4326))`,
+        );
+      }
+
+      setClauses.push("updated_at = CURRENT_TIMESTAMP");
+      params.push(review.record_id);
+
+      await client.query(
+        `
+          UPDATE disaster_zones
+          SET ${setClauses.join(", ")}
+          WHERE id = $${params.length}
+        `,
+        params,
+      );
+
+      const record = await fetchDisasterRecord(client, review.record_id);
+      return { department: "disaster", recordId: review.record_id, afterData: record };
+    }
+
+    if (action === "archive") {
+      const existingRecord = await fetchDisasterRecord(client, review.record_id);
+      if (!existingRecord) {
+        throw new Error("Disaster record not found");
+      }
+
+      await client.query(
+        `
+          UPDATE disaster_zones
+          SET is_active = FALSE,
+              updated_at = CURRENT_TIMESTAMP
+          WHERE id = $1
+        `,
+        [review.record_id],
+      );
+
+      const record = await fetchDisasterRecord(client, review.record_id);
+      return { department: "disaster", recordId: review.record_id, afterData: record };
+    }
+  }
+
+  throw new Error(`Unsupported pending review table: ${tableName}`);
+}
+
+function getReviewTablesForDepartment(department) {
+  return REVIEW_TABLES_BY_DEPARTMENT[department] || [];
+}
+
+/**
+ * @openapi
+ * /api/v1/admin-data/reviews/pending:
+ *   get:
+ *     summary: List pending admin data reviews
+ *     tags:
+ *       - Admin Data
+ *     security:
+ *       - BearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Pending reviews
+ */
+router.get("/reviews/pending", requireGlobalAdmin, async (req, res) => {
+  try {
+    const page = parsePositiveInteger(req.query.page, 1);
+    const pageSize = Math.min(parsePositiveInteger(req.query.page_size, 25), 100);
+    const offset = (page - 1) * pageSize;
+    const search = String(req.query.search || "").trim();
+    const params = [];
+    const conditions = ["ade.status = 'pending'"];
+
+    if (search) {
+      params.push(`%${search}%`);
+      const placeholder = `$${params.length}`;
+      conditions.push(
+        `(
+          ade.table_name ILIKE ${placeholder}
+          OR ade.action ILIKE ${placeholder}
+          OR COALESCE(u.email, '') ILIKE ${placeholder}
+          OR COALESCE(u.full_name, '') ILIKE ${placeholder}
+          OR COALESCE(reviewer.full_name, '') ILIKE ${placeholder}
+          OR COALESCE(ade.review_notes, '') ILIKE ${placeholder}
+          OR COALESCE(ade.changed_fields::text, '') ILIKE ${placeholder}
+        )`,
+      );
+    }
+
+    const whereClause = `WHERE ${conditions.join(" AND ")}`;
+
+    const countResult = await db.query(
+      `
+        SELECT COUNT(*)::int AS total
+        FROM admin_data_edits ade
+        LEFT JOIN users u ON u.id = ade.changed_by_user_id
+        LEFT JOIN users reviewer ON reviewer.id = ade.reviewed_by_user_id
+        ${whereClause}
+      `,
+      params,
+    );
+
+    const rowsResult = await db.query(
+      `
+        SELECT
+          ade.id,
+          ade.table_name,
+          ade.record_id,
+          ade.action,
+          ade.status,
+          ade.changed_by_user_id,
+          u.email AS changed_by_email,
+          u.full_name AS changed_by_full_name,
+          reviewer.full_name AS reviewed_by_full_name,
+          ade.changed_fields,
+          ade.request_payload,
+          ade.before_data,
+          ade.after_data,
+          ade.review_notes,
+          ade.reviewed_at,
+          ade.changed_at
+        FROM admin_data_edits ade
+        LEFT JOIN users u ON u.id = ade.changed_by_user_id
+        LEFT JOIN users reviewer ON reviewer.id = ade.reviewed_by_user_id
+        ${whereClause}
+        ORDER BY ade.changed_at DESC, ade.id DESC
+        LIMIT $${params.length + 1}
+        OFFSET $${params.length + 2}
+      `,
+      [...params, pageSize, offset],
+    );
+
+    const total = countResult.rows[0]?.total || 0;
+    return res.json({
+      status: "success",
+      data: {
+        table: "pending_review_requests",
+        label: "Pending Verifications",
+        items: rowsResult.rows,
+        page,
+        page_size: pageSize,
+        total,
+        total_pages: total ? Math.ceil(total / pageSize) : 0,
+        filters: {
+          search,
+        },
+      },
+    });
+  } catch (error) {
+    console.error("Admin review queue error:", error.message);
+    return res.status(500).json({
+      status: "error",
+      message: "Unable to load pending verification requests",
+    });
+  }
+});
+
+/**
+ * @openapi
+ * /api/v1/admin-data/reviews/{id}/approve:
+ *   patch:
+ *     summary: Approve a pending admin data review
+ *     tags:
+ *       - Admin Data
+ *     security:
+ *       - BearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Review approved
+ */
+router.patch("/reviews/:id/approve", requireGlobalAdmin, async (req, res) => {
+  const reviewId = parsePositiveInteger(req.params.id, null);
+  if (!reviewId) {
+    return res.status(400).json({
+      status: "error",
+      message: "A valid review id is required",
+    });
+  }
+
+  const reviewNotes = String(
+    req.body?.reviewNotes ?? req.body?.review_notes ?? "",
+  ).trim();
+
+  try {
+    const reviewer = getAuthUser(req);
+    const result = await db.pool.connect().then(async (client) => {
+      try {
+        await client.query("BEGIN");
+
+        const review = await lockPendingReviewById(client, reviewId);
+        if (!review) {
+          await client.query("ROLLBACK");
+          return { notFound: true };
+        }
+
+        if (review.status !== "pending") {
+          throw new Error("Only pending reviews can be approved");
+        }
+
+        const applied = await applyPendingAdminDataReview(client, review);
+
+        await finalizePendingReview(client, {
+          reviewId,
+          reviewerId: reviewer.id,
+          reviewNotes: reviewNotes || null,
+          recordId: applied.recordId,
+          afterData: applied.afterData,
+          status: "approved",
+        });
+
+        await client.query("COMMIT");
+        return applied;
+      } catch (err) {
+        await client.query("ROLLBACK");
+        throw err;
+      } finally {
+        client.release();
+      }
+    });
+
+    if (result?.notFound) {
+      return res.status(404).json({
+        status: "error",
+        message: "Pending review not found",
+      });
+    }
+
+    let recomputeStarted = false;
+    if (result?.department) {
+      markDepartmentStale(result.department);
+      recomputeStarted = triggerApprovedReviewRecompute(result.department);
+    }
+
+    return res.json({
+      status: "success",
+      message: "Review approved and applied successfully",
+      data: {
+        review_id: reviewId,
+        record_id: result?.recordId ?? null,
+        recompute_started: recomputeStarted,
+      },
+    });
+  } catch (err) {
+    console.error("Admin review approval error:", err.message);
+    return res.status(400).json({
+      status: "error",
+      message: err.message || "Unable to approve review",
+    });
+  }
+});
+
+/**
+ * @openapi
+ * /api/v1/admin-data/reviews/mine:
+ *   get:
+ *     summary: List the current user's submitted admin data reviews
+ *     tags:
+ *       - Admin Data
+ *     security:
+ *       - BearerAuth: []
+ *     responses:
+ *       200:
+ *         description: User review history
+ */
+router.get("/reviews/mine", async (req, res) => {
+  try {
+    const authUser = getAuthUser(req);
+    const department = String(req.query.department || "").trim().toLowerCase();
+
+    const page = parsePositiveInteger(req.query.page, 1);
+    const pageSize = Math.min(parsePositiveInteger(req.query.page_size, 25), 100);
+    const offset = (page - 1) * pageSize;
+    const search = String(req.query.search || "").trim();
+    const conditions = ["ade.changed_by_user_id = $1"];
+    const params = [authUser.id || null];
+
+    if (department) {
+      const tableNames = getReviewTablesForDepartment(department);
+      if (!tableNames.length) {
+        return res.status(400).json({
+          status: "error",
+          message: "A valid department is required",
+        });
+      }
+
+      params.push(tableNames);
+      conditions.push(`ade.table_name = ANY($${params.length}::text[])`);
+    }
+
+    if (search) {
+      params.push(`%${search}%`);
+      const placeholder = `$${params.length}`;
+      conditions.push(
+        `(
+          ade.table_name ILIKE ${placeholder}
+          OR ade.action ILIKE ${placeholder}
+          OR COALESCE(ade.status, '') ILIKE ${placeholder}
+          OR COALESCE(u.full_name, '') ILIKE ${placeholder}
+          OR COALESCE(u.email, '') ILIKE ${placeholder}
+          OR COALESCE(reviewer.full_name, '') ILIKE ${placeholder}
+          OR COALESCE(ade.review_notes, '') ILIKE ${placeholder}
+          OR COALESCE(ade.changed_fields::text, '') ILIKE ${placeholder}
+        )`,
+      );
+    }
+
+    const whereClause = `WHERE ${conditions.join(" AND ")}`;
+
+    const countResult = await db.query(
+      `
+        SELECT COUNT(*)::int AS total
+        FROM admin_data_edits ade
+        LEFT JOIN users u ON u.id = ade.changed_by_user_id
+        LEFT JOIN users reviewer ON reviewer.id = ade.reviewed_by_user_id
+        ${whereClause}
+      `,
+      params,
+    );
+
+    const rowsResult = await db.query(
+      `
+        SELECT
+          ade.id,
+          ade.table_name,
+          ade.record_id,
+          ade.action,
+          ade.status,
+          ade.changed_by_user_id,
+          u.email AS changed_by_email,
+          u.full_name AS changed_by_full_name,
+          ade.changed_fields,
+          ade.request_payload,
+          ade.before_data,
+          ade.after_data,
+          reviewer.full_name AS reviewed_by_full_name,
+          ade.review_notes,
+          ade.changed_at,
+          ade.reviewed_at
+        FROM admin_data_edits ade
+        LEFT JOIN users u ON u.id = ade.changed_by_user_id
+        LEFT JOIN users reviewer ON reviewer.id = ade.reviewed_by_user_id
+        ${whereClause}
+        ORDER BY ade.changed_at DESC, ade.id DESC
+        LIMIT $${params.length + 1}
+        OFFSET $${params.length + 2}
+      `,
+      [...params, pageSize, offset],
+    );
+
+    return res.json({
+      status: "success",
+      data: {
+        table: "my_submission_history",
+        label: "My Submission Status",
+        items: rowsResult.rows,
+        total: countResult.rows[0]?.total || 0,
+        page,
+        page_size: pageSize,
+        total_pages: Math.max(1, Math.ceil((countResult.rows[0]?.total || 0) / pageSize)),
+      },
+    });
+  } catch (error) {
+    console.error("Admin submission history error:", error.message);
+    return res.status(500).json({
+      status: "error",
+      message: "Unable to load submission history",
+    });
+  }
+});
+
+/**
+ * @openapi
+ * /api/v1/admin-data/reviews/{id}/reject:
+ *   patch:
+ *     summary: Reject a pending admin data review
+ *     tags:
+ *       - Admin Data
+ *     security:
+ *       - BearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Review rejected
+ */
+router.patch("/reviews/:id/reject", requireGlobalAdmin, async (req, res) => {
+  const reviewId = parsePositiveInteger(req.params.id, null);
+  if (!reviewId) {
+    return res.status(400).json({
+      status: "error",
+      message: "A valid review id is required",
+    });
+  }
+
+  const reviewNotes = String(
+    req.body?.reviewNotes ?? req.body?.review_notes ?? "",
+  ).trim();
+
+  try {
+    const reviewer = getAuthUser(req);
+    const result = await db.pool.connect().then(async (client) => {
+      try {
+        await client.query("BEGIN");
+
+        const review = await lockPendingReviewById(client, reviewId);
+        if (!review) {
+          await client.query("ROLLBACK");
+          return { notFound: true };
+        }
+
+        if (review.status !== "pending") {
+          throw new Error("Only pending reviews can be rejected");
+        }
+
+        await client.query(
+          `
+            UPDATE admin_data_edits
+            SET status = 'rejected',
+                reviewed_by_user_id = $1,
+                reviewed_at = CURRENT_TIMESTAMP,
+                review_notes = $2
+            WHERE id = $3
+          `,
+          [reviewer.id, reviewNotes || null, reviewId],
+        );
+
+        await client.query("COMMIT");
+        return { rejected: true };
+      } catch (err) {
+        await client.query("ROLLBACK");
+        throw err;
+      } finally {
+        client.release();
+      }
+    });
+
+    if (result?.notFound) {
+      return res.status(404).json({
+        status: "error",
+        message: "Pending review not found",
+      });
+    }
+
+    return res.json({
+      status: "success",
+      message: "Review rejected successfully",
+      data: {
+        review_id: reviewId,
+      },
+    });
+  } catch (err) {
+    console.error("Admin review rejection error:", err.message);
+    return res.status(400).json({
+      status: "error",
+      message: err.message || "Unable to reject review",
     });
   }
 });
@@ -5244,7 +6198,7 @@ router.post("/disaster/:id/archive", async (req, res) => {
  */
 router.get("/recompute/status", async (req, res) => {
   const mergedState = mergeRecomputeStaleState();
-  const authUser = getAuthUser(req);
+  const authUser = await resolveCurrentAuthUser(req);
 
   if (!isGlobalAccessRole(authUser.role)) {
     const departments = await getAccessibleDepartmentsForUser(
@@ -5254,9 +6208,11 @@ router.get("/recompute/status", async (req, res) => {
     );
 
     if (!departments.length) {
-      return res.status(403).json({
-        status: "error",
-        message: "You do not have access to any department recompute status",
+      return res.json({
+        status: "success",
+        data: {
+          departments: {},
+        },
       });
     }
 

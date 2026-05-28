@@ -192,6 +192,97 @@ function isErrorLogEntry(log) {
   return /\b(error|failed|failure|exception|traceback|fatal)\b/.test(message);
 }
 
+function buildRecomputeConsoleJobs(departments = {}) {
+  return Object.entries(departments)
+    .filter(([, state]) => {
+      if (!state || state.status === "not_supported") {
+        return false;
+      }
+
+      return Boolean(
+        state.status !== "idle" ||
+          state.stale ||
+          state.lastStartedAt ||
+          state.lastFinishedAt ||
+          state.lastError,
+      );
+    })
+    .map(([department, state]) => {
+      const label = department.replaceAll("_", " ");
+      const createdAt =
+        state.lastStartedAt || state.lastFinishedAt || new Date().toISOString();
+      const startedAt = state.lastStartedAt || createdAt;
+      const finishedAt = state.lastFinishedAt || null;
+      const stageLabel = state.task || `${label} recompute`;
+      const logs = [];
+
+      if (state.lastStartedAt) {
+        logs.push({
+          at: state.lastStartedAt,
+          level: "info",
+          message: `${label} recompute started.`,
+        });
+      }
+
+      if (state.status === "running") {
+        logs.push({
+          at: state.lastStartedAt || createdAt,
+          level: "stdout",
+          message: `Pipeline running for ${stageLabel}.`,
+        });
+      } else if (state.status === "completed") {
+        logs.push({
+          at: state.lastFinishedAt || createdAt,
+          level: "info",
+          message: `${label} recompute completed.`,
+        });
+      } else if (state.status === "failed") {
+        logs.push({
+          at: state.lastFinishedAt || createdAt,
+          level: "error",
+          message:
+            state.lastError || `${label} recompute failed unexpectedly.`,
+        });
+      } else if (state.stale) {
+        logs.push({
+          at: createdAt,
+          level: "stderr",
+          message: `${label} data is marked stale and awaiting recompute.`,
+        });
+      }
+
+      if (!logs.length) {
+        logs.push({
+          at: createdAt,
+          level: "info",
+          message: `${label} recompute status: ${state.status}.`,
+        });
+      }
+
+      return {
+        id: `recompute-${department}`,
+        label: `${label} recompute`,
+        kind: "recompute",
+        source: "recompute",
+        meta: {
+          department,
+          task: state.task || null,
+          stale: Boolean(state.stale),
+        },
+        status: state.status,
+        createdAt,
+        startedAt,
+        finishedAt,
+        currentStage: state.task || null,
+        terminatedAt: null,
+        terminateRequested: false,
+        canTerminate: false,
+        logCount: logs.length,
+        logs,
+      };
+    });
+}
+
 function AdminPage() {
   const [token, setTokenState] = useState(() => hydrateAuthToken());
   const [activeTab, setActiveTab] = useState("stewardship");
@@ -204,13 +295,23 @@ function AdminPage() {
     file: null,
   });
   const [status, setStatus] = useState("");
-  const [jobs, setJobs] = useState([]);
+  const [adminJobs, setAdminJobs] = useState([]);
+  const [recomputeJobs, setRecomputeJobs] = useState([]);
   const [selectedJobId, setSelectedJobId] = useState("");
   const [isRefreshingJobs, setIsRefreshingJobs] = useState(false);
   const [selectedDepartment, setSelectedDepartment] = useState("");
   const [authProfile, setAuthProfile] = useState(null);
 
   const isAuthenticated = useMemo(() => Boolean(token), [token]);
+  const jobs = useMemo(
+    () =>
+      [...adminJobs, ...recomputeJobs].sort(
+        (left, right) =>
+          new Date(right.createdAt || 0).getTime() -
+          new Date(left.createdAt || 0).getTime(),
+      ),
+    [adminJobs, recomputeJobs],
+  );
   const selectedJob = useMemo(
     () => jobs.find((job) => job.id === selectedJobId) || jobs[0] || null,
     [jobs, selectedJobId],
@@ -227,6 +328,7 @@ function AdminPage() {
     () => uploadTemplateFiles[uploadFormState.type] || null,
     [uploadFormState.type],
   );
+  const isReadOnlyConsoleEntry = selectedJob?.source === "recompute";
   const isGlobalAdmin = useMemo(
     () =>
       Boolean(
@@ -280,13 +382,44 @@ function AdminPage() {
     return () => window.removeEventListener(AUTH_EVENT_NAME, syncAuthState);
   }, []);
 
-  const loadJobs = useCallback(async () => {
+  const loadJobs = useCallback(async (options = {}) => {
+    const { refreshRecompute = true } = options;
     if (!isAuthenticated) return;
     try {
       setIsRefreshingJobs(true);
-      const response = await fetchJson("/admin/jobs");
-      const nextJobs = response.jobs || [];
-      setJobs(nextJobs);
+      const adminJobsResponse = await fetchJson("/admin/jobs");
+      const nextAdminJobs = (adminJobsResponse.jobs || []).map((job) => ({
+        ...job,
+        source: job.source || "admin",
+      }));
+
+      let nextRecomputeJobs = recomputeJobs;
+      if (refreshRecompute) {
+        const recomputeStatusResponse = await fetchJson(
+          "/admin-data/recompute/status",
+        ).catch((error) => {
+          const statusCode = error?.response?.status;
+          if (
+            statusCode === 401 ||
+            statusCode === 403 ||
+            statusCode === 404
+          ) {
+            return { departments: {} };
+          }
+          throw error;
+        });
+        nextRecomputeJobs = buildRecomputeConsoleJobs(
+          recomputeStatusResponse.departments || {},
+        );
+        setRecomputeJobs(nextRecomputeJobs);
+      }
+
+      setAdminJobs(nextAdminJobs);
+      const nextJobs = [...nextAdminJobs, ...nextRecomputeJobs].sort(
+        (left, right) =>
+          new Date(right.createdAt || 0).getTime() -
+          new Date(left.createdAt || 0).getTime(),
+      );
       setSelectedJobId((current) =>
         nextJobs.some((job) => job.id === current) ? current : nextJobs[0]?.id || "",
       );
@@ -295,7 +428,7 @@ function AdminPage() {
     } finally {
       setIsRefreshingJobs(false);
     }
-  }, [isAuthenticated]);
+  }, [isAuthenticated, recomputeJobs]);
 
   async function loadAuthProfile() {
     try {
@@ -319,7 +452,10 @@ function AdminPage() {
     if (!isAuthenticated) return;
     loadJobs();
     loadAuthProfile();
-    const intervalId = window.setInterval(loadJobs, 5000);
+    const intervalId = window.setInterval(
+      () => loadJobs({ refreshRecompute: false }),
+      5000,
+    );
     return () => window.clearInterval(intervalId);
   }, [isAuthenticated, loadJobs]);
 
@@ -434,6 +570,11 @@ function AdminPage() {
       return;
     }
 
+    if (isReadOnlyConsoleEntry) {
+      setStatus("Recompute console entries are read-only.");
+      return;
+    }
+
     try {
       const response = await deleteJson(`/admin/jobs/${selectedJob.id}/logs`);
       setStatus(response.message || "Console cleared.");
@@ -449,6 +590,11 @@ function AdminPage() {
   async function handleTerminateJob() {
     if (!selectedJob?.id) {
       setStatus("Select a job before terminating it.");
+      return;
+    }
+
+    if (isReadOnlyConsoleEntry) {
+      setStatus("Recompute console entries cannot be terminated from this console.");
       return;
     }
 
@@ -544,6 +690,7 @@ function AdminPage() {
             <AdminDataStewardship
               department={selectedDepartment}
               deptConfig={departmentConfig[selectedDepartment]}
+              showSubmissionHistory={!isGlobalAdmin}
             />
           ) : (
             <EmptyState
@@ -577,27 +724,13 @@ function AdminPage() {
                       }
                     >
                       {selectedDepartment
-                        ? datasetTypes
-                            .filter((t) => {
-                              if (selectedDepartment === "education")
-                                return t === "education";
-                              if (selectedDepartment === "social_welfare")
-                                return t === "social_welfare" || t === "roads";
-                              if (selectedDepartment === "disaster")
-                                return t === "disaster" || t === "flood";
-                              if (selectedDepartment === "health")
-                                return t === "health";
-                              return true;
-                            })
-                            .map((t) => (
-                              <option key={t} value={t}>
-                                {t.replace("_", " ")}
-                              </option>
-                            ))
+                        ? availableDatasetTypes.map((t) => (
+                            <option key={t} value={t}>
+                              {t.replace("_", " ")}
+                            </option>
+                          ))
                         : (
-                          <option value="">
-                            No department access
-                          </option>
+                            <option value="">No department access</option>
                         )}
                     </select>
                   </label>
@@ -606,11 +739,7 @@ function AdminPage() {
                     <div className="mt-2 flex flex-col gap-2 sm:flex-row sm:items-center">
                       <input
                         type="file"
-                        disabled={
-                          !selectedDepartment ||
-                          selectedDepartment === "education" ||
-                          selectedDepartment === "health"
-                        }
+                        disabled={!selectedDepartment}
                         className="w-full flex-1 px-4 py-2.5 bg-white border border-slate-200 rounded-xl outline-none"
                         onChange={(e) =>
                           setUploadFormState((s) => ({
@@ -635,9 +764,13 @@ function AdminPage() {
                     )}
                   </label>
                 </div>
-                <button className="flex w-full items-center justify-center gap-2 rounded-xl bg-slate-900 py-3 font-bold text-white transition-all hover:bg-slate-800">
+                <button
+                  type="submit"
+                  disabled={!selectedDepartment || !uploadFormState.file}
+                  className="flex w-full items-center justify-center gap-2 rounded-xl bg-slate-900 py-3 font-bold text-white transition-all hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-50"
+                >
                   <UploadCloud size={18} />
-                  Import Data 
+                  Import Data
                 </button>
                 {!selectedDepartment && (
                   <div className="rounded-xl border border-amber-100 bg-amber-50 px-4 py-3 text-xs font-semibold text-amber-700">
@@ -749,7 +882,7 @@ function AdminPage() {
                 </span>
                 <button
                   onClick={handleClearConsole}
-                  disabled={!selectedJob?.id}
+                  disabled={!selectedJob?.id || isReadOnlyConsoleEntry}
                   className="inline-flex flex-1 items-center justify-center gap-2 rounded-lg border border-white/10 px-3 py-2 text-xs font-bold text-white/80 transition-colors hover:bg-white/10 disabled:opacity-40 sm:flex-none"
                 >
                   <Trash2 size={14} />
@@ -757,7 +890,7 @@ function AdminPage() {
                 </button>
                 <button
                   onClick={handleTerminateJob}
-                  disabled={!selectedJob?.canTerminate}
+                  disabled={!selectedJob?.canTerminate || isReadOnlyConsoleEntry}
                   className="inline-flex flex-1 items-center justify-center gap-2 rounded-lg border border-rose-500/30 bg-rose-500/10 px-3 py-2 text-xs font-bold text-rose-300 transition-colors hover:bg-rose-500/20 disabled:opacity-40 sm:flex-none"
                 >
                   <Square size={13} />

@@ -39,7 +39,19 @@ function buildChangedFields(beforeData, afterData) {
 
 async function writeAuditEntry(
   client,
-  { tableName, recordId, action, userId, beforeData, afterData },
+  {
+    tableName,
+    recordId,
+    action,
+    userId,
+    beforeData,
+    afterData,
+    status = "approved",
+    requestPayload = null,
+    reviewedByUserId = null,
+    reviewedAt = null,
+    reviewNotes = null,
+  },
 ) {
   const changedFields = buildChangedFields(beforeData, afterData);
 
@@ -52,9 +64,14 @@ async function writeAuditEntry(
         changed_by_user_id,
         before_data,
         after_data,
-        changed_fields
+        changed_fields,
+        status,
+        request_payload,
+        reviewed_by_user_id,
+        reviewed_at,
+        review_notes
       )
-      VALUES ($1, $2, $3, $4, $5::jsonb, $6::jsonb, $7::jsonb)
+      VALUES ($1, $2, $3, $4, $5::jsonb, $6::jsonb, $7::jsonb, $8, $9::jsonb, $10, $11, $12)
     `,
     [
       tableName,
@@ -64,6 +81,11 @@ async function writeAuditEntry(
       JSON.stringify(beforeData ?? null),
       JSON.stringify(afterData ?? null),
       JSON.stringify(changedFields),
+      status,
+      JSON.stringify(requestPayload ?? null),
+      reviewedByUserId || null,
+      reviewedAt || null,
+      reviewNotes || null,
     ],
   );
 }
