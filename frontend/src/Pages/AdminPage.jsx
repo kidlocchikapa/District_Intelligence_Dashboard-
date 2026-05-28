@@ -544,6 +544,7 @@ function AdminPage() {
             <AdminDataStewardship
               department={selectedDepartment}
               deptConfig={departmentConfig[selectedDepartment]}
+              showSubmissionHistory={!isGlobalAdmin}
             />
           ) : (
             <EmptyState

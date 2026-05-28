@@ -19,6 +19,7 @@ import {
 } from "lucide-react";
 import { toast } from "react-hot-toast";
 import { fetchJson, patchJson, postJson, deleteJson } from "../lib/api";
+import ReviewChangesModal from "./ReviewChangesModal";
 
 const HEALTH_FLOOD_EXPOSED_COLUMNS = [
   "id",
@@ -138,6 +139,7 @@ const DEPARTMENT_TABLES = {
       endpoint: "education",
       columns: SCHOOL_COLUMNS,
       editable: true,
+      deletable: true,
       canCreate: true,
     },
     {
@@ -550,8 +552,40 @@ function getTableRecordId(record, table) {
   return record.school_id ?? null;
 }
 
-export default function AdminDataStewardship({ department, deptConfig }) {
-  const tables = useMemo(() => DEPARTMENT_TABLES[department] || [], [department]);
+export default function AdminDataStewardship({
+  department,
+  deptConfig,
+  showSubmissionHistory = true,
+}) {
+  const tables = useMemo(() => {
+    const baseTables = DEPARTMENT_TABLES[department] || [];
+
+    return showSubmissionHistory
+      ? [
+          ...baseTables,
+          {
+            id: "submission_history",
+            label: "My Submission Status",
+            icon: FileText,
+            endpoint: "reviews/mine",
+            fixedParams: { department },
+            previewable: true,
+            isSubmissionHistory: true,
+            columns: [
+              "table_name",
+              "record_id",
+              "action",
+              "status",
+              "changed_fields",
+              "reviewed_by_full_name",
+              "review_notes",
+              "changed_at",
+              "reviewed_at",
+            ],
+          },
+        ]
+      : baseTables;
+  }, [department, showSubmissionHistory]);
   const [selectedTableId, setSelectedTableId] = useState(tables[0]?.id || "");
   const [records, setRecords] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -564,6 +598,7 @@ export default function AdminDataStewardship({ department, deptConfig }) {
   const [createValues, setCreateValues] = useState({});
   const [welfarePrograms, setWelfarePrograms] = useState([]);
   const [loadingPrograms, setLoadingPrograms] = useState(false);
+  const [previewRecord, setPreviewRecord] = useState(null);
   const [saving, setSaving] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
 
@@ -580,6 +615,7 @@ export default function AdminDataStewardship({ department, deptConfig }) {
     setPage(1);
     setEditingRecord(null);
     setCreatingRecord(false);
+    setPreviewRecord(null);
   }, [department, tables]);
 
   const loadTableData = useCallback(async () => {
@@ -630,6 +666,10 @@ export default function AdminDataStewardship({ department, deptConfig }) {
       setLoadingPrograms(false);
     }
   }, []);
+
+  const refreshCurrentView = useCallback(async () => {
+    await loadTableData();
+  }, [loadTableData]);
 
   function openSchoolEditor(record) {
     if (!selectedTable?.editable || !record?.school_id) {
@@ -759,33 +799,6 @@ export default function AdminDataStewardship({ department, deptConfig }) {
     }
   }
 
-  async function triggerEducationRecompute() {
-    try {
-      await postJson("/admin/run-task", { task: "education_insights" });
-      toast.success("Analysis recomputation queued.", { duration: 3000 });
-    } catch (err) {
-      console.warn("Recompute trigger failed (non-blocking):", err?.message);
-    }
-  }
-
-  async function triggerWelfareRecompute() {
-    try {
-      await postJson("/admin/run-task", { task: "welfare_insights" });
-      toast.success("Welfare analysis recomputation queued.", { duration: 3000 });
-    } catch (err) {
-      console.warn("Welfare recompute trigger failed (non-blocking):", err?.message);
-    }
-  }
-
-  async function triggerHealthRecompute() {
-    try {
-      await postJson("/admin/run-task", { task: "health_insights" });
-      toast.success("Health analysis recomputation queued.", { duration: 3000 });
-    } catch (err) {
-      console.warn("Health recompute trigger failed (non-blocking):", err?.message);
-    }
-  }
-
   async function saveSchoolRecord(event) {
     event.preventDefault();
     if (!editingRecord?.school_id) {
@@ -833,18 +846,10 @@ export default function AdminDataStewardship({ department, deptConfig }) {
     try {
       setSaving(true);
       setErrorMessage("");
-      const response = await patchJson(`/admin-data/education/${editingRecord.school_id}`, payload);
-      const updatedRecord = response?.data?.record;
-      if (updatedRecord) {
-        setRecords((items) =>
-          items.map((item) => (item.school_id === updatedRecord.school_id ? updatedRecord : item)),
-        );
-      } else {
-        await loadTableData();
-      }
+      await patchJson(`/admin-data/education/${editingRecord.school_id}`, payload);
+      await refreshCurrentView();
       setEditingRecord(null);
-      toast.success("School record updated. Recomputing analysis…");
-      triggerEducationRecompute();
+      toast.success("School change submitted for verification.");
     } catch (err) {
       console.error("Failed to update school record", err);
       const message = err?.response?.data?.message || "Unable to update this school record.";
@@ -919,26 +924,14 @@ export default function AdminDataStewardship({ department, deptConfig }) {
     try {
       setSaving(true);
       setErrorMessage("");
-      const response = await patchJson(endpoint, payload);
-      const updatedRecord = response?.data?.record;
-
-      if (updatedRecord) {
-        setRecords((items) =>
-          items.map((item) =>
-            getTableRecordId(item, selectedTable) === recordId ? { ...item, ...updatedRecord } : item,
-          ),
-        );
-      } else {
-        await loadTableData();
-      }
-
+      await patchJson(endpoint, payload);
+      await refreshCurrentView();
       setEditingRecord(null);
-      if (selectedTable.editType === "welfare_beneficiary") {
-        toast.success("Beneficiary updated. Recomputing welfare analysis…");
-        triggerWelfareRecompute();
-      } else {
-        toast.success("Welfare program updated.");
-      }
+      toast.success(
+        selectedTable.editType === "welfare_beneficiary"
+          ? "Beneficiary change submitted for verification."
+          : "Welfare program change submitted for verification.",
+      );
     } catch (err) {
       console.error("Failed to update welfare record", err);
       const message = err?.response?.data?.message || "Unable to update this record.";
@@ -980,9 +973,8 @@ export default function AdminDataStewardship({ department, deptConfig }) {
       setErrorMessage("");
       await postJson("/admin-data/education", payload);
       setCreatingRecord(false);
-      await loadTableData();
-      toast.success("School record created. Recomputing analysis…");
-      triggerEducationRecompute();
+      await refreshCurrentView();
+      toast.success("School change submitted for verification.");
     } catch (err) {
       console.error("Failed to create school record", err);
       const message = err?.response?.data?.message || "Unable to create this school record.";
@@ -1014,7 +1006,7 @@ export default function AdminDataStewardship({ department, deptConfig }) {
           department: createValues.department || null,
           description: createValues.description || null,
         });
-        toast.success("Welfare program created.");
+        toast.success("Welfare program submitted for verification.");
       } else if (createType === "welfare_beneficiary") {
         if (!createValues.programId) {
           setErrorMessage("Program ID is required.");
@@ -1046,14 +1038,11 @@ export default function AdminDataStewardship({ department, deptConfig }) {
           latitude: Number(createValues.latitude),
           longitude: Number(createValues.longitude),
         });
-        toast.success("Beneficiary created. Recomputing welfare analysis…");
+        toast.success("Beneficiary submitted for verification.");
       }
 
       setCreatingRecord(false);
-      await loadTableData();
-      if (createType === "welfare_beneficiary") {
-        triggerWelfareRecompute();
-      }
+      await refreshCurrentView();
     } catch (err) {
       console.error("Failed to create welfare record", err);
       const message = err?.response?.data?.message || "Unable to create record.";
@@ -1122,18 +1111,10 @@ export default function AdminDataStewardship({ department, deptConfig }) {
     try {
       setSaving(true);
       setErrorMessage("");
-      const response = await patchJson(`/admin-data/health/${editingRecord.id}`, payload);
-      const updatedRecord = response?.data?.record;
-      if (updatedRecord) {
-        setRecords((items) =>
-          items.map((item) => (item.id === updatedRecord.id ? updatedRecord : item)),
-        );
-      } else {
-        await loadTableData();
-      }
+      await patchJson(`/admin-data/health/${editingRecord.id}`, payload);
+      await refreshCurrentView();
       setEditingRecord(null);
-      toast.success("Health facility updated. Recomputing analysis…");
-      triggerHealthRecompute();
+      toast.success("Health change submitted for verification.");
     } catch (err) {
       console.error("Failed to update health facility", err);
       const message = err?.response?.data?.message || "Unable to update this health facility.";
@@ -1178,9 +1159,8 @@ export default function AdminDataStewardship({ department, deptConfig }) {
       setErrorMessage("");
       await postJson("/admin-data/health", payload);
       setCreatingRecord(false);
-      await loadTableData();
-      toast.success("Health facility created. Recomputing analysis…");
-      triggerHealthRecompute();
+      await refreshCurrentView();
+      toast.success("Health change submitted for verification.");
     } catch (err) {
       console.error("Failed to create health facility", err);
       const message = err?.response?.data?.message || "Unable to create this health facility.";
@@ -1197,7 +1177,7 @@ export default function AdminDataStewardship({ department, deptConfig }) {
     }
 
     const label = record.name || `facility #${record.id}`;
-    if (!window.confirm(`Archive ${label}? It will be marked inactive and hidden from active lists.`)) {
+    if (!window.confirm(`Submit archive request for ${label}? It will wait for global admin verification.`)) {
       return;
     }
 
@@ -1205,17 +1185,37 @@ export default function AdminDataStewardship({ department, deptConfig }) {
       setSaving(true);
       setErrorMessage("");
       await postJson(`/admin-data/health/${record.id}/archive`);
-      setRecords((items) => items.filter((item) => item.id !== record.id));
-      setMeta((current) => ({
-        ...current,
-        total: Math.max(0, current.total - 1),
-        total_pages: Math.max(0, Math.ceil(Math.max(0, current.total - 1) / 25)),
-      }));
-      toast.success("Health facility archived. Recomputing analysis…");
-      triggerHealthRecompute();
+      await refreshCurrentView();
+      toast.success("Health archive submitted for verification.");
     } catch (err) {
       console.error("Failed to archive health facility", err);
       const message = err?.response?.data?.message || "Unable to archive this health facility.";
+      setErrorMessage(message);
+      toast.error(message);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function deleteSchoolRecord(record) {
+    if (!selectedTable?.deletable || !record?.school_id) {
+      return;
+    }
+
+    const label = record.name || `school #${record.school_id}`;
+    if (!window.confirm(`Submit archive request for ${label}? It will wait for global admin verification.`)) {
+      return;
+    }
+
+    try {
+      setSaving(true);
+      setErrorMessage("");
+      await postJson(`/admin-data/education/${record.school_id}/archive`);
+      await refreshCurrentView();
+      toast.success("School archive submitted for verification.");
+    } catch (err) {
+      console.error("Failed to archive school", err);
+      const message = err?.response?.data?.message || "Unable to archive this school.";
       setErrorMessage(message);
       toast.error(message);
     } finally {
@@ -1238,7 +1238,7 @@ export default function AdminDataStewardship({ department, deptConfig }) {
       ? `${record.firstname || ""} ${record.lastname || ""}`.trim() || `beneficiary #${recordId}`
       : record.program_name || `program #${recordId}`;
 
-    if (!window.confirm(`Delete ${label}? This action cannot be undone.`)) {
+    if (!window.confirm(`Submit deletion request for ${label}? It will wait for global admin verification.`)) {
       return;
     }
 
@@ -1250,18 +1250,12 @@ export default function AdminDataStewardship({ department, deptConfig }) {
       setSaving(true);
       setErrorMessage("");
       await deleteJson(endpoint);
-      setRecords((items) => items.filter((item) => getTableRecordId(item, selectedTable) !== recordId));
-      setMeta((current) => ({
-        ...current,
-        total: Math.max(0, current.total - 1),
-        total_pages: Math.max(0, Math.ceil(Math.max(0, current.total - 1) / 25)),
-      }));
-      if (isBeneficiary) {
-        toast.success("Beneficiary deleted. Recomputing welfare analysis…");
-        triggerWelfareRecompute();
-      } else {
-        toast.success("Welfare program deleted.");
-      }
+      await refreshCurrentView();
+      toast.success(
+        isBeneficiary
+          ? "Beneficiary deletion submitted for verification."
+          : "Welfare program deletion submitted for verification.",
+      );
     } catch (err) {
       console.error("Failed to delete welfare record", err);
       const message = err?.response?.data?.message || "Unable to delete this record.";
@@ -1273,12 +1267,21 @@ export default function AdminDataStewardship({ department, deptConfig }) {
   }
 
   function handleDeleteRecord(record) {
+    if (department === "education") {
+      deleteSchoolRecord(record);
+      return;
+    }
+
     if (department === "health") {
       deleteHealthRecord(record);
       return;
     }
 
     deleteWelfareRecord(record);
+  }
+
+  function openSubmissionPreview(record) {
+    setPreviewRecord(record);
   }
 
   const fromRecord = meta.total ? (page - 1) * 25 + 1 : 0;
@@ -1341,6 +1344,7 @@ export default function AdminDataStewardship({ department, deptConfig }) {
                   setSelectedTableId(table.id);
                   setPage(1);
                   setEditingRecord(null);
+                  setPreviewRecord(null);
                 }}
                 style={{
                   backgroundColor: isActive ? "#000000" : "#f3f4f6",
@@ -1400,7 +1404,20 @@ export default function AdminDataStewardship({ department, deptConfig }) {
                   </td>
                 ))}
                 <td className="px-4 py-3 text-right">
-                  {selectedTable?.editable || selectedTable?.deletable ? (
+                  {selectedTable?.previewable ? (
+                    <div className="flex justify-end gap-2">
+                      <button
+                        type="button"
+                        onClick={() => openSubmissionPreview(record)}
+                        className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-bold text-slate-700 transition-all hover:border-slate-900 hover:bg-slate-900 hover:text-white"
+                      >
+                        <span className="inline-flex items-center gap-1">
+                          <FileText size={12} />
+                          Preview
+                        </span>
+                      </button>
+                    </div>
+                  ) : selectedTable?.editable || selectedTable?.deletable ? (
                     <div className="flex justify-end gap-2">
                       {selectedTable?.editable && (
                         <button
@@ -1970,6 +1987,14 @@ export default function AdminDataStewardship({ department, deptConfig }) {
           )}
         </div>
       )}
+
+      <ReviewChangesModal
+        review={previewRecord}
+        onClose={() => setPreviewRecord(null)}
+        title="Submission Preview"
+        description="Review the exact record details and field-level changes before closing this preview."
+      />
     </div>
   );
 }
+

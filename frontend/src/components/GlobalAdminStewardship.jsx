@@ -8,9 +8,28 @@ import {
   RefreshCw,
   Search,
 } from "lucide-react";
-import { fetchJson } from "../lib/api";
+import { fetchJson, patchJson } from "../lib/api";
+import { toast } from "react-hot-toast";
+import ReviewChangesModal from "./ReviewChangesModal";
 
 const GLOBAL_TABLES = [
+  {
+    id: "pending_review_requests",
+    label: "Pending Verifications",
+    requestPath: "/admin-data/reviews/pending",
+    reviewBasePath: "/admin-data/reviews",
+    reviewActions: true,
+    columns: [
+      "id",
+      "table_name",
+      "record_id",
+      "action",
+      "changed_by_full_name",
+      "changed_by_email",
+      "changed_fields",
+      "changed_at",
+    ],
+  },
   {
     id: "admin_data_edits",
     label: "Admin Data Edits",
@@ -20,27 +39,12 @@ const GLOBAL_TABLES = [
       "table_name",
       "record_id",
       "action",
+      "status",
       "changed_by_email",
       "changed_by_full_name",
+      "reviewed_by_full_name",
+      "review_notes",
       "changed_at",
-    ],
-  },
-  {
-    id: "districts",
-    label: "Districts",
-    endpoint: "districts",
-    columns: [
-      "id",
-      "name",
-      "code",
-      "population_total",
-      "population_density",
-      "area_sq_km",
-      "latitude",
-      "longitude",
-      "valid_on",
-      "boundary_version",
-      "updated_at",
     ],
   },
   {
@@ -163,6 +167,10 @@ function displayValue(value) {
     return value ? "Yes" : "No";
   }
 
+  if (Array.isArray(value)) {
+    return value.length ? value.map((item) => displayValue(item)).join(", ") : "-";
+  }
+
   if (typeof value === "object") {
     return JSON.stringify(value);
   }
@@ -180,6 +188,7 @@ export default function GlobalAdminStewardship() {
   const [page, setPage] = useState(1);
   const [meta, setMeta] = useState({ total: 0, total_pages: 0 });
   const [errorMessage, setErrorMessage] = useState("");
+  const [previewRecord, setPreviewRecord] = useState(null);
 
   const selectedTable = useMemo(
     () => GLOBAL_TABLES.find((table) => table.id === selectedTableId) || GLOBAL_TABLES[0],
@@ -187,6 +196,20 @@ export default function GlobalAdminStewardship() {
   );
 
   const columns = selectedTable.columns || [];
+  const resolveTablePath = useCallback(
+    (table) => {
+      if (!table) {
+        return "";
+      }
+
+      if (table.requestPath) {
+        return table.requestPath;
+      }
+
+      return `/admin-data/global/${table.endpoint}`;
+    },
+    [],
+  );
 
   useEffect(() => {
     fetchJson("/admin-data/global/tables")
@@ -204,7 +227,7 @@ export default function GlobalAdminStewardship() {
     try {
       setLoading(true);
       setErrorMessage("");
-      const response = await fetchJson(`/admin-data/global/${selectedTable.endpoint}`, {
+      const response = await fetchJson(resolveTablePath(selectedTable), {
         params: {
           page,
           page_size: 25,
@@ -228,7 +251,56 @@ export default function GlobalAdminStewardship() {
     } finally {
       setLoading(false);
     }
-  }, [analysisType, page, searchQuery, selectedTable]);
+  }, [analysisType, page, resolveTablePath, searchQuery, selectedTable]);
+
+  const handleReviewAction = useCallback(
+    async (record, decision) => {
+      if (!record?.id || !selectedTable?.reviewActions) {
+        return false;
+      }
+
+      const reviewNotes =
+        decision === "reject"
+          ? window.prompt("Optional rejection note", "")?.trim() || ""
+          : "";
+
+      try {
+        setLoading(true);
+        await patchJson(
+          `${selectedTable.reviewBasePath}/${record.id}/${decision}`,
+          decision === "reject" && reviewNotes ? { reviewNotes } : {},
+        );
+        toast.success(
+          decision === "approve"
+            ? "Review approved and applied."
+            : "Review rejected.",
+        );
+        await loadTableData();
+        return true;
+      } catch (err) {
+        console.error("Failed to process review action", err);
+        toast.error(err?.response?.data?.message || "Unable to process the review.");
+        return false;
+      } finally {
+        setLoading(false);
+      }
+    },
+    [loadTableData, selectedTable],
+  );
+
+  const openPreview = useCallback((record) => {
+    setPreviewRecord(record);
+  }, []);
+
+  const handlePreviewAction = useCallback(
+    async (record, decision) => {
+      const success = await handleReviewAction(record, decision);
+      if (success) {
+        setPreviewRecord(null);
+      }
+    },
+    [handleReviewAction],
+  );
 
   useEffect(() => {
     loadTableData();
@@ -247,7 +319,7 @@ export default function GlobalAdminStewardship() {
               Global System Tables
             </div>
             <p className="mt-1 text-xs font-medium text-slate-500">
-              Read-only views of platform reference data, analysis outputs, and audit logs.
+              Review pending submissions first, then inspect approved audit logs and platform reference data.
             </p>
           </div>
 
@@ -278,6 +350,7 @@ export default function GlobalAdminStewardship() {
                   setSelectedTableId(table.id);
                   setPage(1);
                   setAnalysisType("");
+                  setPreviewRecord(null);
                 }}
                 style={{
                   backgroundColor: isActive ? "#000000" : "#f3f4f6",
@@ -362,8 +435,21 @@ export default function GlobalAdminStewardship() {
                     </span>
                   </td>
                 ))}
-                <td className="px-4 py-3 text-right text-xs font-medium text-slate-400">
-                  View only
+                <td className="px-4 py-3 text-right">
+                  {selectedTable.reviewActions ? (
+                    <div className="flex justify-end gap-2">
+                      <button
+                        type="button"
+                        onClick={() => openPreview(record)}
+                        className="inline-flex items-center gap-1 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-bold text-slate-700 transition-all hover:border-slate-900 hover:bg-slate-900 hover:text-white"
+                      >
+                        <FileText size={12} />
+                        Preview
+                      </button>
+                    </div>
+                  ) : (
+                    <span className="text-xs font-medium text-slate-400">View only</span>
+                  )}
                 </td>
               </tr>
             ))}
@@ -411,6 +497,18 @@ export default function GlobalAdminStewardship() {
           </button>
         </div>
       </footer>
+
+      <ReviewChangesModal
+        review={previewRecord}
+        onClose={() => setPreviewRecord(null)}
+        title="Pending Review Preview"
+        description="Review the proposed change carefully before approving or rejecting it."
+        showActions
+        onApprove={(record) => handlePreviewAction(record, "approve")}
+        onReject={(record) => handlePreviewAction(record, "reject")}
+        approveLabel="Approve Change"
+        rejectLabel="Reject Change"
+      />
     </div>
   );
 }
