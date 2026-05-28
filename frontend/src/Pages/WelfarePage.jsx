@@ -6,6 +6,7 @@ import {
   Lightbulb,
   Activity,
   ShieldAlert,
+  UserCheck,
 } from "lucide-react";
 import { useDashboardData } from "../hooks/useDashboardData";
 import { useDistrict } from "../context/DistrictContext";

@@ -55,6 +55,16 @@ function formatLegendValue(value, unit, digits = 1) {
   return unit ? `${formatted} ${unit}` : formatted;
 }
 
+function getLegendDemarcations(colors = []) {
+  if (!Array.isArray(colors) || colors.length < 3) {
+    return [];
+  }
+
+  return colors.slice(1, -1).map((_, index) => {
+    return ((index + 1) / (colors.length - 1)) * 100;
+  });
+}
+
 function resolveLegendEdgeLabels(metadata, legend) {
   const render = metadata?.render || {};
   const labelText = `${legend?.label || ""} ${legend?.lowLabel || ""} ${legend?.highLabel || ""}`.toLowerCase();
@@ -541,6 +551,7 @@ function PopulationRasterPanel({
   }
 
   const legendEdgeLabels = resolveLegendEdgeLabels(metadata, legend);
+  const legendDemarcations = getLegendDemarcations(legend?.colors);
 
   const exportLegendItems = [
     legend
@@ -847,10 +858,19 @@ function PopulationRasterPanel({
             <p className="mt-1 text-[12px] font-semibold leading-5 text-slate">
               {legend.label || title || "Raster surface"}
             </p>
-            <div
-              className="mt-3 h-3 w-full rounded-full border border-slate-200/80"
-              style={{ background: legendBackground(legend.colors) }}
-            />
+            <div className="relative mt-3 h-3 w-full overflow-hidden rounded-full border border-slate-200/80">
+              <div
+                className="absolute inset-0"
+                style={{ background: legendBackground(legend.colors) }}
+              />
+              {legendDemarcations.map((position) => (
+                <span
+                  key={`legend-demarcation-${position}`}
+                  className="absolute top-0 h-full w-px bg-white/85 shadow-[0_0_0_1px_rgba(15,23,42,0.12)]"
+                  style={{ left: `${position}%` }}
+                />
+              ))}
+            </div>
             <div className="mt-2 flex items-center justify-between gap-3 text-[10px] font-bold tracking-[0.08em] text-slate/55">
               <span>{legendEdgeLabels.low}</span>
               <span>{legendEdgeLabels.high}</span>
