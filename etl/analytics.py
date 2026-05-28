@@ -63,6 +63,7 @@ ANALYSIS_TYPES = {
 }
 
 DEFAULT_HEALTH_2SFCA_CATCHMENT_MIN = 60.0
+DEFAULT_SCHOOL_ACCESS_DISTANCE_KM = 5.0
 BOUNDARY_FETCH_MAX_RETRIES = 3
 BOUNDARY_FETCH_RETRY_DELAY_SECONDS = 2
 
@@ -1034,9 +1035,19 @@ def compute_education_summary(admin_units_gdf, schools_gdf, school_age_lookup=No
 def get_school_thresholds(school_name):
     name_lower = str(school_name).lower()
     if 'sec' in name_lower or 'cdss' in name_lower:
-        return {'type': 'secondary', 'max_dist_km': 8.0, 'ptr': 40.0, 'csr': 60.0}
+        return {
+            'type': 'secondary',
+            'max_dist_km': DEFAULT_SCHOOL_ACCESS_DISTANCE_KM,
+            'ptr': 40.0,
+            'csr': 60.0,
+        }
     else:
-        return {'type': 'primary', 'max_dist_km': 3.0, 'ptr': 60.0, 'csr': 60.0}
+        return {
+            'type': 'primary',
+            'max_dist_km': DEFAULT_SCHOOL_ACCESS_DISTANCE_KM,
+            'ptr': 60.0,
+            'csr': 60.0,
+        }
 
 # Calculate compliance with education standards based on student-teacher ratios and
 # classroom space ratios for each administrative unit

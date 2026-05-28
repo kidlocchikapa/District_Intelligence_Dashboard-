@@ -93,13 +93,13 @@ const HEALTH_RASTER_LAYERS = [
     key: "health_network_8km",
     shortLabel: "Road Distance",
     title: "8 km Road distance",
-    subtitle: "Beneficiary road-network distance to healthy facility",
+    subtitle: "Beneficiary road-network distance to health facility",
   },
   {
     key: "health_travel_time",
     shortLabel: "Travel Time",
-    title: "Travel Time",
-    subtitle: "Average beneficiary travel time (minutes) by area.",
+    title: "Travel Time to Nearest Health Facility",
+    subtitle: "Average beneficiary travel time to the nearest health facility.",
   },
 ];
 
@@ -138,8 +138,16 @@ const HEALTH_RASTER_TOOLTIP_METRICS = {
   health_travel_time: [
     {
       key: "avg_travel_time_min",
-      label: "Travel Time (min)",
+      label: "Avg Travel Time (min)",
       digits: 1,
+    },
+    {
+      key: "health_population_served_total",
+      label: "Within 8 km",
+    },
+    {
+      key: "health_population_unserved_total",
+      label: "Outside 8 km",
     },
   ],
 };
@@ -606,9 +614,61 @@ function HealthPage() {
       }),
     };
   }, [healthCoverageTaGeojson.data, servedPopulationTrendLookup]);
-  const augmentedGeojson = useMemo(() => {
-    if (!healthCoverageTooltipGeojson || !taAnalytics.data) {
+  const healthTravelTimeLookup = useMemo(() => {
+    const grouped = (healthLocations.data?.features || []).reduce(
+      (lookup, feature) => {
+        const properties = feature?.properties || {};
+        const taName =
+          properties.admin_unit_name || properties.ta_name || properties.ta;
+        const key = normalizeAreaName(taName);
+        const travelTime = Number(properties.avg_travel_time_min || 0);
+
+        if (!key || !Number.isFinite(travelTime) || travelTime <= 0) {
+          return lookup;
+        }
+
+        lookup[key] ||= { total: 0, count: 0 };
+        lookup[key].total += travelTime;
+        lookup[key].count += 1;
+        return lookup;
+      },
+      {},
+    );
+
+    return Object.entries(grouped).reduce((lookup, [key, value]) => {
+      lookup[key] = value.count ? value.total / value.count : 0;
+      return lookup;
+    }, {});
+  }, [healthLocations.data]);
+  const healthRasterTooltipGeojson = useMemo(() => {
+    if (!healthCoverageTooltipGeojson) {
       return healthCoverageTooltipGeojson;
+    }
+
+    return {
+      ...healthCoverageTooltipGeojson,
+      features: (healthCoverageTooltipGeojson.features || []).map((feature) => {
+        const properties = feature?.properties || {};
+        const name = properties.admin_unit_name || properties.name;
+        const travelTime = healthTravelTimeLookup[normalizeAreaName(name)];
+
+        if (travelTime === undefined) {
+          return feature;
+        }
+
+        return {
+          ...feature,
+          properties: {
+            ...properties,
+            avg_travel_time_min: travelTime,
+          },
+        };
+      }),
+    };
+  }, [healthCoverageTooltipGeojson, healthTravelTimeLookup]);
+  const augmentedGeojson = useMemo(() => {
+    if (!healthRasterTooltipGeojson || !taAnalytics.data) {
+      return healthRasterTooltipGeojson;
     }
 
     const analyticsLookup = taAnalytics.data.reduce((lookup, row) => {
@@ -620,8 +680,8 @@ function HealthPage() {
     }, {});
 
     return {
-      ...healthCoverageTooltipGeojson,
-      features: (healthCoverageTooltipGeojson.features || []).map((feature) => {
+      ...healthRasterTooltipGeojson,
+      features: (healthRasterTooltipGeojson.features || []).map((feature) => {
         const properties = feature?.properties || {};
         const name = properties.admin_unit_name || properties.name;
         const taData = analyticsLookup[normalizeAreaName(name)];
@@ -642,7 +702,7 @@ function HealthPage() {
         };
       }),
     };
-  }, [healthCoverageTooltipGeojson, taAnalytics.data]);
+  }, [healthRasterTooltipGeojson, taAnalytics.data]);
   const servedPopulationTrendData = Object.values(servedPopulationTrendLookup)
     .map((row) => {
       const populationTotal =
@@ -952,7 +1012,7 @@ function HealthPage() {
             </p>
             <div className="mt-4 border border-gray-100 rounded p-3 bg-white">
               <PopulationRasterPanel
-                geojson={healthCoverageTooltipGeojson}
+                geojson={healthRasterTooltipGeojson}
                 title={activeHealthRasterLayer.title}
                 subtitle={activeHealthRasterLayer.subtitle}
                 metadataUrl={getVersionedHealthRasterAsset(activeHealthRasterLayer.key)}

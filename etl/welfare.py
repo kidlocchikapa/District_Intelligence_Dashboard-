@@ -114,7 +114,7 @@ def compute_welfare_indicators(
     health_gdf,
     school_gdf,
     health_dist_km=8.0,
-    school_dist_km=3.0,
+    school_dist_km=5.0,
 ):
     """Calculates spatial indicators for beneficiaries based on proximity to services and hazards."""
     # Ensure project to metric CRS for distance calculations
@@ -163,7 +163,7 @@ def process_welfare_beneficiary_dataset(
     api_headers=None,
     program_id=None,
     health_dist_km=8.0,
-    school_dist_km=3.0,
+    school_dist_km=5.0,
 ):
     """Main orchestration for the welfare beneficiary ETL pipeline."""
     started_at = datetime.utcnow()
