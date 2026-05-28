@@ -45,6 +45,16 @@ function formatLegendNumber(value, digits = 1) {
   });
 }
 
+function formatLegendValue(value, unit, digits = 1) {
+  const formatted = formatLegendNumber(value, digits);
+
+  if (formatted === null) {
+    return null;
+  }
+
+  return unit ? `${formatted} ${unit}` : formatted;
+}
+
 function resolveLegendEdgeLabels(metadata, legend) {
   const render = metadata?.render || {};
   const labelText = `${legend?.label || ""} ${legend?.lowLabel || ""} ${legend?.highLabel || ""}`.toLowerCase();
@@ -56,8 +66,23 @@ function resolveLegendEdgeLabels(metadata, legend) {
   const isDistance =
     unit === "km" ||
     unit.includes("kilomet") ||
-    labelText.includes("distance") ||
-    labelText.includes("within");
+    labelText.includes("distance");
+  const isCoverage =
+    render.transform === "continuous" ||
+    labelText.includes("coverage") ||
+    labelText.includes("accessibility within") ||
+    labelText.includes("service coverage within");
+  const clipMin = Number.isFinite(Number(render.clipMin))
+    ? Number(render.clipMin)
+    : 0;
+  const clipMax = Number(render.clipMax);
+
+  if (isCoverage) {
+    return {
+      low: "0%",
+      high: "100%",
+    };
+  }
 
   if (
     render.surfaceMethod === "nearest-facility-distance" &&
@@ -72,15 +97,22 @@ function resolveLegendEdgeLabels(metadata, legend) {
 
   if (isTravelTime && Number.isFinite(Number(render.clipMax))) {
     return {
-      low: "0 min",
-      high: `${formatLegendNumber(render.clipMax)} min`,
+      low: formatLegendValue(clipMin, "min"),
+      high: formatLegendValue(clipMax, "min"),
     };
   }
 
   if (isDistance && Number.isFinite(Number(render.clipMax))) {
     return {
-      low: "0 km",
-      high: `${formatLegendNumber(render.clipMax)} km`,
+      low: formatLegendValue(clipMin, "km"),
+      high: formatLegendValue(clipMax, "km"),
+    };
+  }
+
+  if (Number.isFinite(clipMax)) {
+    return {
+      low: formatLegendNumber(clipMin),
+      high: formatLegendNumber(clipMax),
     };
   }
 
@@ -819,7 +851,7 @@ function PopulationRasterPanel({
               className="mt-3 h-3 w-full rounded-full border border-slate-200/80"
               style={{ background: legendBackground(legend.colors) }}
             />
-            <div className="mt-2 flex items-center justify-between text-[10px] font-bold uppercase tracking-[0.12em] text-slate/55">
+            <div className="mt-2 flex items-center justify-between gap-3 text-[10px] font-bold tracking-[0.08em] text-slate/55">
               <span>{legendEdgeLabels.low}</span>
               <span>{legendEdgeLabels.high}</span>
             </div>
