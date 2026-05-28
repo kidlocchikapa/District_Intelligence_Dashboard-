@@ -32,6 +32,106 @@ function MapInstanceCapture({ onReady }) {
   return null;
 }
 
+function formatLegendNumber(value, digits = 1) {
+  const number = Number(value);
+
+  if (!Number.isFinite(number)) {
+    return null;
+  }
+
+  return number.toLocaleString(undefined, {
+    maximumFractionDigits: digits,
+    minimumFractionDigits: Number.isInteger(number) ? 0 : digits,
+  });
+}
+
+function formatLegendValue(value, unit, digits = 1) {
+  const formatted = formatLegendNumber(value, digits);
+
+  if (formatted === null) {
+    return null;
+  }
+
+  return unit ? `${formatted} ${unit}` : formatted;
+}
+
+function getLegendDemarcations(colors = []) {
+  if (!Array.isArray(colors) || colors.length < 3) {
+    return [];
+  }
+
+  return colors.slice(1, -1).map((_, index) => {
+    return ((index + 1) / (colors.length - 1)) * 100;
+  });
+}
+
+function resolveLegendEdgeLabels(metadata, legend) {
+  const render = metadata?.render || {};
+  const labelText = `${legend?.label || ""} ${legend?.lowLabel || ""} ${legend?.highLabel || ""}`.toLowerCase();
+  const unit = String(render.unit || "").toLowerCase();
+  const isTravelTime =
+    unit.includes("minute") ||
+    labelText.includes("travel time") ||
+    labelText.includes("time to");
+  const isDistance =
+    unit === "km" ||
+    unit.includes("kilomet") ||
+    labelText.includes("distance");
+  const isCoverage =
+    render.transform === "continuous" ||
+    labelText.includes("coverage") ||
+    labelText.includes("accessibility within") ||
+    labelText.includes("service coverage within");
+  const clipMin = Number.isFinite(Number(render.clipMin))
+    ? Number(render.clipMin)
+    : 0;
+  const clipMax = Number(render.clipMax);
+
+  if (isCoverage) {
+    return {
+      low: "0%",
+      high: "100%",
+    };
+  }
+
+  if (
+    render.surfaceMethod === "nearest-facility-distance" &&
+    Number.isFinite(Number(render.coverageDistanceKm))
+  ) {
+    const distance = formatLegendNumber(render.coverageDistanceKm);
+    return {
+      low: `>${distance} km`,
+      high: "0 km",
+    };
+  }
+
+  if (isTravelTime && Number.isFinite(Number(render.clipMax))) {
+    return {
+      low: formatLegendValue(clipMin, "min"),
+      high: formatLegendValue(clipMax, "min"),
+    };
+  }
+
+  if (isDistance && Number.isFinite(Number(render.clipMax))) {
+    return {
+      low: formatLegendValue(clipMin, "km"),
+      high: formatLegendValue(clipMax, "km"),
+    };
+  }
+
+  if (Number.isFinite(clipMax)) {
+    return {
+      low: formatLegendNumber(clipMin),
+      high: formatLegendNumber(clipMax),
+    };
+  }
+
+  return {
+    low: legend?.lowLabel || "Low",
+    high: legend?.highLabel || "High",
+  };
+}
+
 function PopulationRasterPanel({
   geojson,
   pointsGeojson,
@@ -450,10 +550,13 @@ function PopulationRasterPanel({
     return `linear-gradient(90deg, ${colors.join(", ")})`;
   }
 
+  const legendEdgeLabels = resolveLegendEdgeLabels(metadata, legend);
+  const legendDemarcations = getLegendDemarcations(legend?.colors);
+
   const exportLegendItems = [
     legend
       ? {
-          label: legend.label || title || "Raster surface",
+          label: `${legend.label || title || "Raster surface"} (${legendEdgeLabels.low} to ${legendEdgeLabels.high})`,
           color: Array.isArray(legend.colors) && legend.colors.length
             ? legend.colors[Math.floor(legend.colors.length / 2)]
             : "#56ab91",
@@ -755,13 +858,22 @@ function PopulationRasterPanel({
             <p className="mt-1 text-[12px] font-semibold leading-5 text-slate">
               {legend.label || title || "Raster surface"}
             </p>
-            <div
-              className="mt-3 h-3 w-full rounded-full border border-slate-200/80"
-              style={{ background: legendBackground(legend.colors) }}
-            />
-            <div className="mt-2 flex items-center justify-between text-[10px] font-bold uppercase tracking-[0.12em] text-slate/55">
-              <span>{legend.lowLabel || "Low"}</span>
-              <span>{legend.highLabel || "High"}</span>
+            <div className="relative mt-3 h-3 w-full overflow-hidden rounded-full border border-slate-200/80">
+              <div
+                className="absolute inset-0"
+                style={{ background: legendBackground(legend.colors) }}
+              />
+              {legendDemarcations.map((position) => (
+                <span
+                  key={`legend-demarcation-${position}`}
+                  className="absolute top-0 h-full w-px bg-white/85 shadow-[0_0_0_1px_rgba(15,23,42,0.12)]"
+                  style={{ left: `${position}%` }}
+                />
+              ))}
+            </div>
+            <div className="mt-2 flex items-center justify-between gap-3 text-[10px] font-bold tracking-[0.08em] text-slate/55">
+              <span>{legendEdgeLabels.low}</span>
+              <span>{legendEdgeLabels.high}</span>
             </div>
             <div className="mt-3 border-t border-slate-100 pt-2.5">
               <p className="text-[9px] font-bold uppercase tracking-[0.14em] text-slate/45">

@@ -14,7 +14,7 @@ import {
   ShieldAlert,
   Lightbulb,
 } from "lucide-react";
-import { useEffect, useMemo, useState, useRef } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import DataTable from "../components/DataTable";
 import { useDashboardData } from "../hooks/useDashboardData";
 import { useDistrict } from "../context/DistrictContext";
@@ -435,14 +435,14 @@ function EducationPage() {
       district: coverageFocusDistrict,
     }),
   );
-  const schoolPopulationBufferGeojson = useDashboardData(
+  const schoolServiceCoverageGeojson = useDashboardData(
     buildDashboardPath("/dashboard/analysis/geojson", {
-      analysis_type: "school_population_buffer",
+      analysis_type: "school_service_coverage",
       admin_type: "TA",
+      metric_name: "school_service_coverage_pct",
       district: coverageFocusDistrict,
     }),
   );
-
   const floodImpact = useDashboardData(
     buildDashboardPath("/dashboard/education/flood-impact", {
       district: coverageFocusDistrict,
@@ -527,8 +527,11 @@ function EducationPage() {
       {
         metric: "Out-of-School Population",
         value: formatStat(
-          selectedInsightRow.not_in_school_total ||
-            educationSummary.data?.not_in_school_total ||
+          selectedInsightRow.school_age_population_unenrolled ??
+            selectedInsightRow.not_in_school_total ??
+            educationSummary.data?.school_age_population_unenrolled ??
+            educationSummary.data?.not_in_school_total ??
+            educationSummary.data?.child_population_unenrolled ??
             0,
         ),
       },
@@ -600,9 +603,9 @@ function EducationPage() {
   const sourceInsightRows = allInsightRows.length
     ? allInsightRows
     : insightRows;
-  const schoolPopulationBufferLookup = useMemo(() => {
-    const bufferFeatures = schoolPopulationBufferGeojson.data?.features || [];
-    return bufferFeatures.reduce((lookup, feature) => {
+  const schoolServiceCoverageLookup = useMemo(() => {
+    const coverageFeatures = schoolServiceCoverageGeojson.data?.features || [];
+    return coverageFeatures.reduce((lookup, feature) => {
       const properties = feature?.properties || {};
       const key = getEducationUnitKey(properties, feature);
       const metricName = properties.metric_name;
@@ -617,7 +620,7 @@ function EducationPage() {
       lookup[key][metricName] = Number(properties.metric_value || 0);
       return lookup;
     }, {});
-  }, [schoolPopulationBufferGeojson.data]);
+  }, [schoolServiceCoverageGeojson.data]);
   const selectedInsight = selectedTa
     ? sourceInsightRows.find(
         (row) =>
@@ -656,21 +659,21 @@ function EducationPage() {
     (sum, row) => sum + Number(row.school_count || 0),
     0,
   );
-  const chartRows = sourceInsightRows.map((row) => ({
-    ...row,
-    z: Math.max(Number(row.school_age_population_total || 0), 1),
-    fill: getInsightColor(row.insight_label),
-    isSelected: selectedTa
-      ? normalizeTaName(row.admin_unit_name) === normalizeTaName(selectedTa)
-      : selectedDistrict
-        ? String(row.district || "").toLowerCase() ===
-          String(selectedDistrict).toLowerCase()
-        : false,
-  }));
-  const highlightedRows =
-    selectedTa || selectedDistrict
-      ? chartRows.filter((row) => row.isSelected)
-      : [];
+  const chartRows = sourceInsightRows.map(
+    (row) => ({
+      ...row,
+      z: Math.max(Number(row.school_age_population_total || 0), 1),
+      fill: getInsightColor(row.insight_label),
+      isSelected: selectedTa
+        ? normalizeTaName(row.admin_unit_name) === normalizeTaName(selectedTa)
+        : selectedDistrict
+          ? row.district.toLowerCase() === selectedDistrict.toLowerCase()
+          : false,
+    }),
+  );
+  const highlightedRows = selectedTa || selectedDistrict
+    ? chartRows.filter((row) => row.isSelected)
+    : [];
 
   const pressureByTaId = useMemo(() => {
     const lookup = new Map();
@@ -891,7 +894,6 @@ function EducationPage() {
         const properties = feature?.properties || {};
         const key = getEducationUnitKey(properties, feature);
         const insight = insightLookup[key];
-        const bufferMetrics = schoolPopulationBufferLookup[key] || {};
         const schoolAgePopulationTotal = Number(
           insight?.school_age_population_total ??
             properties.school_age_population_total ??
@@ -902,13 +904,19 @@ function EducationPage() {
             properties.student_enrollment_total ??
             0,
         );
-        const populationServedTotal =
-          bufferMetrics.school_population_served_total;
-        const outsideBufferPopulation =
-          bufferMetrics.school_population_unserved_total;
-        const hasServedMetrics =
-          bufferMetrics.school_population_served_total !== undefined ||
-          bufferMetrics.school_population_unserved_total !== undefined;
+        const coveragePct = Number(
+          schoolServiceCoverageLookup[key]?.school_service_coverage_pct ?? 0,
+        );
+        const populationServedTotal = Math.max(
+          schoolAgePopulationTotal * (coveragePct / 100),
+          0,
+        );
+        const outsideBufferPopulation = Math.max(
+          schoolAgePopulationTotal - populationServedTotal,
+          0,
+        );
+        const hasBufferMetrics =
+          schoolAgePopulationTotal > 0 || coveragePct > 0;
 
         if (!insight && !hasServedMetrics) {
           return feature;
@@ -931,7 +939,7 @@ function EducationPage() {
     };
   }, [
     educationCoverageTaGeojson.data,
-    schoolPopulationBufferLookup,
+    schoolServiceCoverageLookup,
     sourceInsightRows,
   ]);
 
@@ -1122,17 +1130,13 @@ function EducationPage() {
                 {
                   label: `Outside ${EDUCATION_ACCESS_DISTANCE_LABEL}`,
                   value: formatStat(
-                    selectedEducationBufferStats?.school_population_unserved_total ||
+                    selectedInsight?.school_age_population_unenrolled ??
+                      selectedInsight?.not_in_school_total ??
+                      educationSummary.data?.school_age_population_unenrolled ??
+                      educationSummary.data?.not_in_school_total ??
+                      educationSummary.data?.child_population_unenrolled ??
                       0,
                   ),
-                  detail:
-                    selectedEducationBufferStats?.school_population_unserved_pct !==
-                    undefined
-                      ? `${formatStat(
-                          selectedEducationBufferStats.school_population_unserved_pct,
-                          1,
-                        )}% outside ${EDUCATION_ACCESS_DISTANCE_LABEL}`
-                      : null,
                   icon: UserRoundX,
                 },
               ].map((stat, index) => (
@@ -1905,7 +1909,6 @@ function PlanningRecommendations({
   planningPriorities,
 }) {
   const [metricPreview, setMetricPreview] = useState(null);
-  const thresholds = districtInsights.data?.thresholds || {};
   const allRows = useMemo(
     () =>
       districtInsights.data?.all_districts ??
@@ -1941,7 +1944,12 @@ function PlanningRecommendations({
   )[0];
   const teacherTotal = Number(eduSummary.teacher_count_total || 0);
   const schoolAgeTotal = Number(eduSummary.school_age_population_total || 0);
-  const outOfSchoolTotal = Number(eduSummary.not_in_school_total || 0);
+  const outOfSchoolTotal = Number(
+    eduSummary.school_age_population_unenrolled ??
+      eduSummary.not_in_school_total ??
+      eduSummary.child_population_unenrolled ??
+      0,
+  );
   const teacherRatio =
     eduSummary.teacher_count_total > 0
       ? Math.round(
@@ -2021,7 +2029,12 @@ function PlanningRecommendations({
       id: `oos-${row.admin_unit_id || row.admin_unit_name || index}`,
       ta: row.admin_unit_name || "Unknown TA",
       district: row.district || selectedDistrict || "Unknown District",
-      outOfSchool: Number(row.not_in_school_total || 0),
+      outOfSchool: Number(
+        row.school_age_population_unenrolled ??
+          row.not_in_school_total ??
+          row.child_population_unenrolled ??
+          0,
+      ),
       schoolAgePopulation: Number(row.school_age_population_total || 0),
       schoolsPer10k: Number(row.schools_per_10k || 0),
       studentsPerSchool: Number(row.students_per_school || 0),
@@ -2074,25 +2087,13 @@ function PlanningRecommendations({
     });
   }
 
-  const priorityLedRecommendations = rankedPriorities
-    .slice(0, 2)
-    .map((row, index) => ({
-      priority:
-        index === 0
-          ? "high"
-          : row.priority_band === "Critical" || row.priority_band === "High"
-            ? "high"
-            : "medium",
-      icon:
-        row.education_vulnerability_score >= row.health_vulnerability_score
-          ? School
-          : ShieldAlert,
-      title: `${row.admin_unit_name} should anchor the next education intervention package`,
-      body: `${row.narrative} Education-specific pressure is scored at ${formatNumber(row.education_vulnerability_score, 1)}, with flood isolation at ${formatNumber(row.education_flood_isolation_score, 1)}. This indicates that school access planning in ${row.admin_unit_name} should be coordinated with wider district vulnerability reduction.`,
-      action:
-        row.recommended_actions?.[0] ||
-        "Prioritise the top-ranked TA in the next education planning cycle",
-    }));
+  const priorityLedRecommendations = rankedPriorities.slice(0, 2).map((row, index) => ({
+    priority: index === 0 ? "high" : row.priority_band === "Critical" || row.priority_band === "High" ? "high" : "medium",
+    icon: row.education_vulnerability_score >= row.health_vulnerability_score ? School : ShieldAlert,
+    title: `Start education support in ${row.admin_unit_name}`,
+    body: `This area has a high education need score of ${formatNumber(row.education_vulnerability_score, 1)} and may also be hard to reach during floods. It should be reviewed first for classrooms, teachers, school supplies, or learner support.`,
+    action: row.recommended_actions?.[0] || "Use this TA as the first place to review for the next education plan",
+  }));
 
   const recommendations = [
     ...priorityLedRecommendations,
@@ -2117,10 +2118,8 @@ function PlanningRecommendations({
         },
         {
           id: "worst-schools-density",
-          label: "Lowest Schools/10k",
-          value: worstInfra
-            ? formatNumber(worstInfra.schools_per_10k, 1)
-            : "N/A",
+          label: "Lowest School Coverage",
+          value: worstInfra ? formatNumber(worstInfra.schools_per_10k, 1) : "N/A",
           onClick: () =>
             openMetricPreview({
               title: "Areas Short of Schools",
@@ -2151,10 +2150,8 @@ function PlanningRecommendations({
         },
         {
           id: "worst-overcrowding-value",
-          label: "Worst Students/School",
-          value: worstCrowd
-            ? formatNumber(worstCrowd.students_per_school, 0)
-            : "N/A",
+          label: "Most Crowded",
+          value: worstCrowd ? formatNumber(worstCrowd.students_per_school, 0) : "N/A",
           onClick: () =>
             openMetricPreview({
               title: "Crowded TAs",
@@ -2165,47 +2162,44 @@ function PlanningRecommendations({
       ],
     },
     // 3 - Teacher ratio
-    teacherRatio !== null &&
-      teacherRatio > 60 && {
-        priority: "high",
-        icon: BookOpen,
-        title: "Teacher Recruitment Urgently Needed",
-        body: `The district-wide teacher-to-student ratio is 1:${teacherRatio}, exceeding the national standard of 1:60. This affects learning quality across all schools. Targeted recruitment and deployment to high-pressure TAs should be prioritised.`,
-        action:
-          "Increase teacher recruitment and redistribute existing staff to high-ratio schools",
-        metricLinks: [
-          {
-            id: "teacher-ratio",
-            label: "Teacher Ratio",
-            value: `1:${formatNumber(teacherRatio, 0)}`,
-            onClick: () =>
-              openMetricPreview({
-                title: "Education Workforce Summary",
-                rows: summaryRows,
-                columns: summaryColumns,
-              }),
-          },
-          {
-            id: "teacher-total",
-            label: "Total Teachers",
-            value: formatNumber(teacherTotal, 0),
-            onClick: () =>
-              openMetricPreview({
-                title: "Education Workforce Summary",
-                rows: summaryRows,
-                columns: summaryColumns,
-              }),
-          },
-        ],
-      },
+    teacherRatio !== null && teacherRatio > 60 && {
+      priority: "high",
+      icon: BookOpen,
+      title: "More Teachers Are Needed",
+      body: `There is about 1 teacher for every ${teacherRatio} learners. This can make classes hard to manage and reduce learning quality. The busiest schools should receive extra teachers first.`,
+      action: "Send new or reassigned teachers to the schools with the biggest classes first",
+      metricLinks: [
+        {
+          id: "teacher-ratio",
+          label: "Teacher Ratio",
+          value: `1:${formatNumber(teacherRatio, 0)}`,
+          onClick: () =>
+            openMetricPreview({
+              title: "Education Workforce Summary",
+              rows: summaryRows,
+              columns: summaryColumns,
+            }),
+        },
+        {
+          id: "teacher-total",
+          label: "Total Teachers",
+          value: formatNumber(teacherTotal, 0),
+          onClick: () =>
+            openMetricPreview({
+              title: "Education Workforce Summary",
+              rows: summaryRows,
+              columns: summaryColumns,
+            }),
+        },
+      ],
+    },
     // 4 - Underutilized schools
     underutilizedTAs.length > 0 && {
       priority: "medium",
       icon: TrendingUp,
-      title: "Optimise Underutilised School Capacity",
-      body: `${underutilizedTAs.length} TA${underutilizedTAs.length > 1 ? "s" : ""} have schools operating well below capacity. Before building new schools, consider redistribution of students from overcrowded neighbouring TAs or repurposing spare capacity for adult literacy or vocational programmes.`,
-      action:
-        "Map underutilised schools against overcrowded neighbours for redistribution planning",
+      title: "Some Schools Have Space Available",
+      body: `${underutilizedTAs.length} TA${underutilizedTAs.length > 1 ? "s have" : " has"} schools with unused space. Before building nearby, check whether learners can be supported to use these schools or whether the space can support adult learning or skills training.`,
+      action: "Compare schools with extra space against nearby crowded schools",
       metricLinks: [
         {
           id: "underutilized-ta-count",
@@ -2235,10 +2229,9 @@ function PlanningRecommendations({
     floodSummary.exposed_schools > 0 && {
       priority: "high",
       icon: ShieldAlert,
-      title: "Flood-Resilient School Infrastructure",
-      body: `${floodSummary.exposed_schools} schools with ${formatNumber(floodSummary.students_at_risk, 0)} enrolled students sit within flood-exposed zones. All are currently classified as low-risk, but infrastructure investment in these schools should include flood-resilient design standards and contingency relocation plans.`,
-      action:
-        "Integrate flood-resilient construction standards for all schools in Ta Mwambo and adjacent flood zones",
+      title: "Protect Schools from Flood Disruption",
+      body: `${floodSummary.exposed_schools} schools with ${formatNumber(floodSummary.students_at_risk, 0)} learners are in flood-exposed areas. Even if the current risk level is low, these schools should have safe learning plans before the rainy season.`,
+      action: "Prepare safe learning spaces and flood-ready building plans for exposed schools",
       metricLinks: [
         {
           id: "exposed-schools",
@@ -2268,10 +2261,9 @@ function PlanningRecommendations({
     outOfSchoolTotal > 0 && {
       priority: "medium",
       icon: UserRoundX,
-      title: "Address Out-of-School Children",
-      body: `An estimated ${formatNumber(outOfSchoolTotal, 0)} school-age children are not enrolled. This gap is largest in TAs with infrastructure deficits, suggesting access barriers rather than demand issues. Community outreach combined with school construction will be most effective.`,
-      action:
-        "Combine school construction with targeted enrolment drives in underserved TAs",
+      title: "Help Children Who Are Not in School",
+      body: `About ${formatNumber(outOfSchoolTotal, 0)} school-age children are not enrolled. Many are likely in areas where schools are too far away or too crowded. Outreach should be paired with school construction or classroom expansion.`,
+      action: "Run enrolment outreach in the same TAs being reviewed for new classrooms or schools",
       metricLinks: [
         {
           id: "out-of-school-total",
@@ -2301,10 +2293,9 @@ function PlanningRecommendations({
     {
       priority: "low",
       icon: Lightbulb,
-      title: "Link Education Planning to Welfare Data",
-      body: `The integrated welfare context shows flood-affected beneficiaries and school-age unenrolled populations overlap significantly. Social cash transfer programmes should include school attendance conditionality to improve enrolment in high-poverty, low-access TAs.`,
-      action:
-        "Introduce school attendance conditionality in social protection programmes for targeted TAs",
+      title: "Use Welfare Support to Keep Children in School",
+      body: `Some welfare-supported households are also in areas with flood risk or children who are not enrolled. Education and welfare teams should work together so vulnerable households get support that helps children stay in school.`,
+      action: "Link school follow-up with welfare support in the most vulnerable TAs",
     },
   ]
     .filter(Boolean)
@@ -2351,11 +2342,8 @@ function PlanningRecommendations({
         <h3 className="text-[16px] font-extrabold">Insights & Recommendations</h3>
       </div>
       <p className="text-sm text-gray-500 font-semibold mb-6">
-        Data-driven actions derived from the infrastructure mapping, pressure
-        analysis, and flood exposure above.
-        {selectedDistrict
-          ? ` Scoped to ${selectedDistrict}.`
-          : " Covering all districts."}
+        Use these cards to see what needs attention first, which schools or TAs need support, and what action to take next.
+        {selectedDistrict ? ` Scoped to ${selectedDistrict}.` : " Covering all districts."}
       </p>
 
       <InteractiveRecommendations
