@@ -1902,7 +1902,7 @@ function PlanningRecommendations({
   const taRowColumns = [
     { key: "ta", label: "TA" },
     { key: "district", label: "District" },
-    { key: "schoolsPer10k", label: "Schools/10k" },
+    { key: "schoolsPer10k", label: "Schools/10k", digits: 2 },
     { key: "studentsPerSchool", label: "Students/School" },
     { key: "schoolCount", label: "Schools" },
     { key: "population", label: "Population" },
