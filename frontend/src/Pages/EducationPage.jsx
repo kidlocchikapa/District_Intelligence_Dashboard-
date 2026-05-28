@@ -443,6 +443,13 @@ function EducationPage() {
       district: coverageFocusDistrict,
     }),
   );
+  const schoolPopulationBufferGeojson = useDashboardData(
+    buildDashboardPath("/dashboard/analysis/geojson", {
+      analysis_type: "school_population_buffer",
+      admin_type: "TA",
+      district: coverageFocusDistrict,
+    }),
+  );
   const floodImpact = useDashboardData(
     buildDashboardPath("/dashboard/education/flood-impact", {
       district: coverageFocusDistrict,
@@ -621,6 +628,24 @@ function EducationPage() {
       return lookup;
     }, {});
   }, [schoolServiceCoverageGeojson.data]);
+  const schoolPopulationBufferLookup = useMemo(() => {
+    const bufferFeatures = schoolPopulationBufferGeojson.data?.features || [];
+    return bufferFeatures.reduce((lookup, feature) => {
+      const properties = feature?.properties || {};
+      const key = getEducationUnitKey(properties, feature);
+      const metricName = properties.metric_name;
+      if (!key || !metricName) {
+        return lookup;
+      }
+
+      lookup[key] ||= {
+        admin_unit_id: properties.admin_unit_id,
+        admin_unit_name: properties.admin_unit_name || properties.name,
+      };
+      lookup[key][metricName] = Number(properties.metric_value || 0);
+      return lookup;
+    }, {});
+  }, [schoolPopulationBufferGeojson.data]);
   const selectedInsight = selectedTa
     ? sourceInsightRows.find(
         (row) =>
@@ -907,18 +932,19 @@ function EducationPage() {
         const coveragePct = Number(
           schoolServiceCoverageLookup[key]?.school_service_coverage_pct ?? 0,
         );
-        const populationServedTotal = Math.max(
-          schoolAgePopulationTotal * (coveragePct / 100),
-          0,
+        const bufferMetrics = schoolPopulationBufferLookup[key];
+        const populationServedTotal = Number(
+          bufferMetrics?.school_population_served_total ??
+            Math.max(schoolAgePopulationTotal * (coveragePct / 100), 0),
         );
-        const outsideBufferPopulation = Math.max(
-          schoolAgePopulationTotal - populationServedTotal,
-          0,
+        const outsideBufferPopulation = Number(
+          bufferMetrics?.school_population_unserved_total ??
+            Math.max(schoolAgePopulationTotal - populationServedTotal, 0),
         );
         const hasBufferMetrics =
-          schoolAgePopulationTotal > 0 || coveragePct > 0;
+          Boolean(bufferMetrics) || schoolAgePopulationTotal > 0 || coveragePct > 0;
 
-        if (!insight && !hasServedMetrics) {
+        if (!insight && !hasBufferMetrics) {
           return feature;
         }
 
@@ -939,6 +965,7 @@ function EducationPage() {
     };
   }, [
     educationCoverageTaGeojson.data,
+    schoolPopulationBufferLookup,
     schoolServiceCoverageLookup,
     sourceInsightRows,
   ]);
@@ -1130,7 +1157,8 @@ function EducationPage() {
                 {
                   label: `Outside ${EDUCATION_ACCESS_DISTANCE_LABEL}`,
                   value: formatStat(
-                    selectedInsight?.school_age_population_unenrolled ??
+                    selectedEducationBufferStats?.school_population_unserved_total ??
+                      selectedInsight?.school_age_population_unenrolled ??
                       selectedInsight?.not_in_school_total ??
                       educationSummary.data?.school_age_population_unenrolled ??
                       educationSummary.data?.not_in_school_total ??
