@@ -22,7 +22,7 @@ function buildSwaggerSpec({ baseUrl }) {
       },
       servers: [
         {
-          url: baseUrl,
+          url: https://district-intelligence-dashboard.onrender.com/,
           description: "Base URL",
         },
       ],
