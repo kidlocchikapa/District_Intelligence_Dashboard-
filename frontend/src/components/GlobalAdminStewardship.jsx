@@ -238,8 +238,8 @@ export default function GlobalAdminStewardship() {
   const toRecord = Math.min(page * 25, meta.total);
 
   return (
-    <div className="flex h-full min-h-[560px] flex-col overflow-hidden rounded border border-slate-200 !bg-white shadow-none md:min-h-[640px]">
-      <header className="bg-white">
+    <div className="flex h-full min-h-[560px] flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm md:min-h-[640px]">
+      <div className="border-b border-slate-100 bg-white">
         <div className="flex flex-col gap-4 p-4 xl:flex-row xl:items-center xl:justify-between">
           <div className="min-w-0">
             <div className="flex items-center gap-2 text-sm font-bold text-slate-900">
@@ -267,7 +267,7 @@ export default function GlobalAdminStewardship() {
           </div>
         </div>
 
-        <div className="flex items-center gap-2 overflow-x-auto px-3 pb-4 pt-1 sm:px-4">
+        <div className="flex flex-wrap items-center gap-2 px-3 pb-4 pt-1 sm:px-4">
           {GLOBAL_TABLES.map((table) => {
             const isActive = selectedTableId === table.id;
             return (
@@ -284,7 +284,7 @@ export default function GlobalAdminStewardship() {
                   borderColor: isActive ? "#000000" : "#e5e7eb",
                   color: isActive ? "#ffffff" : "#374151",
                 }}
-                className="flex shrink-0 items-center gap-2 rounded border px-3 py-2 text-xs font-bold transition-all duration-200 hover:brightness-95 sm:px-4 sm:text-sm"
+                className="flex shrink-0 items-center gap-2 rounded border px-3 py-2 text-xs font-bold transition-all duration-200 hover:brightness-95 active:scale-[0.98] sm:px-4 sm:text-sm"
               >
                 <FileText size={15} />
                 {table.label}
@@ -315,7 +315,7 @@ export default function GlobalAdminStewardship() {
             </label>
           </div>
         )}
-      </header>
+      </div>
 
       {errorMessage && (
         <div className="border-b border-red-100 bg-red-50 px-4 py-3 text-sm font-semibold text-red-700">

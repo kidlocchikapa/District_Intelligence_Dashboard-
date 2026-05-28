@@ -49,7 +49,10 @@ export default function PermissionsPage() {
     } catch (error) {
       const message = formatApiError(error, "Failed to load users");
       setStatus(message);
-      console.error("PermissionsPage loadUsers error:", error);
+      const statusCode = error?.response?.status;
+      if (statusCode !== 403 && statusCode !== 404) {
+        console.error("PermissionsPage loadUsers error:", error);
+      }
     } finally {
       setIsLoadingUsers(false);
     }
@@ -89,7 +92,10 @@ export default function PermissionsPage() {
     } catch (error) {
       const message = formatApiError(error, "Failed to load user permissions");
       setStatus(message);
-      console.error("PermissionsPage loadUserPermissions error:", error);
+      const statusCode = error?.response?.status;
+      if (statusCode !== 403 && statusCode !== 404) {
+        console.error("PermissionsPage loadUserPermissions error:", error);
+      }
     } finally {
       setIsLoadingPerms(false);
     }
@@ -118,7 +124,10 @@ export default function PermissionsPage() {
     } catch (error) {
       const message = formatApiError(error, "Failed to update permissions");
       setStatus(message);
-      console.error("PermissionsPage savePermissions error:", error);
+      const statusCode = error?.response?.status;
+      if (statusCode !== 403 && statusCode !== 404) {
+        console.error("PermissionsPage savePermissions error:", error);
+      }
     } finally {
       setIsSaving(false);
     }
