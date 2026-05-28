@@ -504,6 +504,9 @@ function EducationPage() {
     await exportDataPdf({
       title: "Education Area Analysis",
       selectedArea: selectedAreaName,
+      showHeader: false,
+      showMapCaptions: false,
+      showFooterDivider: false,
       sections: [
         {
           title: "Education Summary",
