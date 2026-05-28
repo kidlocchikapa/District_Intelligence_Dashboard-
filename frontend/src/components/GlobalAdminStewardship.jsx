@@ -277,12 +277,20 @@ export default function GlobalAdminStewardship() {
         );
         await loadTableData();
         return true;
-      } catch (err) {
-        console.error("Failed to process review action", err);
-        toast.error(err?.response?.data?.message || "Unable to process the review.");
+    } catch (err) {
+      const message = err?.response?.data?.message || "";
+      if (/Only pending reviews can be (approved|rejected)/i.test(message)) {
+        toast.error("This review was already processed. Refreshing the list.");
+        await loadTableData();
+        setPreviewRecord(null);
         return false;
-      } finally {
-        setLoading(false);
+      }
+
+      console.error("Failed to process review action", err);
+      toast.error(message || "Unable to process the review.");
+      return false;
+    } finally {
+      setLoading(false);
       }
     },
     [loadTableData, selectedTable],

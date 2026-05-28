@@ -494,6 +494,28 @@ function mergeRecomputeStaleState() {
   return recomputeState;
 }
 
+async function resolveCurrentAuthUser(req) {
+  const authUser = getAuthUser(req);
+
+  if (authUser.id && !authUser.role) {
+    const userResult = await db.query(
+      `
+        SELECT role
+        FROM users
+        WHERE id = $1
+        LIMIT 1
+      `,
+      [authUser.id],
+    );
+
+    if (userResult.rowCount) {
+      authUser.role = userResult.rows[0].role;
+    }
+  }
+
+  return authUser;
+}
+
 function spawnEtlProcess(args) {
   const scriptPath = path.resolve(__dirname, "../../etl/main.py");
   const configuredPython = process.env.ETL_PYTHON_PATH;
@@ -6176,7 +6198,7 @@ router.patch("/reviews/:id/reject", requireGlobalAdmin, async (req, res) => {
  */
 router.get("/recompute/status", async (req, res) => {
   const mergedState = mergeRecomputeStaleState();
-  const authUser = getAuthUser(req);
+  const authUser = await resolveCurrentAuthUser(req);
 
   if (!isGlobalAccessRole(authUser.role)) {
     const departments = await getAccessibleDepartmentsForUser(
@@ -6186,9 +6208,11 @@ router.get("/recompute/status", async (req, res) => {
     );
 
     if (!departments.length) {
-      return res.status(403).json({
-        status: "error",
-        message: "You do not have access to any department recompute status",
+      return res.json({
+        status: "success",
+        data: {
+          departments: {},
+        },
       });
     }
 

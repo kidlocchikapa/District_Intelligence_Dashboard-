@@ -295,13 +295,23 @@ function AdminPage() {
     file: null,
   });
   const [status, setStatus] = useState("");
-  const [jobs, setJobs] = useState([]);
+  const [adminJobs, setAdminJobs] = useState([]);
+  const [recomputeJobs, setRecomputeJobs] = useState([]);
   const [selectedJobId, setSelectedJobId] = useState("");
   const [isRefreshingJobs, setIsRefreshingJobs] = useState(false);
   const [selectedDepartment, setSelectedDepartment] = useState("");
   const [authProfile, setAuthProfile] = useState(null);
 
   const isAuthenticated = useMemo(() => Boolean(token), [token]);
+  const jobs = useMemo(
+    () =>
+      [...adminJobs, ...recomputeJobs].sort(
+        (left, right) =>
+          new Date(right.createdAt || 0).getTime() -
+          new Date(left.createdAt || 0).getTime(),
+      ),
+    [adminJobs, recomputeJobs],
+  );
   const selectedJob = useMemo(
     () => jobs.find((job) => job.id === selectedJobId) || jobs[0] || null,
     [jobs, selectedJobId],
@@ -372,34 +382,44 @@ function AdminPage() {
     return () => window.removeEventListener(AUTH_EVENT_NAME, syncAuthState);
   }, []);
 
-  const loadJobs = useCallback(async () => {
+  const loadJobs = useCallback(async (options = {}) => {
+    const { refreshRecompute = true } = options;
     if (!isAuthenticated) return;
     try {
       setIsRefreshingJobs(true);
-      const [adminJobsResponse, recomputeStatusResponse] = await Promise.all([
-        fetchJson("/admin/jobs"),
-        fetchJson("/admin-data/recompute/status").catch((error) => {
-          const statusCode = error?.response?.status;
-          if (statusCode === 401 || statusCode === 403 || statusCode === 404) {
-            return { departments: {} };
-          }
-          throw error;
-        }),
-      ]);
-
-      const adminJobs = (adminJobsResponse.jobs || []).map((job) => ({
+      const adminJobsResponse = await fetchJson("/admin/jobs");
+      const nextAdminJobs = (adminJobsResponse.jobs || []).map((job) => ({
         ...job,
         source: job.source || "admin",
       }));
-      const recomputeJobs = buildRecomputeConsoleJobs(
-        recomputeStatusResponse.departments || {},
-      );
-      const nextJobs = [...adminJobs, ...recomputeJobs].sort(
+
+      let nextRecomputeJobs = recomputeJobs;
+      if (refreshRecompute) {
+        const recomputeStatusResponse = await fetchJson(
+          "/admin-data/recompute/status",
+        ).catch((error) => {
+          const statusCode = error?.response?.status;
+          if (
+            statusCode === 401 ||
+            statusCode === 403 ||
+            statusCode === 404
+          ) {
+            return { departments: {} };
+          }
+          throw error;
+        });
+        nextRecomputeJobs = buildRecomputeConsoleJobs(
+          recomputeStatusResponse.departments || {},
+        );
+        setRecomputeJobs(nextRecomputeJobs);
+      }
+
+      setAdminJobs(nextAdminJobs);
+      const nextJobs = [...nextAdminJobs, ...nextRecomputeJobs].sort(
         (left, right) =>
           new Date(right.createdAt || 0).getTime() -
           new Date(left.createdAt || 0).getTime(),
       );
-      setJobs(nextJobs);
       setSelectedJobId((current) =>
         nextJobs.some((job) => job.id === current) ? current : nextJobs[0]?.id || "",
       );
@@ -408,7 +428,7 @@ function AdminPage() {
     } finally {
       setIsRefreshingJobs(false);
     }
-  }, [isAuthenticated]);
+  }, [isAuthenticated, recomputeJobs]);
 
   async function loadAuthProfile() {
     try {
@@ -432,7 +452,10 @@ function AdminPage() {
     if (!isAuthenticated) return;
     loadJobs();
     loadAuthProfile();
-    const intervalId = window.setInterval(loadJobs, 5000);
+    const intervalId = window.setInterval(
+      () => loadJobs({ refreshRecompute: false }),
+      5000,
+    );
     return () => window.clearInterval(intervalId);
   }, [isAuthenticated, loadJobs]);
 
