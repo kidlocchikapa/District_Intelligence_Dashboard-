@@ -1,13 +1,11 @@
 import { useMemo, useState, useRef } from "react";
 import {
-  Activity,
   Download,
   GraduationCap,
   Heart,
   Lightbulb,
   Activity,
   ShieldAlert,
-  GraduationCap,
 } from "lucide-react";
 import { useDashboardData } from "../hooks/useDashboardData";
 import { useDistrict } from "../context/DistrictContext";
@@ -20,6 +18,7 @@ import SharedDistrictSelector from "../components/SharedDistrictSelector";
 import InteractiveRecommendations from "../components/InteractiveRecommendations";
 
 import {
+
   Bar,
   BarChart,
   CartesianGrid,
@@ -264,15 +263,6 @@ function WelfarePage() {
       ta: selectedTa,
       program_id: selectedProgramId || undefined,
       preview_limit: 15,
-    }),
-  );
-  const planningPriorities = useDashboardData(
-    buildDashboardPath("/dashboard/planning-priorities", {
-      district: selectedDistrict,
-      ta: selectedTa,
-      admin_type: selectedTa ? "TA" : "District",
-      department: "welfare",
-      limit: selectedTa ? 1 : 5,
     }),
   );
 
