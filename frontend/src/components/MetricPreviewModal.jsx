@@ -1,4 +1,5 @@
 import Modal from "./Modal";
+import { formatNumber } from "../lib/format";
 
 const DEFAULT_EMPHASIS_KEYS = new Set([
   "adminUnit",
@@ -18,6 +19,19 @@ export default function MetricPreviewModal({
   const columns = metricPreview?.columns || [];
   const rows = metricPreview?.rows || [];
   const emphasized = emphasisKeys instanceof Set ? emphasisKeys : new Set(emphasisKeys);
+  const formatCellValue = (column, row) => {
+    if (typeof column.render === "function") {
+      return column.render(row[column.key], row);
+    }
+
+    const value = row[column.key];
+
+    if (typeof value === "number") {
+      return formatNumber(value, column.digits ?? 0);
+    }
+
+    return value ?? "-";
+  };
 
   return (
     <Modal
@@ -56,7 +70,7 @@ export default function MetricPreviewModal({
                           : "text-slate-700"
                       }`}
                     >
-                      {row[column.key] ?? "-"}
+                      {formatCellValue(column, row)}
                     </td>
                   ))}
                 </tr>
