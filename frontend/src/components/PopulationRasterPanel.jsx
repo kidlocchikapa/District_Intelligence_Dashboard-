@@ -65,6 +65,54 @@ function getLegendDemarcations(colors = []) {
   });
 }
 
+function isCoverageLegend(metadata, legend) {
+  const render = metadata?.render || {};
+  const labelText = `${legend?.label || ""} ${legend?.lowLabel || ""} ${legend?.highLabel || ""}`.toLowerCase();
+
+  return (
+    render.transform === "continuous" ||
+    labelText.includes("coverage") ||
+    labelText.includes("accessibility within") ||
+    labelText.includes("service coverage within")
+  );
+}
+
+function getLegendScaleLabels(metadata, legend) {
+  const render = metadata?.render || {};
+  const colors = legend?.colors;
+
+  if (!isCoverageLegend(metadata, legend) || !Array.isArray(colors) || colors.length < 2) {
+    return [];
+  }
+
+  if (
+    render.surfaceMethod === "nearest-facility-distance" &&
+    Number.isFinite(Number(render.coverageDistanceKm))
+  ) {
+    const coverageDistanceKm = Number(render.coverageDistanceKm);
+
+    return colors.map((_, index) => {
+      const position = (index / (colors.length - 1)) * 100;
+      const distance = coverageDistanceKm * (1 - index / (colors.length - 1));
+      const formattedDistance = formatLegendNumber(distance);
+
+      return {
+        position,
+        label: index === 0 ? `>${formattedDistance} km` : `${formattedDistance} km`,
+      };
+    });
+  }
+
+  return colors.map((_, index) => {
+    const position = (index / (colors.length - 1)) * 100;
+
+    return {
+      position,
+      label: `${Math.round(position)}%`,
+    };
+  });
+}
+
 function resolveLegendEdgeLabels(metadata, legend) {
   const render = metadata?.render || {};
   const labelText = `${legend?.label || ""} ${legend?.lowLabel || ""} ${legend?.highLabel || ""}`.toLowerCase();
@@ -77,22 +125,10 @@ function resolveLegendEdgeLabels(metadata, legend) {
     unit === "km" ||
     unit.includes("kilomet") ||
     labelText.includes("distance");
-  const isCoverage =
-    render.transform === "continuous" ||
-    labelText.includes("coverage") ||
-    labelText.includes("accessibility within") ||
-    labelText.includes("service coverage within");
   const clipMin = Number.isFinite(Number(render.clipMin))
     ? Number(render.clipMin)
     : 0;
   const clipMax = Number(render.clipMax);
-
-  if (isCoverage) {
-    return {
-      low: "0%",
-      high: "100%",
-    };
-  }
 
   if (
     render.surfaceMethod === "nearest-facility-distance" &&
@@ -102,6 +138,13 @@ function resolveLegendEdgeLabels(metadata, legend) {
     return {
       low: `>${distance} km`,
       high: "0 km",
+    };
+  }
+
+  if (isCoverageLegend(metadata, legend)) {
+    return {
+      low: "0%",
+      high: "100%",
     };
   }
 
@@ -552,6 +595,7 @@ function PopulationRasterPanel({
 
   const legendEdgeLabels = resolveLegendEdgeLabels(metadata, legend);
   const legendDemarcations = getLegendDemarcations(legend?.colors);
+  const legendScaleLabels = getLegendScaleLabels(metadata, legend);
 
   const exportLegendItems = [
     legend
@@ -871,10 +915,35 @@ function PopulationRasterPanel({
                 />
               ))}
             </div>
-            <div className="mt-2 flex items-center justify-between gap-3 text-[10px] font-bold tracking-[0.08em] text-slate/55">
-              <span>{legendEdgeLabels.low}</span>
-              <span>{legendEdgeLabels.high}</span>
-            </div>
+            {legendScaleLabels.length ? (
+              <div className="relative mt-2 h-3 text-[9px] font-bold tracking-[0.03em] text-slate/55">
+                {legendScaleLabels.map((item, index) => {
+                  const isFirst = index === 0;
+                  const isLast = index === legendScaleLabels.length - 1;
+
+                  return (
+                    <span
+                      key={`legend-scale-label-${item.position}`}
+                      className={`absolute top-0 whitespace-nowrap ${
+                        isFirst
+                          ? ""
+                          : isLast
+                            ? "-translate-x-full"
+                            : "-translate-x-1/2"
+                      }`}
+                      style={{ left: `${item.position}%` }}
+                    >
+                      {item.label}
+                    </span>
+                  );
+                })}
+              </div>
+            ) : (
+              <div className="mt-2 flex items-center justify-between gap-3 text-[10px] font-bold tracking-[0.08em] text-slate/55">
+                <span>{legendEdgeLabels.low}</span>
+                <span>{legendEdgeLabels.high}</span>
+              </div>
+            )}
             <div className="mt-3 border-t border-slate-100 pt-2.5">
               <p className="text-[9px] font-bold uppercase tracking-[0.14em] text-slate/45">
                 Layer Controls
