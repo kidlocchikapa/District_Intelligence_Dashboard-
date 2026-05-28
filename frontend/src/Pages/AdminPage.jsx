@@ -192,6 +192,97 @@ function isErrorLogEntry(log) {
   return /\b(error|failed|failure|exception|traceback|fatal)\b/.test(message);
 }
 
+function buildRecomputeConsoleJobs(departments = {}) {
+  return Object.entries(departments)
+    .filter(([, state]) => {
+      if (!state || state.status === "not_supported") {
+        return false;
+      }
+
+      return Boolean(
+        state.status !== "idle" ||
+          state.stale ||
+          state.lastStartedAt ||
+          state.lastFinishedAt ||
+          state.lastError,
+      );
+    })
+    .map(([department, state]) => {
+      const label = department.replaceAll("_", " ");
+      const createdAt =
+        state.lastStartedAt || state.lastFinishedAt || new Date().toISOString();
+      const startedAt = state.lastStartedAt || createdAt;
+      const finishedAt = state.lastFinishedAt || null;
+      const stageLabel = state.task || `${label} recompute`;
+      const logs = [];
+
+      if (state.lastStartedAt) {
+        logs.push({
+          at: state.lastStartedAt,
+          level: "info",
+          message: `${label} recompute started.`,
+        });
+      }
+
+      if (state.status === "running") {
+        logs.push({
+          at: state.lastStartedAt || createdAt,
+          level: "stdout",
+          message: `Pipeline running for ${stageLabel}.`,
+        });
+      } else if (state.status === "completed") {
+        logs.push({
+          at: state.lastFinishedAt || createdAt,
+          level: "info",
+          message: `${label} recompute completed.`,
+        });
+      } else if (state.status === "failed") {
+        logs.push({
+          at: state.lastFinishedAt || createdAt,
+          level: "error",
+          message:
+            state.lastError || `${label} recompute failed unexpectedly.`,
+        });
+      } else if (state.stale) {
+        logs.push({
+          at: createdAt,
+          level: "stderr",
+          message: `${label} data is marked stale and awaiting recompute.`,
+        });
+      }
+
+      if (!logs.length) {
+        logs.push({
+          at: createdAt,
+          level: "info",
+          message: `${label} recompute status: ${state.status}.`,
+        });
+      }
+
+      return {
+        id: `recompute-${department}`,
+        label: `${label} recompute`,
+        kind: "recompute",
+        source: "recompute",
+        meta: {
+          department,
+          task: state.task || null,
+          stale: Boolean(state.stale),
+        },
+        status: state.status,
+        createdAt,
+        startedAt,
+        finishedAt,
+        currentStage: state.task || null,
+        terminatedAt: null,
+        terminateRequested: false,
+        canTerminate: false,
+        logCount: logs.length,
+        logs,
+      };
+    });
+}
+
 function AdminPage() {
   const [token, setTokenState] = useState(() => hydrateAuthToken());
   const [activeTab, setActiveTab] = useState("stewardship");
@@ -227,6 +318,7 @@ function AdminPage() {
     () => uploadTemplateFiles[uploadFormState.type] || null,
     [uploadFormState.type],
   );
+  const isReadOnlyConsoleEntry = selectedJob?.source === "recompute";
   const isGlobalAdmin = useMemo(
     () =>
       Boolean(
@@ -284,8 +376,29 @@ function AdminPage() {
     if (!isAuthenticated) return;
     try {
       setIsRefreshingJobs(true);
-      const response = await fetchJson("/admin/jobs");
-      const nextJobs = response.jobs || [];
+      const [adminJobsResponse, recomputeStatusResponse] = await Promise.all([
+        fetchJson("/admin/jobs"),
+        fetchJson("/admin-data/recompute/status").catch((error) => {
+          const statusCode = error?.response?.status;
+          if (statusCode === 401 || statusCode === 403 || statusCode === 404) {
+            return { departments: {} };
+          }
+          throw error;
+        }),
+      ]);
+
+      const adminJobs = (adminJobsResponse.jobs || []).map((job) => ({
+        ...job,
+        source: job.source || "admin",
+      }));
+      const recomputeJobs = buildRecomputeConsoleJobs(
+        recomputeStatusResponse.departments || {},
+      );
+      const nextJobs = [...adminJobs, ...recomputeJobs].sort(
+        (left, right) =>
+          new Date(right.createdAt || 0).getTime() -
+          new Date(left.createdAt || 0).getTime(),
+      );
       setJobs(nextJobs);
       setSelectedJobId((current) =>
         nextJobs.some((job) => job.id === current) ? current : nextJobs[0]?.id || "",
@@ -434,6 +547,11 @@ function AdminPage() {
       return;
     }
 
+    if (isReadOnlyConsoleEntry) {
+      setStatus("Recompute console entries are read-only.");
+      return;
+    }
+
     try {
       const response = await deleteJson(`/admin/jobs/${selectedJob.id}/logs`);
       setStatus(response.message || "Console cleared.");
@@ -449,6 +567,11 @@ function AdminPage() {
   async function handleTerminateJob() {
     if (!selectedJob?.id) {
       setStatus("Select a job before terminating it.");
+      return;
+    }
+
+    if (isReadOnlyConsoleEntry) {
+      setStatus("Recompute console entries cannot be terminated from this console.");
       return;
     }
 
@@ -736,7 +859,7 @@ function AdminPage() {
                 </span>
                 <button
                   onClick={handleClearConsole}
-                  disabled={!selectedJob?.id}
+                  disabled={!selectedJob?.id || isReadOnlyConsoleEntry}
                   className="inline-flex flex-1 items-center justify-center gap-2 rounded-lg border border-white/10 px-3 py-2 text-xs font-bold text-white/80 transition-colors hover:bg-white/10 disabled:opacity-40 sm:flex-none"
                 >
                   <Trash2 size={14} />
@@ -744,7 +867,7 @@ function AdminPage() {
                 </button>
                 <button
                   onClick={handleTerminateJob}
-                  disabled={!selectedJob?.canTerminate}
+                  disabled={!selectedJob?.canTerminate || isReadOnlyConsoleEntry}
                   className="inline-flex flex-1 items-center justify-center gap-2 rounded-lg border border-rose-500/30 bg-rose-500/10 px-3 py-2 text-xs font-bold text-rose-300 transition-colors hover:bg-rose-500/20 disabled:opacity-40 sm:flex-none"
                 >
                   <Square size={13} />
