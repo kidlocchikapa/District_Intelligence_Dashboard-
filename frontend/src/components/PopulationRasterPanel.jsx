@@ -64,15 +64,26 @@ function PopulationRasterPanel({
   const [error, setError] = useState(null);
   const [isResetViewActive, setIsResetViewActive] = useState(false);
   const [selectedPointKey, setSelectedPointKey] = useState(null);
+  const hasMetadataUrl =
+    typeof metadataUrl === "string" && metadataUrl.trim().length > 0;
+  const resolvedMetadataUrl = hasMetadataUrl
+    ? metadataUrl.trim()
+    : DEFAULT_METADATA_URL;
 
   useEffect(() => {
     let ignore = false;
     setMetadata(null);
     setError(null);
 
+    if (!hasMetadataUrl) {
+      return () => {
+        ignore = true;
+      };
+    }
+
     async function loadMetadata() {
       try {
-        const response = await fetch(metadataUrl);
+        const response = await fetch(resolvedMetadataUrl, { cache: "no-store" });
         if (!response.ok) {
           throw new Error("Failed to load population raster preview.");
         }
@@ -82,6 +93,21 @@ function PopulationRasterPanel({
           setMetadata(payload);
         }
       } catch (err) {
+        if (!ignore && metadataUrl !== DEFAULT_METADATA_URL) {
+          try {
+            const fallbackResponse = await fetch(DEFAULT_METADATA_URL, {
+              cache: "no-store",
+            });
+            if (fallbackResponse.ok) {
+              const fallbackPayload = await fallbackResponse.json();
+              setMetadata(fallbackPayload);
+              return;
+            }
+          } catch (fallbackError) {
+            void fallbackError;
+          }
+        }
+
         if (!ignore) {
           setError(err.message || "Failed to load population raster preview.");
         }
@@ -93,7 +119,7 @@ function PopulationRasterPanel({
     return () => {
       ignore = true;
     };
-  }, [metadataUrl]);
+  }, [metadataUrl, hasMetadataUrl, resolvedMetadataUrl]);
 
   const defaultBounds = metadata?.bounds;
   const legend = metadata?.legend || null;
@@ -330,11 +356,12 @@ function PopulationRasterPanel({
     typeof metadata?.image === "string" && metadata.image.length
       ? metadata.image
       : null;
+  const metadataBaseUrl = resolvedMetadataUrl.split("?")[0];
 
   const imageUrl = metadataImage
     ? metadataImage.startsWith("/")
       ? metadataImage
-      : `${metadataUrl.slice(0, metadataUrl.lastIndexOf("/") + 1)}${metadataImage}`
+      : `${metadataBaseUrl.slice(0, metadataBaseUrl.lastIndexOf("/") + 1)}${metadataImage}`
     : null;
 
   if (!hasValidBounds) {

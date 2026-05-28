@@ -20,7 +20,7 @@ import { useDashboardData } from "../hooks/useDashboardData";
 import { useDistrict } from "../context/DistrictContext";
 import { usePdfExport } from "../hooks/usePdfExport";
 import { formatNumber } from "../lib/format";
-import { buildDashboardPath } from "../lib/query";
+import { appendCacheBuster, buildDashboardPath } from "../lib/query";
 import MapPanel from "../components/MapPanel";
 import IntegrationSummaryPanel from "../components/IntegrationSummaryPanel";
 import SharedDistrictSelector from "../components/SharedDistrictSelector";
@@ -383,6 +383,13 @@ function EducationPage() {
     buildDashboardPath("/dashboard/education/raster-metadata", {
       district: coverageFocusDistrict,
     }),
+  );
+  const educationRasterMetadataUrl = appendCacheBuster(
+    getEducationRasterAsset(
+      educationRasterMetadata.data?.assets,
+      activeEducationRasterLayer.key,
+    ),
+    educationRasterMetadata.data?.completed_at,
   );
   const educationCoverageTaGeojson = useDashboardData(
     buildDashboardPath("/dashboard/analysis/geojson", {
@@ -1721,16 +1728,10 @@ function EducationPage() {
             </p>
             <div className="mt-4 border border-gray-100 rounded p-3 bg-white">
               <PopulationRasterPanel
-                key={`education-raster-${activeEducationRasterLayer.key}`}
                 geojson={educationRasterTooltipGeojson}
-                pointsGeojson={schoolLocations.data}
-                pointLayerLabel="Schools"
                 title={activeEducationRasterLayer.title}
                 subtitle={activeEducationRasterLayer.subtitle}
-                metadataUrl={getEducationRasterAsset(
-                  educationRasterMetadata.data?.assets,
-                  activeEducationRasterLayer.key,
-                )}
+                metadataUrl={educationRasterMetadataUrl}
                 heightClass="h-[430px]"
                 loading={
                   educationCoverageTaGeojson.loading ||
@@ -2376,11 +2377,15 @@ function FloodImpactMap({ geojson, loading, coverageFocusDistrict }) {
         }
 
         const payload = await response.json();
-        const nextUrl = payload?.data?.asset_url || fallbackUrl;
+        const nextUrl = appendCacheBuster(
+          payload?.data?.asset_url || fallbackUrl,
+          payload?.data?.completed_at,
+        );
         if (!ignore) {
           setRasterMetadataUrl(nextUrl);
         }
       } catch (error) {
+        void error;
         if (!ignore) {
           setRasterMetadataUrl(fallbackUrl);
         }

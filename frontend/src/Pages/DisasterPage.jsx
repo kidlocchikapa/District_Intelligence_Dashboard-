@@ -29,7 +29,7 @@ import { usePdfExport } from "../hooks/usePdfExport";
 import { formatNumber } from "../lib/format";
 import IntegrationSummaryPanel from "../components/IntegrationSummaryPanel";
 import SharedDistrictSelector from "../components/SharedDistrictSelector";
-import { buildDashboardPath } from "../lib/query";
+import { appendCacheBuster, buildDashboardPath } from "../lib/query";
 import PopulationRasterPanel from "../components/PopulationRasterPanel";
 import InteractiveRecommendations from "../components/InteractiveRecommendations";
 import MetricPreviewModal from "../components/MetricPreviewModal";
@@ -155,11 +155,15 @@ function DisasterPage() {
         }
 
         const payload = await response.json();
-        const nextUrl = payload?.data?.asset_url || fallbackUrl;
+        const nextUrl = appendCacheBuster(
+          payload?.data?.asset_url || fallbackUrl,
+          payload?.data?.completed_at,
+        );
         if (!ignore) {
           setFloodRasterMetadataUrl(nextUrl);
         }
       } catch (error) {
+        void error;
         if (!ignore) {
           setFloodRasterMetadataUrl(fallbackUrl);
         }
