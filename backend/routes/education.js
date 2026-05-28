@@ -1,4 +1,5 @@
 const express = require("express");
+const fs = require("fs");
 const path = require("path");
 const router = express.Router();
 const db = require("../db");
@@ -8,6 +9,11 @@ const {
   resolveDistrictFilterValues,
   buildCanonicalDistrictExpression,
 } = require("./queryFilters");
+
+const educationPublicRoot = path.resolve(
+  __dirname,
+  "../../frontend/public",
+);
 
 function parseNumericValue(value) {
   if (value === null || value === undefined) {
@@ -107,6 +113,35 @@ function normalizePreviewAssetPath(filePath, publicDirName) {
   }
 
   return `/${publicDirName}/${filename}`;
+}
+
+function previewAssetExists(assetPath) {
+  if (!assetPath) {
+    return false;
+  }
+
+  const relativePath = String(assetPath).replace(/^\/+/, "");
+  return fs.existsSync(path.join(educationPublicRoot, relativePath));
+}
+
+function resolvePreviewAssetPath(candidatePath, fallbackPath, publicDirName) {
+  const normalizedCandidate = normalizePreviewAssetPath(
+    candidatePath,
+    publicDirName,
+  );
+  if (previewAssetExists(normalizedCandidate)) {
+    return normalizedCandidate;
+  }
+
+  const normalizedFallback = normalizePreviewAssetPath(
+    fallbackPath,
+    publicDirName,
+  );
+  if (previewAssetExists(normalizedFallback)) {
+    return normalizedFallback;
+  }
+
+  return normalizedCandidate || normalizedFallback;
 }
 
 async function fetchLatestPreviewAssets(datasetType, districtValues) {
@@ -1027,15 +1062,21 @@ router.get("/raster-metadata", async (req, res) => {
       "json",
     );
 
-    if (bufferUrl) {
-      assets.education_buffer_coverage = bufferUrl;
-    }
-    if (networkUrl) {
-      assets.education_network_distance = networkUrl;
-    }
-    if (travelUrl) {
-      assets.education_travel_time = travelUrl;
-    }
+    assets.education_buffer_coverage = resolvePreviewAssetPath(
+      bufferUrl,
+      assets.education_buffer_coverage,
+      "education-access",
+    );
+    assets.education_network_distance = resolvePreviewAssetPath(
+      networkUrl,
+      assets.education_network_distance,
+      "education-access",
+    );
+    assets.education_travel_time = resolvePreviewAssetPath(
+      travelUrl,
+      assets.education_travel_time,
+      "education-access",
+    );
 
     return res.json({
       status: "success",

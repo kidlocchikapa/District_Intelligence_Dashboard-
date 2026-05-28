@@ -2,7 +2,7 @@ import { useMemo, useState, useRef } from "react";
 import { Activity, HeartPulse, Bed, Users, Download, Building2, CheckCircle2, AlertCircle, Building, Lightbulb, AlertTriangle, TrendingUp } from "lucide-react";
 import { useDashboardData } from "../hooks/useDashboardData";
 import { useDistrict } from "../context/DistrictContext";
-import { buildDashboardPath } from "../lib/query";
+import { appendCacheBuster, buildDashboardPath } from "../lib/query";
 import { usePdfExport } from "../hooks/usePdfExport";
 import { formatNumber } from "../lib/format";
 import { classifyFacilityProperties } from "../lib/facilityClassification";
@@ -239,6 +239,12 @@ function HealthPage() {
       district: districtScope,
     }),
   );
+  const healthRasterMetadataVersion = healthRasterMetadata.data?.completed_at;
+  const getVersionedHealthRasterAsset = (key) =>
+    appendCacheBuster(
+      getHealthRasterAsset(healthRasterMetadata.data?.assets, key),
+      healthRasterMetadataVersion,
+    );
 
   const taAnalytics = useDashboardData(
     buildDashboardPath("/dashboard/health/analytics/ta", {
@@ -955,10 +961,7 @@ function HealthPage() {
                 geojson={healthCoverageTooltipGeojson}
                 title={activeHealthRasterLayer.title}
                 subtitle={activeHealthRasterLayer.subtitle}
-                metadataUrl={getHealthRasterAsset(
-                  healthRasterMetadata.data?.assets,
-                  activeHealthRasterLayer.key,
-                )}
+                metadataUrl={getVersionedHealthRasterAsset(activeHealthRasterLayer.key)}
                 heightClass="h-[430px]"
                 loading={
                   healthCoverageTaGeojson.loading || healthRasterMetadata.loading
@@ -1012,10 +1015,7 @@ function HealthPage() {
                   ]}
                   title="Vulnerability Index (Health x Poverty)"
                   subtitle="Priority zones for healthcare infrastructure investment."
-                  metadataUrl={getHealthRasterAsset(
-                    healthRasterMetadata.data?.assets,
-                    "health_welfare_vulnerability",
-                  )}
+                  metadataUrl={getVersionedHealthRasterAsset("health_welfare_vulnerability")}
                   heightClass="h-[400px]"
                   loading={
                     healthCoverageTaGeojson.loading || healthRasterMetadata.loading
@@ -1058,10 +1058,7 @@ function HealthPage() {
                   ]}
                   title="Simulated Flood Impact (% Access Lost)"
                   subtitle="Communities at risk of physical isolation from healthcare."
-                  metadataUrl={getHealthRasterAsset(
-                    healthRasterMetadata.data?.assets,
-                    "health_flood_isolation",
-                  )}
+                  metadataUrl={getVersionedHealthRasterAsset("health_flood_isolation")}
                   heightClass="h-[400px]"
                   loading={
                     healthCoverageTaGeojson.loading || healthRasterMetadata.loading
@@ -1105,10 +1102,7 @@ function HealthPage() {
                   ]}
                   title="School Health Gaps (Avg Dist to Clinic)"
                   subtitle="Accessibility of healthcare services for school populations."
-                  metadataUrl={getHealthRasterAsset(
-                    healthRasterMetadata.data?.assets,
-                    "health_school_gap",
-                  )}
+                  metadataUrl={getVersionedHealthRasterAsset("health_school_gap")}
                   heightClass="h-[400px]"
                   loading={
                     healthCoverageTaGeojson.loading || healthRasterMetadata.loading
