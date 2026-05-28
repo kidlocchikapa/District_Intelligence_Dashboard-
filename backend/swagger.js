@@ -1,7 +1,19 @@
 const path = require("path");
 const swaggerJsdoc = require("swagger-jsdoc");
 
+function normalizeBaseUrl(value) {
+  return String(value || "").trim().replace(/\/+$/, "");
+}
+
 function buildSwaggerSpec({ baseUrl }) {
+  const resolvedBaseUrl = normalizeBaseUrl(
+    baseUrl ||
+      process.env.API_BASE_URL ||
+      process.env.BaseUrl ||
+      process.env.BASE_URL ||
+      "http://localhost:5000",
+  );
+
   const options = {
     definition: {
       openapi: "3.0.0",
@@ -22,7 +34,7 @@ function buildSwaggerSpec({ baseUrl }) {
       },
       servers: [
         {
-          url: https://district-intelligence-dashboard.onrender.com/,
+          url: resolvedBaseUrl,
           description: "Base URL",
         },
       ],
