@@ -96,11 +96,10 @@ const HEALTH_RASTER_LAYERS = [
     subtitle: "Beneficiary road-network distance to healthy facility",
   },
   {
-    key: "health_2sfca",
-    shortLabel: "2SFCA Score",
-    title: "2SFCA Access Score",
-    subtitle:
-      "Healthcare staff per 1,000 people (interpolated from TA centroids).",
+    key: "health_travel_time",
+    shortLabel: "Travel Time",
+    title: "Travel Time",
+    subtitle: "Average beneficiary travel time (minutes) by area.",
   },
 ];
 
@@ -136,16 +135,11 @@ const HEALTH_RASTER_TOOLTIP_METRICS = {
       label: "Outside 8 km",
     },
   ],
-  health_2sfca: [
+  health_travel_time: [
     {
-      key: "health_2sfca_access_score",
-      label: "2SFCA Score",
-      digits: 2,
-    },
-    {
-      key: "health_2sfca_catchment_minutes",
-      label: "Catchment (min)",
-      digits: 0,
+      key: "avg_travel_time_min",
+      label: "Travel Time (min)",
+      digits: 1,
     },
   ],
 };
