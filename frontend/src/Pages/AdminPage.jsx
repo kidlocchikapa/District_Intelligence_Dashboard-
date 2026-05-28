@@ -578,27 +578,13 @@ function AdminPage() {
                       }
                     >
                       {selectedDepartment
-                        ? datasetTypes
-                            .filter((t) => {
-                              if (selectedDepartment === "education")
-                                return t === "education";
-                              if (selectedDepartment === "social_welfare")
-                                return t === "social_welfare" || t === "roads";
-                              if (selectedDepartment === "disaster")
-                                return t === "disaster" || t === "flood";
-                              if (selectedDepartment === "health")
-                                return t === "health";
-                              return true;
-                            })
-                            .map((t) => (
-                              <option key={t} value={t}>
-                                {t.replace("_", " ")}
-                              </option>
-                            ))
+                        ? availableDatasetTypes.map((t) => (
+                            <option key={t} value={t}>
+                              {t.replace("_", " ")}
+                            </option>
+                          ))
                         : (
-                          <option value="">
-                            No department access
-                          </option>
+                            <option value="">No department access</option>
                         )}
                     </select>
                   </label>
@@ -607,11 +593,7 @@ function AdminPage() {
                     <div className="mt-2 flex flex-col gap-2 sm:flex-row sm:items-center">
                       <input
                         type="file"
-                        disabled={
-                          !selectedDepartment ||
-                          selectedDepartment === "education" ||
-                          selectedDepartment === "health"
-                        }
+                        disabled={!selectedDepartment}
                         className="w-full flex-1 px-4 py-2.5 bg-white border border-slate-200 rounded-xl outline-none"
                         onChange={(e) =>
                           setUploadFormState((s) => ({
@@ -636,9 +618,13 @@ function AdminPage() {
                     )}
                   </label>
                 </div>
-                <button className="flex w-full items-center justify-center gap-2 rounded-xl bg-slate-900 py-3 font-bold text-white transition-all hover:bg-slate-800">
+                <button
+                  type="submit"
+                  disabled={!selectedDepartment || !uploadFormState.file}
+                  className="flex w-full items-center justify-center gap-2 rounded-xl bg-slate-900 py-3 font-bold text-white transition-all hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-50"
+                >
                   <UploadCloud size={18} />
-                  Import Data 
+                  Import Data
                 </button>
                 {!selectedDepartment && (
                   <div className="rounded-xl border border-amber-100 bg-amber-50 px-4 py-3 text-xs font-semibold text-amber-700">
