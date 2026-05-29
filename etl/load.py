@@ -1,13 +1,12 @@
 # importing libraries
 import json
 import logging
-import time
 
 import pandas as pd
 import numpy as np
 from geoalchemy2 import Geometry, WKTElement
-from sqlalchemy.dialects.postgresql import JSONB
-from sqlalchemy import text
+from sqlalchemy.dialects.postgresql import ARRAY, JSONB
+from sqlalchemy import Text, text
 from shapely.geometry import Point, MultiPolygon, Polygon
 from shapely import wkt
 
@@ -447,9 +446,9 @@ def _coerce_boolean(value):
     return True
 
 
-def _load_health_facilities_with_upsert(session, load_df):
+def _load_health_facilities_refresh(session, load_df):
     table_name = DATASET_CONFIG['health']['table_name']
-    engine = session.bind
+    connection = session.connection()
     working = load_df.copy()
     working['code'] = working['code'].apply(
         lambda value: str(value).strip().upper() if pd.notna(value) and str(value).strip() else pd.NA
@@ -464,104 +463,30 @@ def _load_health_facilities_with_upsert(session, load_df):
         collapsed = before_dedup - len(with_code)
         if collapsed > 0:
             log_step(
-                '_load_health_facilities_with_upsert',
-                f'collapsed {collapsed} duplicate upload rows by health facility code before upsert',
+                '_load_health_facilities_refresh',
+                f'collapsed {collapsed} duplicate upload rows by health facility code before insert',
             )
 
-        staging_table = f'health_facilities_upload_{int(time.time() * 1000)}'
-        with_code.to_sql(
-            staging_table,
-            engine,
-            if_exists='fail',
-            index=False,
-            dtype={'geom': Geometry('POINT', srid=4326)},
-        )
-        try:
-            session.execute(
-                text(
-                    f"""
-                    INSERT INTO {table_name} (
-                        code,
-                        name,
-                        common_name,
-                        type,
-                        ownership,
-                        "capacity:persons",
-                        zone,
-                        district,
-                        status,
-                        doctor_count,
-                        nurse_midwife_count,
-                        bed_capacity,
-                        beds_count,
-                        latitude,
-                        longitude,
-                        patient_visits_total,
-                        services_offered,
-                        ta_id,
-                        district_id,
-                        geom,
-                        is_active
-                    )
-                    SELECT
-                        code,
-                        name,
-                        common_name,
-                        type,
-                        ownership,
-                        "capacity:persons",
-                        zone,
-                        district,
-                        status,
-                        doctor_count,
-                        nurse_midwife_count,
-                        bed_capacity,
-                        beds_count,
-                        latitude,
-                        longitude,
-                        patient_visits_total,
-                        services_offered,
-                        ta_id,
-                        district_id,
-                        geom,
-                        COALESCE(is_active, TRUE)
-                    FROM {staging_table}
-                    ON CONFLICT (code) WHERE code IS NOT NULL DO UPDATE
-                    SET
-                        name = EXCLUDED.name,
-                        common_name = EXCLUDED.common_name,
-                        type = EXCLUDED.type,
-                        ownership = EXCLUDED.ownership,
-                        "capacity:persons" = EXCLUDED."capacity:persons",
-                        zone = EXCLUDED.zone,
-                        district = EXCLUDED.district,
-                        status = EXCLUDED.status,
-                        doctor_count = EXCLUDED.doctor_count,
-                        nurse_midwife_count = EXCLUDED.nurse_midwife_count,
-                        bed_capacity = EXCLUDED.bed_capacity,
-                        beds_count = EXCLUDED.beds_count,
-                        latitude = EXCLUDED.latitude,
-                        longitude = EXCLUDED.longitude,
-                        patient_visits_total = EXCLUDED.patient_visits_total,
-                        services_offered = EXCLUDED.services_offered,
-                        ta_id = EXCLUDED.ta_id,
-                        district_id = EXCLUDED.district_id,
-                        geom = EXCLUDED.geom,
-                        is_active = EXCLUDED.is_active
-                    """
-                )
-            )
-        finally:
-            session.execute(text(f"DROP TABLE IF EXISTS {staging_table}"))
+    ordered_frames = [frame for frame in [with_code, without_code] if not frame.empty]
+    if not ordered_frames:
+        session.commit()
+        return 0, table_name
 
-    if not without_code.empty:
-        without_code.to_sql(
-            table_name,
-            engine,
-            if_exists='append',
-            index=False,
-            dtype={'geom': Geometry('POINT', srid=4326)},
-        )
+    ordered = pd.concat(ordered_frames, ignore_index=True)
+
+    # Treat health uploads as a full refresh so reruns do not depend on
+    # code-based upserts or unique code enforcement.
+    session.execute(text(f'DELETE FROM {table_name}'))
+    ordered.to_sql(
+        table_name,
+        connection,
+        if_exists='append',
+        index=False,
+        dtype={
+            'geom': Geometry('POINT', srid=4326),
+            'services_offered': ARRAY(Text()),
+        },
+    )
 
     session.commit()
     return len(working), table_name
@@ -602,7 +527,7 @@ def load_to_postgis(session, gdf, dataset_type, if_exists='append'):
                 return 0, table_name
 
         if dataset_type == 'health':
-            return _load_health_facilities_with_upsert(session, load_df)
+            return _load_health_facilities_refresh(session, load_df)
 
         load_df.to_sql(
             table_name,

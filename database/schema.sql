@@ -127,24 +127,9 @@ WHERE code IS NOT NULL;
 UPDATE health_facilities
 SET code = NULL
 WHERE code = '';
-DO $$
-BEGIN
-    IF EXISTS (
-        SELECT 1
-        FROM health_facilities
-        WHERE code IS NOT NULL
-        GROUP BY code
-        HAVING COUNT(*) > 1
-    ) THEN
-        RAISE NOTICE 'Skipping uq_health_facilities_code because duplicate normalized health codes already exist';
-    ELSE
-        EXECUTE '
-            CREATE UNIQUE INDEX IF NOT EXISTS uq_health_facilities_code
-            ON health_facilities(code)
-            WHERE code IS NOT NULL
-        ';
-    END IF;
-END $$;
+CREATE INDEX IF NOT EXISTS idx_health_facilities_code
+ON health_facilities(code)
+WHERE code IS NOT NULL;
 
 -- Welfare Beneficiaries (Aggregate)
 CREATE TABLE IF NOT EXISTS welfare_beneficiaries (

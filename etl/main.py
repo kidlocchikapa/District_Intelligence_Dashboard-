@@ -145,6 +145,7 @@ def process_tabular_dataset(
     api_headers=None,
     gazetteer_path=None,
     missing_data_strategy='flag',
+    worldpop_year=DEFAULT_WORLDPOP_YEAR,
 ):
     started_at = datetime.utcnow()
     dataset_config = DATASET_CONFIG[dataset_type]
@@ -403,7 +404,7 @@ def process_tabular_dataset(
             user_message_on_error='Could not download/resolve WorldPop raster for education population access analysis.',
             fn=resolve_worldpop_raster,
             api_url=api_url,
-            year=year,
+            year=worldpop_year,
         )
         district_education_df = run_step(
             step_name='education_analysis_compute_district',
@@ -1192,6 +1193,7 @@ def main():
                 api_headers=headers,
                 gazetteer_path=args.gazetteer,
                 missing_data_strategy=args.missing_data_strategy,
+                worldpop_year=args.worldpop_year,
             )
             if args.type in {'education', 'health'}:
                 run_step(
