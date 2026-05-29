@@ -1,0 +1,36 @@
+{
+  "image": "zomba-zomba-city.education_travel_time.preview.20260527T225239Z.png",
+  "bounds": [
+    [
+      -15.684327274999816,
+      35.003983926000046
+    ],
+    [
+      -15.196727879999912,
+      35.853439
+    ]
+  ],
+  "legend": {
+    "label": "Mean beneficiary travel time to nearest school",
+    "lowLabel": "Fast",
+    "highLabel": "Slow",
+    "colors": [
+      "#2056a8",
+      "#2f89c5",
+      "#7bc8b4",
+      "#f2d06b",
+      "#e97b56",
+      "#b32d3c"
+    ]
+  },
+  "render": {
+    "transform": "linear",
+    "unit": "minutes",
+    "surfaceMethod": "idw",
+    "resolutionM": 250.0,
+    "smoothed": true,
+    "maskedToDistrict": true,
+    "clipMax": 11.617731094360352
+  },
+  "geotiff": "zomba-zomba-city.education_travel_time.preview.20260527T225239Z.tif"
+}

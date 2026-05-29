@@ -186,7 +186,10 @@ function findPreviewAssetPath(
     : null;
 
   if (asset?.[extension]) {
-    return normalizePreviewAssetPath(asset[extension], publicDirName);
+    const normalizedAssetPath = String(asset[extension]);
+    if (!fallbackPattern || normalizedAssetPath.includes(fallbackPattern)) {
+      return normalizePreviewAssetPath(asset[extension], publicDirName);
+    }
   }
 
   const fallbackPaths = (previewAssets || [])
@@ -942,43 +945,66 @@ router.get("/summary", async (req, res) => {
 
     const worldpopResult = await db.query(
       `
-        SELECT COALESCE(
-          SUM(
-            COALESCE(
-              total_population,
-              0
-            )
-            * GREATEST(
-                LEAST(
-                  COALESCE(
-                    NULLIF(REGEXP_REPLACE(COALESCE(age_class, ''), '[^0-9.]', '', 'g'), '')::numeric,
-                    -9999
-                  ) + 5,
-                  18
+        WITH worldpop_bands AS (
+          SELECT
+            total_population,
+            CASE
+              WHEN split_part(COALESCE(age_label, age_class, ''), ' ', 1) ~ '^[0-9]+$'
+                THEN split_part(COALESCE(age_label, age_class, ''), ' ', 1)::numeric
+              ELSE NULL
+            END AS age_start,
+            CASE
+              WHEN COALESCE(age_label, age_class, '') ILIKE '%over%'
+                OR COALESCE(age_label, age_class, '') LIKE '%+%'
+                THEN 120::numeric
+              WHEN split_part(COALESCE(age_label, age_class, ''), ' ', 3) ~ '^[0-9]+$'
+                THEN split_part(COALESCE(age_label, age_class, ''), ' ', 3)::numeric
+              WHEN split_part(COALESCE(age_label, age_class, ''), ' ', 1) ~ '^[0-9]+$'
+                THEN split_part(COALESCE(age_label, age_class, ''), ' ', 1)::numeric + 1
+              ELSE NULL
+            END AS age_end
+          FROM worldpop_age_sex
+          WHERE ${worldpopConditions.join(" AND ")}
+        )
+        SELECT
+          COALESCE(
+            SUM(
+              COALESCE(total_population, 0)
+              * GREATEST(
+                  LEAST(COALESCE(age_end, 0), 18)
+                  - GREATEST(COALESCE(age_start, 0), 2),
+                  0
                 )
-                - GREATEST(
-                  COALESCE(
-                    NULLIF(REGEXP_REPLACE(COALESCE(age_class, ''), '[^0-9.]', '', 'g'), '')::numeric,
-                    -9999
-                  ),
-                  5
-                ),
-                0
-              )
-            / 5.0
-          ),
-          0
-        ) AS school_age_population_total
-        FROM worldpop_age_sex
-        WHERE ${worldpopConditions.join(" AND ")}
+              / NULLIF(age_end - age_start, 0)
+            ),
+            0
+          ) AS school_age_population_total,
+          COALESCE(
+            SUM(
+              CASE
+                WHEN COALESCE(age_start, -1) <= 15
+                  THEN COALESCE(total_population, 0)
+                ELSE 0
+              END
+            ),
+            0
+          ) AS child_population_total
+        FROM worldpop_bands
       `,
       worldpopParams,
     );
     const schoolAgePopulationTotal = parseNumericValue(
       worldpopResult.rows[0]?.school_age_population_total,
     );
-    const notInSchoolTotal = Math.max(
+    const childPopulationTotal = parseNumericValue(
+      worldpopResult.rows[0]?.child_population_total,
+    );
+    const schoolAgePopulationUnenrolled = Math.max(
       schoolAgePopulationTotal - facilityTotals.student_enrollment_total,
+      0,
+    );
+    const childPopulationUnenrolled = Math.max(
+      childPopulationTotal - facilityTotals.student_enrollment_total,
       0,
     );
 
@@ -987,7 +1013,12 @@ router.get("/summary", async (req, res) => {
       data: {
         ...facilityTotals,
         school_age_population_total: Math.round(schoolAgePopulationTotal),
-        not_in_school_total: Math.round(notInSchoolTotal),
+        school_age_population_unenrolled: Math.round(
+          schoolAgePopulationUnenrolled,
+        ),
+        child_population_total: Math.round(childPopulationTotal),
+        child_population_unenrolled: Math.round(childPopulationUnenrolled),
+        not_in_school_total: Math.round(schoolAgePopulationUnenrolled),
       },
     });
   } catch (err) {
@@ -1099,37 +1130,50 @@ router.get("/insights", async (req, res) => {
 
     const result = await db.query(
       `
-      WITH school_age AS (
+        WITH worldpop_bands AS (
+          SELECT
+            admin_unit_id,
+            total_population,
+            CASE
+              WHEN split_part(COALESCE(age_label, age_class, ''), ' ', 1) ~ '^[0-9]+$'
+                THEN split_part(COALESCE(age_label, age_class, ''), ' ', 1)::numeric
+              ELSE NULL
+            END AS age_start,
+            CASE
+              WHEN COALESCE(age_label, age_class, '') ILIKE '%over%'
+                OR COALESCE(age_label, age_class, '') LIKE '%+%'
+                THEN 120::numeric
+              WHEN split_part(COALESCE(age_label, age_class, ''), ' ', 3) ~ '^[0-9]+$'
+                THEN split_part(COALESCE(age_label, age_class, ''), ' ', 3)::numeric
+              WHEN split_part(COALESCE(age_label, age_class, ''), ' ', 1) ~ '^[0-9]+$'
+                THEN split_part(COALESCE(age_label, age_class, ''), ' ', 1)::numeric + 1
+              ELSE NULL
+            END AS age_end
+        FROM worldpop_age_sex
+        WHERE admin_unit_type = 'TA'
+          AND worldpop_year = (SELECT MAX(worldpop_year) FROM worldpop_age_sex)
+      ),
+      school_age AS (
         SELECT
           admin_unit_id,
           SUM(COALESCE(total_population, 0)) AS population_total,
           SUM(
-            COALESCE(
-              total_population,
-              0
-            )
+            COALESCE(total_population, 0)
             * GREATEST(
-                LEAST(
-                  COALESCE(
-                    NULLIF(REGEXP_REPLACE(COALESCE(age_class, ''), '[^0-9.]', '', 'g'), '')::numeric,
-                    -9999
-                  ) + 5,
-                  18
-                )
-                - GREATEST(
-                  COALESCE(
-                    NULLIF(REGEXP_REPLACE(COALESCE(age_class, ''), '[^0-9.]', '', 'g'), '')::numeric,
-                    -9999
-                  ),
-                  5
-                ),
+                LEAST(COALESCE(age_end, 0), 18)
+                - GREATEST(COALESCE(age_start, 0), 2),
                 0
               )
-            / 5.0
-          ) AS school_age_population_total
-        FROM worldpop_age_sex
-        WHERE admin_unit_type = 'TA'
-          AND worldpop_year = (SELECT MAX(worldpop_year) FROM worldpop_age_sex)
+            / NULLIF(age_end - age_start, 0)
+          ) AS school_age_population_total,
+          SUM(
+            CASE
+              WHEN COALESCE(age_start, -1) <= 15
+                THEN COALESCE(total_population, 0)
+              ELSE 0
+            END
+          ) AS child_population_total
+        FROM worldpop_bands
         GROUP BY admin_unit_id
       )
       SELECT
@@ -1139,6 +1183,43 @@ router.get("/insights", async (req, res) => {
         d.name AS district,
         COALESCE(NULLIF(a3.population_total, 0), sa.population_total, 0) AS population_total,
         COALESCE(sa.school_age_population_total, 0) AS school_age_population_total,
+        COALESCE(sa.child_population_total, 0) AS child_population_total,
+        GREATEST(
+          COALESCE(sa.school_age_population_total, 0) - COALESCE(
+            SUM(
+              COALESCE(
+                NULLIF(TRIM(COALESCE(ef.student_enrollment_total::text, '')), '')::numeric,
+                0
+              )
+            ),
+            0
+          ),
+          0
+        ) AS school_age_population_unenrolled,
+        GREATEST(
+          COALESCE(sa.child_population_total, 0) - COALESCE(
+            SUM(
+              COALESCE(
+                NULLIF(TRIM(COALESCE(ef.student_enrollment_total::text, '')), '')::numeric,
+                0
+              )
+            ),
+            0
+          ),
+          0
+        ) AS child_population_unenrolled,
+        GREATEST(
+          COALESCE(sa.school_age_population_total, 0) - COALESCE(
+            SUM(
+              COALESCE(
+                NULLIF(TRIM(COALESCE(ef.student_enrollment_total::text, '')), '')::numeric,
+                0
+              )
+            ),
+            0
+          ),
+          0
+        ) AS not_in_school_total,
         COUNT(ef.school_id) AS school_count,
         COALESCE(
           SUM(
@@ -1177,6 +1258,7 @@ router.get("/insights", async (req, res) => {
         a3.population_total,
         sa.population_total,
         sa.school_age_population_total
+        , sa.child_population_total
       ORDER BY d.name, a3.name
     `,
       params,

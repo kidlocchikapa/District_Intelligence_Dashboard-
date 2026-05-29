@@ -769,7 +769,7 @@ def refresh_education_facility_access_metrics(session, raster_path, district_nam
                     else None
                 ),
                 "metadata": {
-                    "buffer_rule": "primary_3km_secondary_8km",
+                    "buffer_rule": "school_5km",
                     "district_names": district_names or [],
                 },
             }
