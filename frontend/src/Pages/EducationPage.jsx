@@ -1155,7 +1155,7 @@ function EducationPage() {
                   icon: UserRoundCheck,
                 },
                 {
-                  label: `Outside ${EDUCATION_ACCESS_DISTANCE_LABEL}`,
+                  label: "Unenrolled",
                   value: formatStat(
                     selectedEducationBufferStats?.school_population_unserved_total ??
                       selectedInsight?.school_age_population_unenrolled ??
