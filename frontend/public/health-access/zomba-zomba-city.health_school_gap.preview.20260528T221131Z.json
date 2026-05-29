@@ -1,0 +1,36 @@
+{
+  "image": "zomba-zomba-city.health_school_gap.preview.20260528T221131Z.png",
+  "bounds": [
+    [
+      -15.684327274999816,
+      35.003983926000046
+    ],
+    [
+      -15.196727879999912,
+      35.853439
+    ]
+  ],
+  "legend": {
+    "label": "Avg Distance: School to Nearest Health (km)",
+    "lowLabel": "Well Served",
+    "highLabel": "Underserved Schools",
+    "colors": [
+      "#f0fdf4",
+      "#dcfce7",
+      "#86efac",
+      "#22c55e",
+      "#16a34a",
+      "#15803d",
+      "#14532d"
+    ]
+  },
+  "render": {
+    "transform": "linear",
+    "surfaceMethod": "idw",
+    "resolutionM": 250.0,
+    "smoothed": true,
+    "maskedToDistrict": true,
+    "clipMax": 3.5405426025390625
+  },
+  "geotiff": "zomba-zomba-city.health_school_gap.preview.20260528T221131Z.tif"
+}
