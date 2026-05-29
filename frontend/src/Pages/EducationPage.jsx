@@ -1866,7 +1866,7 @@ function EducationPage() {
                   },
                   {
                     key: "school_population_unserved_total",
-                    label: `Outside ${EDUCATION_ACCESS_DISTANCE_LABEL}`,
+                    label: `Unenrolled ${EDUCATION_ACCESS_DISTANCE_LABEL}`,
                     digits: 0,
                   },
                 ]}
