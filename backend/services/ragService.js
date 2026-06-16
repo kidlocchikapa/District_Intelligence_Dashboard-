@@ -1988,7 +1988,15 @@ async function fetchAnalysisData(context, query = "") {
   const queryTopic = classifyQuery(query) || department;
   const logTag = `[fetchAnalysisData district=${district || "none"} topic=${queryTopic || "all"}]`;
 
-  const ALL_ANALYSIS_TYPES = [
+  let existingTypes = [];
+  try {
+    const r = await db.query("SELECT DISTINCT analysis_type FROM analysis_results ORDER BY analysis_type");
+    existingTypes = r.rows.map((row) => row.analysis_type);
+  } catch (e) {
+    console.error(`${logTag} could not fetch existing types:`, e.message);
+  }
+
+  const HARDCODED_TYPES = [
     "education_summary", "nearest_school_distance", "school_service_coverage",
     "school_population_buffer", "education_welfare_vulnerability",
     "education_flood_isolation", "school_capacity_risk",
@@ -1996,16 +2004,18 @@ async function fetchAnalysisData(context, query = "") {
     "health_population_served", "health_2sfca_access",
   ];
 
-  let analysisTypes = ALL_ANALYSIS_TYPES;
-  if (queryTopic === "education") {
-    analysisTypes = ["education_summary", "nearest_school_distance", "school_service_coverage", "school_population_buffer", "education_welfare_vulnerability", "education_flood_isolation", "school_capacity_risk"];
-  } else if (queryTopic === "health") {
-    analysisTypes = ["health_summary", "nearest_health_distance", "health_service_coverage", "health_population_served", "health_2sfca_access"];
-  } else if (queryTopic === "welfare") {
-    analysisTypes = ["education_welfare_vulnerability", "health_welfare_vulnerability"];
-  } else if (queryTopic === "disaster") {
-    analysisTypes = ["education_flood_isolation", "health_flood_isolation"];
-  }
+  const ALL_EXISTING_TYPES = existingTypes.length ? existingTypes : HARDCODED_TYPES;
+
+  const TOPIC_MAP = {
+    education: ["education_summary", "nearest_school_distance", "school_service_coverage", "school_population_buffer", "education_welfare_vulnerability", "education_flood_isolation", "school_capacity_risk"],
+    health: ["health_summary", "nearest_health_distance", "health_service_coverage", "health_population_served", "health_2sfca_access"],
+    welfare: ["education_welfare_vulnerability", "health_welfare_vulnerability"],
+    disaster: ["education_flood_isolation", "health_flood_isolation"],
+  };
+
+  let desiredTypes = queryTopic && TOPIC_MAP[queryTopic] ? TOPIC_MAP[queryTopic] : ALL_EXISTING_TYPES;
+  const analysisTypes = desiredTypes.filter((t) => existingTypes.includes(t));
+  const ultimateFallback = analysisTypes.length === 0 ? ALL_EXISTING_TYPES : analysisTypes;
 
   async function queryAnalysis(aTypes, dist) {
     const out = [];
@@ -2080,11 +2090,17 @@ async function fetchAnalysisData(context, query = "") {
     const arResults = await queryAnalysis(analysisTypes, district);
     results.push(...arResults);
 
-    if (arResults.length === 0 && analysisTypes.length > 0) {
-      const arAll = await queryAnalysis(analysisTypes, null);
+    if (arResults.length === 0) {
+      const arAll = await queryAnalysis(ultimateFallback, null);
       if (arAll.length > 0) {
         results.push(`No exact match found for "${district}" — showing data for all available districts instead.`);
         results.push(...arAll.slice(0, 40));
+      } else {
+        const arAny = await queryAnalysis(ALL_EXISTING_TYPES, null);
+        if (arAny.length > 0) {
+          results.push(`Showing available data across all districts.`);
+          results.push(...arAny.slice(0, 40));
+        }
       }
     }
 

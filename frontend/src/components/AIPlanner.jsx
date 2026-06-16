@@ -21,12 +21,17 @@ function renderMarkdown(text) {
   return rendered;
 }
 
-function TypewriterText({ text }) {
-  const [displayed, setDisplayed] = useState("");
-  const [done, setDone] = useState(false);
+function TypewriterText({ text, skip }) {
+  const [displayed, setDisplayed] = useState(skip ? text : "");
+  const [done, setDone] = useState(skip);
   const idxRef = useRef(0);
 
   useEffect(() => {
+    if (skip) {
+      setDisplayed(text);
+      setDone(true);
+      return;
+    }
     idxRef.current = 0;
     setDisplayed("");
     setDone(false);
@@ -53,7 +58,7 @@ function TypewriterText({ text }) {
 
     timer = setTimeout(tick, 200);
     return () => clearTimeout(timer);
-  }, [text]);
+  }, [text, skip]);
 
   const html = renderMarkdown(displayed);
 
@@ -212,40 +217,47 @@ function AIPlanner() {
             </div>
           )}
 
-          {messages.map((msg) => (
-            <div key={msg.id} className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}>
-              <div
-                className={`max-w-[85%] rounded-2xl px-4 py-3 text-sm leading-relaxed ${
-                  msg.role === "user"
-                    ? "bg-slate-900 text-white"
-                    : msg.isError
-                      ? "bg-red-50 text-red-700 border border-red-200"
-                      : "bg-slate-100 text-slate-800"
-                }`}
-              >
-                {msg.role === "assistant" && !msg.isError ? (
-                  <TypewriterText text={msg.content} />
-                ) : (
-                  <div className="whitespace-pre-wrap text-sm">{msg.content}</div>
-                )}
-                {msg.sources?.length > 0 && (
-                  <div className="mt-3 border-t border-slate-200 pt-2">
-                    <p className="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wide text-slate-500">
-                      <FileText size={12} />
-                      Sources
-                    </p>
-                    <ul className="mt-1 space-y-1">
-                      {msg.sources.map((src, j) => (
-                        <li key={j} className="text-[11px] text-slate-600">
-                          {src.title || src.filename || `Source ${j + 1}`}
-                        </li>
-                      ))}
-                    </ul>
+          {(() => {
+            const assistantIds = messages.filter((m) => m.role === "assistant" && !m.isError).map((m) => m.id);
+            const latestAssistantId = assistantIds.length ? Math.max(...assistantIds) : null;
+            return messages.map((msg) => {
+              const isLatestAssistant = msg.id === latestAssistantId;
+              return (
+                <div key={msg.id} className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}>
+                  <div
+                    className={`max-w-[85%] rounded-2xl px-4 py-3 text-sm leading-relaxed ${
+                      msg.role === "user"
+                        ? "bg-slate-900 text-white"
+                        : msg.isError
+                          ? "bg-red-50 text-red-700 border border-red-200"
+                          : "bg-slate-100 text-slate-800"
+                    }`}
+                  >
+                    {msg.role === "assistant" && !msg.isError ? (
+                      <TypewriterText text={msg.content} skip={!isLatestAssistant} />
+                    ) : (
+                      <div className="whitespace-pre-wrap text-sm">{msg.content}</div>
+                    )}
+                    {msg.sources?.length > 0 && (
+                      <div className="mt-3 border-t border-slate-200 pt-2">
+                        <p className="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wide text-slate-500">
+                          <FileText size={12} />
+                          Sources
+                        </p>
+                        <ul className="mt-1 space-y-1">
+                          {msg.sources.map((src, j) => (
+                            <li key={j} className="text-[11px] text-slate-600">
+                              {src.title || src.filename || `Source ${j + 1}`}
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
                   </div>
-                )}
-              </div>
-            </div>
-          ))}
+                </div>
+              );
+            });
+          })()}
 
           {isLoading && (
             <div className="flex justify-start">
