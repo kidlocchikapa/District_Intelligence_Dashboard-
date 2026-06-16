@@ -1,7 +1,24 @@
-import { createContext, useCallback, useContext, useMemo, useState } from "react";
+import { createContext, useCallback, useContext, useMemo, useRef, useState } from "react";
 import { useDistrict } from "./DistrictContext";
 
 const AIPlannerContext = createContext(null);
+const CHAT_STORAGE_KEY = "ai_planner_chat_history";
+
+function loadChatHistory() {
+  try {
+    const raw = localStorage.getItem(CHAT_STORAGE_KEY);
+    return raw ? JSON.parse(raw) : [];
+  } catch {
+    return [];
+  }
+}
+
+function saveChatHistory(messages) {
+  try {
+    localStorage.setItem(CHAT_STORAGE_KEY, JSON.stringify(messages.slice(-100)));
+  } catch {
+  }
+}
 
 function buildDefaultContext(selectedDistrict, selectedTa) {
   const district = selectedDistrict || "Zomba";
@@ -30,6 +47,19 @@ export function AIPlannerProvider({ children }) {
     sourceRows: [],
     sourceTitle: "",
   });
+  const [chatSession, setChatSession] = useState(() => Date.now());
+  const [chatHistory, setChatHistory] = useState(loadChatHistory);
+
+  const updateChatHistory = useCallback((messages) => {
+    setChatHistory(messages);
+    saveChatHistory(messages);
+  }, []);
+
+  const startNewConversation = useCallback(() => {
+    setChatSession(Date.now());
+    setChatHistory([]);
+    saveChatHistory([]);
+  }, []);
 
   const openAIPlanner = useCallback(
     ({
@@ -76,8 +106,12 @@ export function AIPlannerProvider({ children }) {
       plannerState,
       openAIPlanner,
       closeAIPlanner,
+      chatSession,
+      chatHistory,
+      updateChatHistory,
+      startNewConversation,
     }),
-    [plannerState, openAIPlanner, closeAIPlanner],
+    [plannerState, openAIPlanner, closeAIPlanner, chatSession, chatHistory, updateChatHistory, startNewConversation],
   );
 
   return (
@@ -106,6 +140,10 @@ export function useAIPlanner() {
       },
       openAIPlanner: () => {},
       closeAIPlanner: () => {},
+      chatSession: 0,
+      chatHistory: [],
+      updateChatHistory: () => {},
+      startNewConversation: () => {},
     };
   }
 

@@ -1,4 +1,4 @@
-import { Bot, X, Send, Loader2, Sparkles, FileText, Lightbulb } from "lucide-react";
+import { Bot, X, Send, Loader2, Sparkles, FileText, Lightbulb, Plus } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useAIPlanner } from "../context/AIPlannerContext";
@@ -10,50 +10,79 @@ const MODE_CONFIG = {
   insights: { icon: Sparkles, label: "Insights" },
 };
 
-function useAiChat(initialQuery, mode, context) {
+function AIPlanner() {
+  const { plannerState, closeAIPlanner, chatSession, chatHistory, updateChatHistory, startNewConversation } = useAIPlanner();
+  const { isOpen, query, title, mode, context } = plannerState;
+  const [input, setInput] = useState("");
   const [messages, setMessages] = useState([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState(null);
+  const [hasInitialized, setHasInitialized] = useState(false);
+  const messagesEndRef = useRef(null);
+  const inputRef = useRef(null);
+  const sessionRef = useRef(chatSession);
 
-  const sendQuery = useCallback(async (query) => {
-    if (!query?.trim()) return;
+  const currentMode = MODE_CONFIG[mode] || MODE_CONFIG.query;
+
+  useEffect(() => {
+    if (chatSession !== sessionRef.current) {
+      setMessages([]);
+      setHasInitialized(false);
+      sessionRef.current = chatSession;
+    }
+  }, [chatSession]);
+
+  useEffect(() => {
+    if (isOpen && chatHistory.length > 0 && !hasInitialized) {
+      setMessages(chatHistory);
+      setHasInitialized(true);
+    }
+  }, [isOpen, chatHistory, hasInitialized]);
+
+  const sendQuery = useCallback(async (q) => {
+    if (!q?.trim()) return;
     setIsLoading(true);
     setError(null);
-    setMessages((prev) => [...prev, { role: "user", content: query }]);
+    const userMsg = { role: "user", content: q, id: Date.now() };
+    setMessages((prev) => {
+      const next = [...prev, userMsg];
+      updateChatHistory(next);
+      return next;
+    });
     try {
       const endpoint = mode === "recommendations" ? "/ai/recommendations" : "/ai/query";
-      const payload = { query, mode, context };
+      const payload = { query: q, mode, context };
       const response = await api.post(endpoint, payload);
       const data = response.data?.data || response.data;
       const reply = data?.answer || data?.response || JSON.stringify(data);
-      setMessages((prev) => [...prev, { role: "assistant", content: reply, sources: data?.sources }]);
+      const sources = data?.citations || data?.sources || [];
+      const assistantMsg = { role: "assistant", content: reply, sources, id: Date.now() + 1 };
+      setMessages((prev) => {
+        const next = [...prev, assistantMsg];
+        updateChatHistory(next);
+        return next;
+      });
     } catch (err) {
       const message = err?.response?.data?.message || "Failed to get a response. Please try again.";
       setError(message);
-      setMessages((prev) => [...prev, { role: "assistant", content: message, isError: true }]);
+      const errorMsg = { role: "assistant", content: message, isError: true, id: Date.now() + 1 };
+      setMessages((prev) => {
+        const next = [...prev, errorMsg];
+        updateChatHistory(next);
+        return next;
+      });
     } finally {
       setIsLoading(false);
     }
-  }, [mode, context]);
+  }, [mode, context, updateChatHistory]);
 
   useEffect(() => {
-    if (initialQuery?.trim()) {
-      sendQuery(initialQuery);
+    if (query?.trim() && !hasInitialized) {
+      setHasInitialized(true);
+      setMessages([]);
+      sendQuery(query);
     }
   }, []);
-
-  return { messages, isLoading, error, sendQuery };
-}
-
-function AIPlanner() {
-  const { plannerState, closeAIPlanner } = useAIPlanner();
-  const { isOpen, query, title, mode, context } = plannerState;
-  const [input, setInput] = useState("");
-  const messagesEndRef = useRef(null);
-  const inputRef = useRef(null);
-
-  const currentMode = MODE_CONFIG[mode] || MODE_CONFIG.query;
-  const { messages, isLoading, sendQuery } = useAiChat(query, mode, context);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -69,6 +98,13 @@ function AIPlanner() {
     e.preventDefault();
     if (!input.trim() || isLoading) return;
     sendQuery(input.trim());
+    setInput("");
+  }
+
+  function handleNewConversation() {
+    startNewConversation();
+    setMessages([]);
+    setHasInitialized(false);
     setInput("");
   }
 
@@ -88,12 +124,22 @@ function AIPlanner() {
               <p className="text-xs font-semibold text-slate-500">{currentMode.label}</p>
             </div>
           </div>
-          <button
-            onClick={closeAIPlanner}
-            className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-600 transition-colors"
-          >
-            <X size={20} />
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={handleNewConversation}
+              title="New conversation"
+              className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-600 transition-colors"
+            >
+              <Plus size={20} />
+            </button>
+            <button
+              onClick={closeAIPlanner}
+              className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-600 transition-colors"
+            >
+              <X size={20} />
+            </button>
+          </div>
         </div>
 
         <div className="flex-1 overflow-y-auto px-5 py-4 space-y-4">
@@ -105,8 +151,8 @@ function AIPlanner() {
             </div>
           )}
 
-          {messages.map((msg, i) => (
-            <div key={i} className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}>
+          {messages.map((msg) => (
+            <div key={msg.id} className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}>
               <div
                 className={`max-w-[85%] rounded-2xl px-4 py-3 text-sm leading-relaxed ${
                   msg.role === "user"
@@ -157,7 +203,7 @@ function AIPlanner() {
               onChange={(e) => setInput(e.target.value)}
               placeholder={isLoading ? "Waiting for response..." : "Ask a follow-up question..."}
               disabled={isLoading}
-              className="flex-1 rounded-xl border border-slate-200 bg-slate-50 px-4 py-2.5 text-sm outline-none transition-colors focus:border-slate-400 focus:bg-white focus:ring-2 focus:ring-slate-900/10 disabled:opacity-50"
+              className="flex-1 rounded-xl border border-slate-200 bg-slate-50 px-4 py-2.5 text-sm text-slate-900 outline-none transition-colors placeholder:text-slate-400 focus:border-slate-400 focus:bg-white focus:ring-2 focus:ring-slate-900/10 disabled:opacity-50"
             />
             <button
               type="submit"

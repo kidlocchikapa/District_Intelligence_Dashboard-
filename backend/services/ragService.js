@@ -20,13 +20,47 @@ const SUPPORTED_TEXT_EXTENSIONS = new Set([
   ".pdf",
 ]);
 
+const GREETING_PATTERNS = [
+  /^(hello|hi|hey|greetings|good\s*(morning|afternoon|evening)|howdy|yo|sup)\b/i,
+  /^(what'?s\s*up|how\s*(are|'?re)\s*(you|u)|howdy|nice\s*to\s*meet)/i,
+  /^(thanks|thank\s*you|thx|ty)\s*$/i,
+];
+
+function isGreeting(query) {
+  const normalized = String(query || "").trim().toLowerCase();
+  if (normalized.length > 80) return false;
+  return GREETING_PATTERNS.some((pattern) => pattern.test(normalized));
+}
+
+function greetingResponse() {
+  return [
+    "## Hello!",
+    "I'm the District Intelligence planning assistant. I can help you with:",
+    "",
+    "- **District overview** — population, education, health, and welfare metrics",
+    "- **Spatial analysis** — school coverage, health facility access, flood risk",
+    "- **Planning recommendations** — evidence-based actions for your area",
+    "- **Data insights** — trends and summaries from the latest ETL pipeline",
+    "",
+    "I don't have information about personal topics, current events outside this dashboard, or general knowledge. Please ask me something about the district data!",
+    "",
+    "**Try asking:** \"What's the education coverage in Zomba?\" or \"Show me health facility access metrics.\"",
+  ].join("\n");
+}
+
 const SYSTEM_PROMPT = `
-You are the district planning intelligence assistant for a development dashboard.
-Use only the supplied evidence when possible. If the evidence is thin, say so clearly.
-Be practical, policy-aware, and concise.
-Always ground recommendations in the retrieved documents and preserve citation numbers.
-Avoid vague management speak. Prefer concrete actions, sequencing, and implementation details.
-If the retrieved evidence does not support a claim, label it as a planning inference.
+You are the district planning intelligence assistant for a District Intelligence Dashboard.
+Your role: answer questions using the supplied evidence from planning documents and the live analysis data fetched from the database.
+The database contains analysis_results (education, health, welfare, disaster metrics), unified_indicators (population data), and planning documents.
+
+Rules:
+1. Use the supplied evidence and analysis data when possible. If evidence is thin, say so clearly.
+2. If the user asks a personal question or a question unrelated to the dashboard, politely state you can only answer district-related questions.
+3. Be practical, policy-aware, and concise.
+4. Always ground recommendations in the retrieved data and preserve citation numbers.
+5. Avoid vague management speak. Prefer concrete actions, sequencing, and implementation details.
+6. If the retrieved evidence does not support a claim, label it as a planning inference.
+7. When analysis data is available (e.g., school coverage %, health facility counts, population figures), use it directly in your answer.
 `.trim();
 
 let schemaPromise = null;
@@ -1588,7 +1622,7 @@ async function callEmbeddingProvider(text) {
   return hashEmbedding(text, DEFAULT_EMBEDDING_DIMENSIONS);
 }
 
-async function callLlm({ mode, query, context, retrievedDocuments }) {
+async function callLlm({ mode, query, context, retrievedDocuments, analysisData = [] }) {
   const provider = normalizeKey(process.env.AI_LLM_PROVIDER || process.env.LLM_PROVIDER || "");
   const model =
     process.env.AI_LLM_MODEL ||
@@ -1599,7 +1633,8 @@ async function callLlm({ mode, query, context, retrievedDocuments }) {
   const maxTokens = Number(process.env.AI_LLM_MAX_TOKENS || 600);
   const timeoutMs = Math.max(Number(process.env.AI_LLM_TIMEOUT_MS || 4000), 1000);
   const evidenceBlock = formatEvidenceBlock(retrievedDocuments);
-  const prompt = buildPrompt(mode, query, context, evidenceBlock);
+  const analysisBlock = analysisData.length ? `\n\n## Live Analysis Data\n${analysisData.join("\n")}` : "";
+  const prompt = buildPrompt(mode, query, context, evidenceBlock + analysisBlock);
 
   if (provider === "openai" && process.env.OPENAI_API_KEY) {
     const controller = new AbortController();
@@ -1646,7 +1681,7 @@ async function callLlm({ mode, query, context, retrievedDocuments }) {
   return "";
 }
 
-function buildFallbackAnswer({ mode, query, retrievedDocuments }) {
+function buildFallbackAnswer({ mode, query, retrievedDocuments, analysisData = [] }) {
   const evidence = retrievedDocuments.length
     ? retrievedDocuments
         .map((doc, index) => {
@@ -1657,6 +1692,8 @@ function buildFallbackAnswer({ mode, query, retrievedDocuments }) {
         .join("\n")
     : "No relevant planning documents were retrieved.";
 
+  const analysisBlock = analysisData.length ? `\n\n## Live Analysis Data\n${analysisData.join("\n")}` : "";
+
   const bullets = buildFallbackRecommendations(retrievedDocuments, query, mode)
     .split("\n")
     .filter(Boolean);
@@ -1666,7 +1703,7 @@ function buildFallbackAnswer({ mode, query, retrievedDocuments }) {
     normalizeText(query) ? `Question: ${normalizeText(query)}` : "Question: General planning guidance requested.",
     "",
     "## Evidence",
-    evidence,
+    evidence + analysisBlock,
     "",
     "## Recommended Actions",
     ...bullets.filter((line) => /^\d+\.\s/.test(line) || /^-\s/.test(line)),
@@ -1761,6 +1798,73 @@ function normalizeSources(retrievedDocuments) {
   }));
 }
 
+async function fetchAnalysisData(context) {
+  const results = [];
+  try {
+    const district = context?.district || null;
+    const department = context?.department || null;
+
+    let analysisTypes = [];
+    if (department) {
+      const dept = department.toLowerCase();
+      if (dept === "education") analysisTypes = ["education_summary", "nearest_school_distance", "school_service_coverage", "school_population_buffer", "education_welfare_vulnerability", "education_flood_isolation", "school_capacity_risk"];
+      else if (dept === "health") analysisTypes = ["health_summary", "nearest_health_distance", "health_service_coverage", "health_population_served", "health_2sfca_access"];
+      else if (dept === "welfare") analysisTypes = ["education_welfare_vulnerability", "health_welfare_vulnerability"];
+      else if (dept === "disaster") analysisTypes = ["education_flood_isolation", "health_flood_isolation"];
+    }
+
+    if (analysisTypes.length) {
+      const placeholders = analysisTypes.map((_, i) => `$${i + 1}`).join(",");
+      const params = analysisTypes;
+      let scopeFilter = "";
+      if (district) {
+        scopeFilter = ` AND (LOWER(admin_unit_name) LIKE LOWER($${params.length + 1}) OR LOWER(admin_unit_name) LIKE '%' || LOWER($${params.length + 1}) || '%')`;
+        params.push(`%${district}%`);
+      }
+      const arQuery = `
+        SELECT analysis_type, admin_unit_type, admin_unit_name, metric_name, metric_value, unit, calculated_at
+        FROM analysis_results
+        WHERE analysis_type IN (${placeholders})${scopeFilter}
+        ORDER BY calculated_at DESC
+        LIMIT 80
+      `;
+      const arResult = await db.query(arQuery, params);
+      for (const row of arResult.rows) {
+        results.push(`[Analysis] ${row.analysis_type} | ${row.admin_unit_type}: ${row.admin_unit_name} — ${row.metric_name}: ${row.metric_value}${row.unit ? " " + row.unit : ""} (as of ${row.calculated_at ? new Date(row.calculated_at).toISOString().split("T")[0] : "unknown"})`);
+      }
+    }
+
+    let indicatorTypes = [];
+    if (!department || department.toLowerCase() === "education") indicatorTypes.push("school_age_population_total", "child_population_total");
+    if (!department || department.toLowerCase() === "health") indicatorTypes.push("population_total", "population_density");
+    if (!department) indicatorTypes.push("population_total", "population_density");
+
+    if (indicatorTypes.length) {
+      const placeholders = indicatorTypes.map((_, i) => `$${i + 1}`).join(",");
+      const params = indicatorTypes;
+      let scopeFilter = "";
+      if (district) {
+        scopeFilter = ` AND (LOWER(geographic_name) LIKE LOWER($${params.length + 1}) OR LOWER(geographic_name) LIKE '%' || LOWER($${params.length + 1}) || '%')`;
+        params.push(`%${district}%`);
+      }
+      const uiQuery = `
+        SELECT indicator_name, geographic_level, geographic_name, metric_value, unit, source_date
+        FROM unified_indicators
+        WHERE indicator_name IN (${placeholders})${scopeFilter}
+        ORDER BY source_date DESC
+        LIMIT 40
+      `;
+      const uiResult = await db.query(uiQuery, params);
+      for (const row of uiResult.rows) {
+        results.push(`[Indicator] ${row.indicator_name} | ${row.geographic_level}: ${row.geographic_name} — ${row.metric_value}${row.unit ? " " + row.unit : ""} (as of ${row.source_date ? new Date(row.source_date).toISOString().split("T")[0] : "unknown"})`);
+      }
+    }
+  } catch (error) {
+    void error;
+  }
+  return results;
+}
+
 async function queryRag({
   query,
   mode = "query",
@@ -1773,6 +1877,27 @@ async function queryRag({
     ...context,
     query,
   });
+
+  if (isGreeting(query)) {
+    const answer = greetingResponse();
+    return {
+      mode,
+      query: normalizeText(query),
+      context: normalizedContext,
+      answer,
+      bullets: [],
+      citations: [],
+      retrieved_documents: [],
+      report_sections: [],
+      metadata: {
+        retrieval_count: 0,
+        sources_count: 0,
+        fallback_used: false,
+        llm_error: null,
+      },
+    };
+  }
+
   const augmentedQuery = buildAugmentedQuery(query, normalizedContext);
   const queryVector = await callEmbeddingProvider(augmentedQuery);
   const candidateRows = await fetchCandidateChunks(normalizedContext, DEFAULT_CANDIDATE_LIMIT);
@@ -1786,6 +1911,8 @@ async function queryRag({
     queryVector,
   ).slice(0, Math.max(topK, DEFAULT_TOP_K));
 
+  const analysisData = await fetchAnalysisData(normalizedContext);
+
   let answer = "";
   let llmError = null;
   let fallbackUsed = false;
@@ -1796,6 +1923,7 @@ async function queryRag({
       query: augmentedQuery,
       context: normalizedContext,
       retrievedDocuments: rankedSources,
+      analysisData,
     });
   } catch (error) {
     llmError = error;
@@ -1807,6 +1935,7 @@ async function queryRag({
       mode,
       query: augmentedQuery,
       retrievedDocuments: rankedSources,
+      analysisData,
     });
     fallbackUsed = true;
   }
@@ -1822,10 +1951,12 @@ async function queryRag({
       .filter((line) => /^[-*]\s+/.test(line) || /^\d+\.\s+/.test(line)),
     citations: normalizeSources(rankedSources),
     retrieved_documents: rankedSources,
+    analysis_data: analysisData,
     report_sections: mode === "report" ? markdownSectionsFromText(answer) : [],
     metadata: {
       retrieval_count: candidateRows.length + vectorRows.length,
       sources_count: rankedSources.length,
+      analysis_count: analysisData.length,
       fallback_used: fallbackUsed,
       llm_error: llmError ? llmError.message : null,
     },
