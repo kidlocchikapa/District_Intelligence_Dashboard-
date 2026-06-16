@@ -1,8 +1,8 @@
 import { ShieldAlert, Users2, Menu, X, ChevronLeft, ChevronRight, LogIn, LogOut, GraduationCap, Activity, UserCheck, LayoutDashboard, Database, KeyRound, Bot } from 'lucide-react';
 import { useState, useEffect } from 'react';
-import { NavLink, Navigate, Route, Routes, useNavigate } from 'react-router-dom';
+import { NavLink, Navigate, Route, Routes, useNavigate, useLocation } from 'react-router-dom';
 import { Toaster } from 'react-hot-toast';
-import { setAuthToken, hydrateAuthToken, AUTH_EVENT_NAME } from './lib/api';
+import api, { setAuthToken, hydrateAuthToken, AUTH_EVENT_NAME } from './lib/api';
 import Login from './Login';
 import { useDistrict } from './context/DistrictContext';
 import { useAIPlanner } from './context/AIPlannerContext';
@@ -18,6 +18,7 @@ import SuperAdminLayout from './layouts/SuperAdminLayout';
 import PermissionsPage from './Pages/PermissionsPage';
 import ChangePasswordModal from './components/ChangePasswordModal';
 import AIPlanner from './components/AIPlanner';
+import InactivityTimeout from './components/InactivityTimeout';
 
 const navigation = [
   { to: '/', label: 'Overview', icon: LayoutDashboard },
@@ -38,6 +39,14 @@ function decodeJwtRole(token) {
   }
 }
 
+function ScrollToTop() {
+  const { pathname } = useLocation();
+  useEffect(() => {
+    window.scrollTo(0, 0);
+  }, [pathname]);
+  return null;
+}
+
 function App() {
   const [isCollapsed, setIsCollapsed] = useState(false);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
@@ -47,6 +56,20 @@ function App() {
   const { selectedDistrict } = useDistrict();
   const { openAIPlanner } = useAIPlanner();
   const navigate = useNavigate();
+
+  useEffect(() => {
+    if ('scrollRestoration' in window.history) {
+      window.history.scrollRestoration = 'manual';
+    }
+  }, []);
+
+  useEffect(() => {
+    const token = hydrateAuthToken();
+    if (!token) return;
+    api.get('/auth/me').catch(() => {
+      setAuthToken(null);
+    });
+  }, []);
 
   const isSuperAdmin = isAuthenticated && userRole === 'super_admin';
 
@@ -113,6 +136,8 @@ function App() {
   return (
     <div className="h-screen overflow-hidden bg-[#F9FAFB] font-sans">
       <Toaster position="top-right" />
+      <ScrollToTop />
+      <InactivityTimeout isAuthenticated={isAuthenticated} />
       
       <Routes>
         {/* Super Admin Branch */}
