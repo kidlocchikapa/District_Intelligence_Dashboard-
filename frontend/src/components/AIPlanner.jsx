@@ -4,6 +4,67 @@ import { createPortal } from "react-dom";
 import { useAIPlanner } from "../context/AIPlannerContext";
 import api from "../lib/api";
 
+function escapeHtml(str) {
+  return str.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+}
+
+function renderMarkdown(text) {
+  const escaped = escapeHtml(text);
+  const bold = escaped.replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>");
+  const lines = bold.split("\n");
+  const rendered = lines
+    .map((line) => {
+      if (/^[-]{3,}$/.test(line.trim())) return "<hr class='my-2 border-slate-300' />";
+      return line || "<br />";
+    })
+    .join("\n");
+  return rendered;
+}
+
+function TypewriterText({ text }) {
+  const [displayed, setDisplayed] = useState("");
+  const [done, setDone] = useState(false);
+  const idxRef = useRef(0);
+
+  useEffect(() => {
+    idxRef.current = 0;
+    setDisplayed("");
+    setDone(false);
+
+    if (!text) {
+      setDone(true);
+      return;
+    }
+
+    const speed = 6;
+    let timer;
+
+    function tick() {
+      if (idxRef.current >= text.length) {
+        setDone(true);
+        return;
+      }
+      const chunk = 3;
+      const next = idxRef.current + chunk;
+      setDisplayed(text.slice(0, Math.min(next, text.length)));
+      idxRef.current = next;
+      timer = setTimeout(tick, speed);
+    }
+
+    timer = setTimeout(tick, 200);
+    return () => clearTimeout(timer);
+  }, [text]);
+
+  const html = renderMarkdown(displayed);
+
+  return (
+    <div className="text-sm leading-relaxed">
+      <span dangerouslySetInnerHTML={{ __html: html }} />
+      {!done && <span className="inline-block w-0.5 h-4 bg-slate-900 ml-0.5 animate-pulse" />}
+    </div>
+  );
+}
+
 const MODE_CONFIG = {
   query: { icon: Bot, label: "Ask a question" },
   recommendations: { icon: Lightbulb, label: "Recommendations" },
@@ -162,7 +223,11 @@ function AIPlanner() {
                       : "bg-slate-100 text-slate-800"
                 }`}
               >
-                <p className="whitespace-pre-wrap">{msg.content}</p>
+                {msg.role === "assistant" && !msg.isError ? (
+                  <TypewriterText text={msg.content} />
+                ) : (
+                  <div className="whitespace-pre-wrap text-sm">{msg.content}</div>
+                )}
                 {msg.sources?.length > 0 && (
                   <div className="mt-3 border-t border-slate-200 pt-2">
                     <p className="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wide text-slate-500">

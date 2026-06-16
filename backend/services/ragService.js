@@ -1682,90 +1682,165 @@ async function callLlm({ mode, query, context, retrievedDocuments, analysisData 
 }
 
 function buildFallbackAnswer({ mode, query, retrievedDocuments, analysisData = [] }) {
-  const evidence = retrievedDocuments.length
-    ? retrievedDocuments
-        .map((doc, index) => {
-          const citation = `[${index + 1}] ${doc.citation_label || doc.title}`;
-          const excerpt = doc.excerpt || doc.summary || "No excerpt available";
-          return `${citation}: ${excerpt}`;
-        })
-        .join("\n")
-    : null;
+  const queryTopic = classifyQuery(query);
+  const rawRecords = [];
+  const infoMessages = [];
 
-  const analysisBlock = analysisData.length ? analysisData.join("\n") : null;
-
-  const dataBullets = [];
-  const grouped = {};
   for (const line of analysisData) {
-    const typeMatch = line.match(/^\[(\w+)\]\s+(.+?)\s*\|/);
-    if (typeMatch) {
-      const category = typeMatch[1];
-      if (!grouped[category]) grouped[category] = [];
-      grouped[category].push(line);
+    if (line.startsWith("No exact match") || line.startsWith("No demographic") ||
+        line.startsWith("Available analysis") || line.startsWith("Districts available") ||
+        line.startsWith("Could not access") || line.startsWith("The analysis database")) {
+      infoMessages.push(line);
+    } else {
+      rawRecords.push(line);
     }
   }
 
-  if (analysisData.length > 0) {
-    for (const [category, lines] of Object.entries(grouped)) {
-      dataBullets.push(`**${category} data** — ${lines.length} record(s) found.`);
+  const floodRecords = rawRecords.filter((l) => /flood/i.test(l));
+  const educationRecords = rawRecords.filter((l) => /education|school/i.test(l));
+  const healthRecords = rawRecords.filter((l) => /health/i.test(l) && !/education/i.test(l));
+  const welfareRecords = rawRecords.filter((l) => /welfare|vulnerability/i.test(l));
+  const populationRecords = rawRecords.filter((l) => /population|density/i.test(l));
+
+  const hasFloodData = floodRecords.length > 0;
+  const hasEducationData = educationRecords.length > 0;
+  const hasHealthData = healthRecords.length > 0;
+  const hasWelfareData = welfareRecords.length > 0;
+  const hasPopulationData = populationRecords.length > 0;
+
+  const hasAnyData = rawRecords.length > 0;
+  const hasGenericInfo = infoMessages.length > 0;
+  const noDataAtAll = !hasAnyData && !hasGenericInfo;
+
+  const sections = [];
+
+  if (hasAnyData) {
+    sections.push(`Here is what I found for your question about **${normalizeText(query) || "district planning"}**:`);
+    sections.push("");
+
+    if (hasFloodData) {
+      sections.push("**Flood Risk:**");
+      sections.push(
+        floodRecords
+          .slice(0, 8)
+          .map((r) => {
+            const clean = r.replace(/^\[Analysis\]\s*/, "").replace(/\s*\(as of [^)]+\)/, "");
+            return `- ${clean}`;
+          })
+          .join("\n"),
+      );
+      sections.push("");
+    }
+
+    if (hasEducationData) {
+      sections.push("**Education:**");
+      sections.push(
+        educationRecords
+          .slice(0, 6)
+          .map((r) => {
+            const clean = r.replace(/^\[Analysis\]\s*/, "").replace(/\s*\(as of [^)]+\)/, "");
+            return `- ${clean}`;
+          })
+          .join("\n"),
+      );
+      sections.push("");
+    }
+
+    if (hasHealthData) {
+      sections.push("**Health:**");
+      sections.push(
+        healthRecords
+          .slice(0, 6)
+          .map((r) => {
+            const clean = r.replace(/^\[Analysis\]\s*/, "").replace(/\s*\(as of [^)]+\)/, "");
+            return `- ${clean}`;
+          })
+          .join("\n"),
+      );
+      sections.push("");
+    }
+
+    if (hasWelfareData) {
+      sections.push("**Welfare:**");
+      sections.push(
+        welfareRecords
+          .slice(0, 4)
+          .map((r) => {
+            const clean = r.replace(/^\[Analysis\]\s*/, "").replace(/\s*\(as of [^)]+\)/, "");
+            return `- ${clean}`;
+          })
+          .join("\n"),
+      );
+      sections.push("");
+    }
+
+    if (hasPopulationData) {
+      sections.push("**Population:**");
+      sections.push(
+        populationRecords
+          .slice(0, 4)
+          .map((r) => {
+            const clean = r.replace(/^\[(Analysis|Indicator)\]\s*/, "").replace(/\s*\(as of [^)]+\)/, "");
+            return `- ${clean}`;
+          })
+          .join("\n"),
+      );
+      sections.push("");
+    }
+  } else if (noDataAtAll) {
+    sections.push(`I could not find any data related to "${normalizeText(query)}" in the database.`);
+    sections.push("");
+    sections.push("The analysis engine needs data to provide answers. Try:");
+    sections.push("- Asking about a topic like **flood risk**, **education coverage**, or **health access**");
+    sections.push("- Specifying a district that has data loaded");
+    sections.push("- Running the ETL pipeline to populate district data first");
+    sections.push("");
+    return sections.join("\n");
+  }
+
+  if (hasGenericInfo) {
+    if (hasAnyData) sections.push("---");
+    for (const msg of infoMessages) {
+      sections.push(msg);
+      sections.push("");
     }
   }
 
-  const hasFloodData = analysisData.some((l) => /flood/i.test(l));
-  const hasEducationData = analysisData.some((l) => /education|school/i.test(l));
-  const hasHealthData = analysisData.some((l) => /health/i.test(l));
-  const hasWelfareData = analysisData.some((l) => /welfare|vulnerability/i.test(l));
-
+  sections.push("**Recommended Actions:**");
   const bullets = [];
+
   if (hasFloodData) {
-    bullets.push("Review the flood isolation metrics above to identify TAs with the highest flood risk and prioritise evacuation route planning.");
-    bullets.push("Cross-reference flood-exposed populations with welfare beneficiary lists for targeted disaster preparedness support.");
+    bullets.push("Prioritise evacuation route planning and early warning systems in areas with high flood isolation risk.");
+    bullets.push("Cross-reference flood-exposed populations with welfare beneficiary lists for targeted disaster preparedness.");
   }
   if (hasEducationData) {
-    bullets.push("Use the school coverage and nearest-school-distance metrics to identify underserved areas and plan new education infrastructure.");
-    bullets.push("Target school feeding and retention programmes in TAs with the lowest education summary scores.");
+    bullets.push("Address school access gaps in underserved TAs using nearest-school-distance and coverage metrics.");
+    bullets.push("Strengthen school retention programmes in TAs with lower education summary scores.");
   }
   if (hasHealthData) {
-    bullets.push("Prioritise health facility upgrades and mobile clinic deployment in TAs with the longest travel times or lowest coverage.");
-    bullets.push("Use 2SFCA access scores to allocate resources where health service gaps are widest.");
+    bullets.push("Upgrade health facilities and deploy mobile clinics in TAs with the longest travel times or lowest 2SFCA access scores.");
+    bullets.push("Allocate resources to bridge health service gaps identified in the coverage analysis.");
   }
   if (hasWelfareData) {
-    bullets.push("Combine vulnerability scores with education and health metrics to design integrated multi-sector interventions.");
+    bullets.push("Design multi-sector interventions by combining vulnerability scores with education and health indicators.");
+  }
+  if (hasPopulationData) {
+    bullets.push("Use population density and age distribution data to inform infrastructure and service planning.");
   }
   if (!bullets.length) {
-    bullets.push("Review the available district metrics to identify priority areas for intervention.");
+    bullets.push("Review available district metrics and identify priority areas for intervention.");
     bullets.push("Compare education, health, and welfare indicators across TAs to guide resource allocation.");
-    bullets.push("Schedule the next ETL pipeline run to refresh data and update these insights.");
+    if (!hasAnyData) {
+      bullets.push("Run the ETL pipeline to load district data and generate actionable insights.");
+    }
   }
 
-  const sections = [`## ${mode === "report" ? "Report Draft" : "Planning Response"}`];
-  sections.push(normalizeText(query) ? `Question: ${normalizeText(query)}` : "Question: General planning guidance requested.");
-
-  if (analysisBlock) {
-    sections.push("");
-    sections.push("## Data from Database");
-    sections.push(analysisBlock);
-  }
-
-  if (evidence) {
-    sections.push("");
-    sections.push("## Planning Documents");
-    sections.push(evidence);
-  } else if (!analysisBlock) {
-    sections.push("");
-    sections.push("## Evidence");
-    sections.push("No data was found in the database for this query. Try asking about education, health, welfare, or disaster metrics for a specific district.");
-  }
-
-  if (dataBullets.length) {
-    sections.push("");
-    sections.push("## Summary");
-    sections.push(...dataBullets);
-  }
-
-  sections.push("");
-  sections.push("## Recommended Actions");
   bullets.forEach((b, i) => sections.push(`${i + 1}. ${b}`));
+
+  if (hasAnyData && !hasGenericInfo && !hasPopulationData && !hasFloodData && !hasEducationData && !hasHealthData && !hasWelfareData) {
+    sections.push("");
+    sections.push("The database contains planning records but none matched your query. Try refining your question.");
+  }
 
   return sections.join("\n");
 }
@@ -1981,38 +2056,19 @@ async function fetchAnalysisData(context, query = "") {
       const ar = await db.query("SELECT DISTINCT analysis_type FROM analysis_results ORDER BY analysis_type LIMIT 50");
       if (ar.rows.length) {
         const types = ar.rows.map((r) => r.analysis_type).join(", ");
-        out.push(`[DB Discovery] Available analysis types in database: ${types}`);
-        ar.rows.forEach((r) => out.push(`[DB Discovery] Found analysis type: ${r.analysis_type}`));
+        out.push(`Available analysis data in the system: ${types}`);
       } else {
-        out.push("[DB Discovery] The analysis_results table exists but has NO data.");
+        out.push("The analysis database has no data loaded yet. Run the ETL pipeline first.");
       }
     } catch (e) {
-      out.push(`[DB Discovery] Could not query analysis_results: ${e.message}`);
+      out.push(`Could not access analysis results table: ${e.message}`);
       console.error(`${logTag} discovery query error:`, e.message);
     }
     try {
-      const ui = await db.query("SELECT DISTINCT indicator_name FROM unified_indicators ORDER BY indicator_name LIMIT 50");
-      if (ui.rows.length) {
-        ui.rows.forEach((r) => out.push(`[DB Discovery] Found indicator: ${r.indicator_name}`));
-      } else {
-        out.push("[DB Discovery] The unified_indicators table exists but has NO data.");
-      }
-    } catch (e) {
-      out.push(`[DB Discovery] Could not query unified_indicators: ${e.message}`);
-      console.error(`${logTag} discovery unified_indicators error:`, e.message);
-    }
-    try {
-      const admin = await db.query("SELECT DISTINCT admin_unit_name FROM analysis_results ORDER BY admin_unit_name LIMIT 20");
+      const admin = await db.query("SELECT DISTINCT admin_unit_name FROM analysis_results ORDER BY admin_unit_name LIMIT 30");
       if (admin.rows.length) {
-        admin.rows.forEach((r) => out.push(`[DB Discovery] Admin unit in DB: ${r.admin_unit_name}`));
-      }
-    } catch (e) {
-      void e;
-    }
-    try {
-      const geo = await db.query("SELECT DISTINCT geographic_name FROM unified_indicators ORDER BY geographic_name LIMIT 20");
-      if (geo.rows.length) {
-        geo.rows.forEach((r) => out.push(`[DB Discovery] Geographic name in DB: ${r.geographic_name}`));
+        const names = admin.rows.map((r) => r.admin_unit_name).join(", ");
+        out.push(`Districts available in the database: ${names}`);
       }
     } catch (e) {
       void e;
@@ -2027,8 +2083,8 @@ async function fetchAnalysisData(context, query = "") {
     if (arResults.length === 0 && analysisTypes.length > 0) {
       const arAll = await queryAnalysis(analysisTypes, null);
       if (arAll.length > 0) {
-        results.push(`[Info] Found ${arAll.length} result(s) without district filter (none matched "${district}").`);
-        results.push(...arAll.slice(0, 30));
+        results.push(`No exact match found for "${district}" — showing data for all available districts instead.`);
+        results.push(...arAll.slice(0, 40));
       }
     }
 
@@ -2038,7 +2094,7 @@ async function fetchAnalysisData(context, query = "") {
     if (indResults.length === 0) {
       const indAll = await queryIndicators(null);
       if (indAll.length > 0) {
-        results.push(`[Info] Found ${indAll.length} indicator(s) without district filter (none matched "${district}").`);
+        results.push(`No demographic indicators found for "${district}" — showing data for all available areas instead.`);
         results.push(...indAll.slice(0, 20));
       }
     }
