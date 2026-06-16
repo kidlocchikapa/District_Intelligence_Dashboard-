@@ -50,6 +50,8 @@ The current implementation is designed around Zomba and Zomba City, with a struc
 - Social welfare analytics for beneficiary distribution and service-intersection planning
 - Disaster-risk analytics for exposed population, flood-affected schools, health facilities, and risk recommendations
 - Integrated recommendations with metric preview modals for transparent evidence
+- RAG-backed AI planner with cited sources, metric-specific insights, and report drafting
+- Planning document ingestion for district policies, case notes, and best-practice guidance
 - PDF/report export support for selected analysis areas
 - Swagger/OpenAPI documentation for backend routes
 - Docker-based local development environment with frontend, backend, and PostGIS database
@@ -214,7 +216,8 @@ npm start     # Start in normal Node mode
 4. Click a TA on the map or chart to focus the dashboard
 5. Use chart filters, sorting, and search to narrow analysis
 6. Open recommendation metric previews to inspect evidence records
-7. Export area analysis when needed
+7. Click Ask AI from a recommendation or metric preview to generate cited planning guidance
+8. Export area analysis or AI-written report sections when needed
 
 ---
 
@@ -237,6 +240,15 @@ Create `.env` from `.env.example` and configure values for your environment.
 | `JWT_EXPIRES_IN` | JWT expiry duration | `1d` |
 | `BCRYPT_ROUNDS` | Password hashing rounds | `12` |
 | `CORS_ALLOWED_ORIGINS` | Comma-separated frontend origins allowed by the API | `http://localhost:5173` |
+| `RAG_DOCUMENTS_DIR` | Directory of planning documents to sync during ETL runs | `sample_data/planning_docs` |
+| `AI_LLM_PROVIDER` | LLM provider for RAG answers | `openai`, `ollama`, or `hash` fallback |
+| `AI_LLM_MODEL` | LLM model name used by the AI planner | `gpt-4o-mini` |
+| `AI_EMBEDDING_PROVIDER` | Embedding provider for document/query vectors | `openai`, `ollama`, or `hash` fallback |
+| `AI_EMBEDDING_MODEL` | Embedding model name used for indexing and retrieval | `text-embedding-3-small` |
+| `AI_LLM_TIMEOUT_MS` | Max time allowed for LLM generation | `4000` |
+| `AI_EMBEDDING_TIMEOUT_MS` | Max time allowed for embedding generation | `2500` |
+| `OPENAI_API_KEY` | Optional OpenAI API key for hosted models | `sk-...` |
+| `OLLAMA_BASE_URL` | Optional Ollama server URL | `http://localhost:11434` |
 
 ---
 
@@ -254,6 +266,20 @@ The OpenAPI JSON specification is available at:
 http://localhost:5000/api-docs.json
 ```
 
+### AI endpoints
+
+The planning assistant adds these authenticated routes:
+
+| Method | Route | Purpose |
+|---|---|---|
+| `POST` | `/api/ai/query` | Ask a natural language planning question with district/TA context |
+| `POST` | `/api/ai/recommendations` | Generate context-aware recommendations from retrieved evidence |
+| `POST` | `/api/ai/insights/:metricId` | Generate metric-specific planning insights |
+| `POST` | `/api/ai/report` | Draft AI-written report sections for export |
+| `POST` | `/api/ai/documents/upload` | Upload and index a planning document |
+| `POST` | `/api/ai/documents` | Create or update a planning document from raw content |
+| `GET` | `/api/ai/documents/:documentId` | Inspect a stored planning document and its indexed chunks |
+
 ---
 
 ## Data and Spatial Processing
@@ -267,6 +293,8 @@ The dashboard relies on a PostGIS-enabled spatial database and Python ETL script
 - Generate raster previews for browser-based map display
 - Link flood exposure with population, schools, health facilities, and welfare indicators
 - Generate TA-level and district-level summaries for planning dashboards
+- Sync planning documents and RAG chunks into PostgreSQL for AI retrieval
+- Support optional pgvector-backed similarity search when the extension is available
 
 **Key ETL files:**
 
@@ -280,6 +308,7 @@ The dashboard relies on a PostGIS-enabled spatial database and Python ETL script
 | `etl/flood_exposure.py` | Flood exposure analysis |
 | `etl/health_access.py` | Health access analysis |
 | `etl/welfare.py` | Welfare integration processing |
+| `etl/rag_index.py` | Planning document ingestion and RAG sync |
 | `scripts/generate_worldpop_preview.py` | Raster preview utility |
 
 ---

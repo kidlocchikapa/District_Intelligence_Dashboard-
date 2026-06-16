@@ -1,10 +1,11 @@
-import { ShieldAlert, Users2, Menu, X, ChevronLeft, ChevronRight, LogIn, LogOut, GraduationCap, Activity, UserCheck, LayoutDashboard, Database, KeyRound } from 'lucide-react';
+import { ShieldAlert, Users2, Menu, X, ChevronLeft, ChevronRight, LogIn, LogOut, GraduationCap, Activity, UserCheck, LayoutDashboard, Database, KeyRound, Bot } from 'lucide-react';
 import { useState, useEffect } from 'react';
 import { NavLink, Navigate, Route, Routes, useNavigate } from 'react-router-dom';
 import { Toaster } from 'react-hot-toast';
 import { setAuthToken, hydrateAuthToken, AUTH_EVENT_NAME } from './lib/api';
 import Login from './Login';
 import { useDistrict } from './context/DistrictContext';
+import { useAIPlanner } from './context/AIPlannerContext';
 import AdminPage from './Pages/AdminPage';
 import SuperAdminPage from './Pages/SuperAdminPage';
 import DisasterPage from './Pages/DisasterPage';
@@ -16,6 +17,7 @@ import WelfarePage from './Pages/WelfarePage';
 import SuperAdminLayout from './layouts/SuperAdminLayout';
 import PermissionsPage from './Pages/PermissionsPage';
 import ChangePasswordModal from './components/ChangePasswordModal';
+import AIPlanner from './components/AIPlanner';
 
 const navigation = [
   { to: '/', label: 'Overview', icon: LayoutDashboard },
@@ -43,6 +45,7 @@ function App() {
   const [isAuthenticated, setIsAuthenticated] = useState(() => Boolean(hydrateAuthToken()));
   const [userRole, setUserRole] = useState(() => decodeJwtRole(hydrateAuthToken()));
   const { selectedDistrict } = useDistrict();
+  const { openAIPlanner } = useAIPlanner();
   const navigate = useNavigate();
 
   const isSuperAdmin = isAuthenticated && userRole === 'super_admin';
@@ -89,6 +92,20 @@ function App() {
     }
     setIsMobileMenuOpen(false);
     navigate('/login');
+  }
+
+  function handleOpenAIPlanner() {
+    const scopeLabel = selectedDistrict || 'All districts';
+    openAIPlanner({
+      mode: 'recommendations',
+      title: 'Planning assistant',
+      query: `What interventions work best for ${scopeLabel === 'All districts' ? 'this area' : scopeLabel}?`,
+      context: {
+        district: selectedDistrict || '',
+        scopeLabel,
+      },
+      sourceTitle: scopeLabel,
+    });
   }
 
   const isCompactSidebar = isCollapsed && !isMobileMenuOpen;
@@ -284,6 +301,19 @@ function App() {
               isOpen={isAuthenticated && isChangePasswordOpen}
               onClose={() => setIsChangePasswordOpen(false)}
             />
+
+            {isAuthenticated ? (
+              <button
+                type="button"
+                onClick={handleOpenAIPlanner}
+                className="fixed bottom-4 right-4 z-[90] inline-flex items-center gap-2 rounded-full bg-slate-900 px-4 py-3 text-sm font-bold text-white shadow-2xl shadow-slate-900/20 transition hover:bg-slate-800 active:scale-[0.98] lg:bottom-6 lg:right-6"
+              >
+                <Bot size={18} />
+                Ask AI
+              </button>
+            ) : null}
+
+            <AIPlanner />
           </div>
         } />
       </Routes>

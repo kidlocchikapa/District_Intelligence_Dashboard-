@@ -1,5 +1,6 @@
-import { ArrowRight, ChevronDown, ChevronUp, Circle } from "lucide-react";
+import { ArrowRight, ChevronDown, Circle, Sparkles } from "lucide-react";
 import { useMemo, useState } from "react";
+import { useAIPlanner } from "../context/AIPlannerContext";
 
 const PRIORITY_ORDER = ["high", "medium", "low"];
 
@@ -26,6 +27,7 @@ function InteractiveRecommendations({
   recommendations = [],
   priorityConfig = {},
 }) {
+  const { openAIPlanner } = useAIPlanner();
   const [activePriority, setActivePriority] = useState("all");
   const [expandedIds, setExpandedIds] = useState([]);
 
@@ -209,6 +211,24 @@ function InteractiveRecommendations({
                       <p className="text-[11px] font-bold uppercase tracking-wide text-gray-500">
                         {rec.action}
                       </p>
+                    </div>
+
+                    <div className="mt-3 flex flex-wrap items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() =>
+                          openAIPlanner({
+                            mode: "recommendations",
+                            title: rec.title,
+                            query: `How should planners respond to ${rec.title}? ${String(rec.action || rec.body || "").trim()}`.trim(),
+                            sourceTitle: rec.title,
+                          })
+                        }
+                        className="inline-flex items-center gap-2 rounded-full border border-gray-200 bg-gray-900 px-4 py-2 text-xs font-bold text-white transition hover:bg-gray-800"
+                      >
+                        <Sparkles className="h-3.5 w-3.5" />
+                        Ask AI
+                      </button>
                     </div>
 
                     {Array.isArray(rec.metricLinks) && rec.metricLinks.length ? (

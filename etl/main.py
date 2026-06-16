@@ -17,6 +17,7 @@ from health_access import (
     process_health_access_visualizations,
 )
 from ingest import extract_source, load_reference_gazetteer
+from rag_index import sync_planning_documents
 from load import (
     assign_ward_ids,
     fetch_admin_unit_lookup,
@@ -977,6 +978,11 @@ def main():
         choices=['flag', 'exclude', 'impute'],
         help='How to treat incomplete records',
     )
+    parser.add_argument(
+        '--rag-docs-dir',
+        default=os.getenv('RAG_DOCUMENTS_DIR', 'sample_data/planning_docs'),
+        help='Directory containing planning documents to index into the RAG store',
+    )
 
     args = parser.parse_args()
     session = run_step(
@@ -1204,6 +1210,29 @@ def main():
                     facility_types=['school'] if args.type == 'education' else ['health'],
                     strict=False,
                 )
+
+        project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+        rag_docs_dir = None
+        if args.rag_docs_dir:
+            rag_docs_dir = (
+                os.path.abspath(args.rag_docs_dir)
+                if os.path.isabs(args.rag_docs_dir)
+                else os.path.abspath(os.path.join(project_root, args.rag_docs_dir))
+            )
+        if rag_docs_dir and os.path.exists(rag_docs_dir):
+            run_step(
+                step_name='sync_planning_documents',
+                user_message_on_error='Planning documents could not be indexed into the RAG store.',
+                fn=sync_planning_documents,
+                session=session,
+                source_dir=rag_docs_dir,
+                source_type='etl',
+                uploaded_by_user_id=None,
+                default_metadata={
+                    'source_dataset': args.type,
+                    'source_file': os.path.basename(args.file) if args.file else None,
+                },
+            )
 
         print(
             'ETL completed successfully: '

@@ -83,6 +83,7 @@ const adminRoutes = require("./routes/admin");
 const adminDataRoutes = require("./routes/adminData");
 const globalAdminDataRoutes = require("./routes/globalAdminData");
 const welfareRoutes = require("./routes/welfare");
+const aiRoutes = require("./routes/ai");
 
 // Register Routes
 app.use("/api/v1/auth", authRoutes);
@@ -95,6 +96,8 @@ app.use("/api/v1/admin", adminRoutes);
 app.use("/api/v1/admin-data", adminDataRoutes);
 app.use("/api/v1/admin-data/global", globalAdminDataRoutes);
 app.use("/api/v1/dashboard/welfare", welfareRoutes);
+app.use("/api/ai", aiRoutes);
+app.use("/api/v1/ai", aiRoutes);
 
 // Basic Routes
 /**

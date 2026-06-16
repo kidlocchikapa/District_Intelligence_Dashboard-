@@ -399,6 +399,66 @@ CREATE TABLE IF NOT EXISTS users (
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
+CREATE TABLE IF NOT EXISTS planning_documents (
+    id SERIAL PRIMARY KEY,
+    source_key TEXT NOT NULL UNIQUE,
+    title TEXT NOT NULL,
+    document_type VARCHAR(100) NOT NULL DEFAULT 'planning_document',
+    source_type VARCHAR(50) NOT NULL DEFAULT 'file',
+    source_path TEXT,
+    source_url TEXT,
+    source_filename TEXT,
+    district_scope VARCHAR(255),
+    ta_scope VARCHAR(255),
+    department_scope VARCHAR(100),
+    summary TEXT,
+    content TEXT,
+    checksum VARCHAR(128),
+    metadata JSONB DEFAULT '{}'::jsonb,
+    uploaded_by_user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS planning_document_chunks (
+    id SERIAL PRIMARY KEY,
+    document_id INTEGER NOT NULL REFERENCES planning_documents(id) ON DELETE CASCADE,
+    chunk_index INTEGER NOT NULL,
+    chunk_title TEXT,
+    chunk_text TEXT NOT NULL,
+    chunk_summary TEXT,
+    citation_label TEXT,
+    source_path TEXT,
+    source_url TEXT,
+    page_number INTEGER,
+    section_heading TEXT,
+    embedding JSONB NOT NULL,
+    metadata JSONB DEFAULT '{}'::jsonb,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE (document_id, chunk_index)
+);
+
+CREATE TABLE IF NOT EXISTS ai_query_logs (
+    id SERIAL PRIMARY KEY,
+    user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+    query_type VARCHAR(50) NOT NULL,
+    query_text TEXT NOT NULL,
+    district_name VARCHAR(255),
+    ta_name VARCHAR(255),
+    metric_id VARCHAR(150),
+    metric_label VARCHAR(255),
+    query_context JSONB DEFAULT '{}'::jsonb,
+    response_text TEXT,
+    response_json JSONB DEFAULT '{}'::jsonb,
+    retrieval_count INTEGER DEFAULT 0,
+    sources_count INTEGER DEFAULT 0,
+    latency_ms INTEGER,
+    status VARCHAR(50) NOT NULL DEFAULT 'success',
+    error_message TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
 CREATE TABLE IF NOT EXISTS user_department_permissions (
     id SERIAL PRIMARY KEY,
     user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -413,6 +473,12 @@ CREATE TABLE IF NOT EXISTS user_department_permissions (
 
 CREATE INDEX IF NOT EXISTS idx_users_role ON users(role);
 CREATE INDEX IF NOT EXISTS idx_users_is_active ON users(is_active);
+CREATE INDEX IF NOT EXISTS idx_planning_documents_source_key ON planning_documents(source_key);
+CREATE INDEX IF NOT EXISTS idx_planning_documents_scope ON planning_documents(department_scope, district_scope, ta_scope);
+CREATE INDEX IF NOT EXISTS idx_planning_document_chunks_document_id ON planning_document_chunks(document_id, chunk_index);
+CREATE INDEX IF NOT EXISTS idx_planning_document_chunks_created_at ON planning_document_chunks(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_ai_query_logs_user_created_at ON ai_query_logs(user_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_ai_query_logs_type_created_at ON ai_query_logs(query_type, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_user_department_permissions_user_id ON user_department_permissions(user_id);
 CREATE INDEX IF NOT EXISTS idx_user_department_permissions_department ON user_department_permissions(department);
 

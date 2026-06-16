@@ -81,6 +81,14 @@ export function hydrateAuthToken() {
   return token;
 }
 
+export function hasAuthToken() {
+  if (typeof window === "undefined") {
+    return false;
+  }
+
+  return Boolean(localStorage.getItem("district_token"));
+}
+
 export async function fetchJson(path, config) {
   const response = await api.get(path, config);
   return response.data?.data ?? response.data;
