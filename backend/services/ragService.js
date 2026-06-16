@@ -1908,72 +1908,149 @@ function offTopicResponse() {
 
 async function fetchAnalysisData(context, query = "") {
   const results = [];
+  const district = context?.district || null;
+  const department = context?.department || null;
+  const queryTopic = classifyQuery(query) || department;
+  const logTag = `[fetchAnalysisData district=${district || "none"} topic=${queryTopic || "all"}]`;
+
+  const ALL_ANALYSIS_TYPES = [
+    "education_summary", "nearest_school_distance", "school_service_coverage",
+    "school_population_buffer", "education_welfare_vulnerability",
+    "education_flood_isolation", "school_capacity_risk",
+    "health_summary", "nearest_health_distance", "health_service_coverage",
+    "health_population_served", "health_2sfca_access",
+  ];
+
+  let analysisTypes = ALL_ANALYSIS_TYPES;
+  if (queryTopic === "education") {
+    analysisTypes = ["education_summary", "nearest_school_distance", "school_service_coverage", "school_population_buffer", "education_welfare_vulnerability", "education_flood_isolation", "school_capacity_risk"];
+  } else if (queryTopic === "health") {
+    analysisTypes = ["health_summary", "nearest_health_distance", "health_service_coverage", "health_population_served", "health_2sfca_access"];
+  } else if (queryTopic === "welfare") {
+    analysisTypes = ["education_welfare_vulnerability", "health_welfare_vulnerability"];
+  } else if (queryTopic === "disaster") {
+    analysisTypes = ["education_flood_isolation", "health_flood_isolation"];
+  }
+
+  async function queryAnalysis(aTypes, dist) {
+    const out = [];
+    try {
+      const ph = aTypes.map((_, i) => `$${i + 1}`).join(",");
+      const p = [...aTypes];
+      let sf = "";
+      if (dist) {
+        sf = ` AND (LOWER(admin_unit_name) LIKE LOWER($${p.length + 1}) OR LOWER(admin_unit_name) LIKE '%' || LOWER($${p.length + 1}) || '%')`;
+        p.push(`%${dist}%`);
+      }
+      const q = `SELECT analysis_type, admin_unit_type, admin_unit_name, metric_name, metric_value, unit, calculated_at FROM analysis_results WHERE analysis_type IN (${ph})${sf} ORDER BY calculated_at DESC LIMIT 120`;
+      const r = await db.query(q, p);
+      for (const row of r.rows) {
+        out.push(`[Analysis] ${row.analysis_type} | ${row.admin_unit_type}: ${row.admin_unit_name} — ${row.metric_name}: ${row.metric_value}${row.unit ? " " + row.unit : ""} (as of ${row.calculated_at ? new Date(row.calculated_at).toISOString().split("T")[0] : "unknown"})`);
+      }
+    } catch (e) {
+      console.error(`${logTag} analysis query error:`, e.message);
+    }
+    return out;
+  }
+
+  async function queryIndicators(dist) {
+    const out = [];
+    try {
+      const types = ["population_total", "population_density", "school_age_population_total", "child_population_total"];
+      const ph = types.map((_, i) => `$${i + 1}`).join(",");
+      const p = [...types];
+      let sf = "";
+      if (dist) {
+        sf = ` AND (LOWER(geographic_name) LIKE LOWER($${p.length + 1}) OR LOWER(geographic_name) LIKE '%' || LOWER($${p.length + 1}) || '%')`;
+        p.push(`%${dist}%`);
+      }
+      const q = `SELECT indicator_name, geographic_level, geographic_name, metric_value, unit, source_date FROM unified_indicators WHERE indicator_name IN (${ph})${sf} ORDER BY source_date DESC LIMIT 60`;
+      const r = await db.query(q, p);
+      for (const row of r.rows) {
+        out.push(`[Indicator] ${row.indicator_name} | ${row.geographic_level}: ${row.geographic_name} — ${row.metric_value}${row.unit ? " " + row.unit : ""} (as of ${row.source_date ? new Date(row.source_date).toISOString().split("T")[0] : "unknown"})`);
+      }
+    } catch (e) {
+      console.error(`${logTag} indicator query error:`, e.message);
+    }
+    return out;
+  }
+
+  async function discoverAnyData() {
+    const out = [];
+    try {
+      const ar = await db.query("SELECT DISTINCT analysis_type FROM analysis_results ORDER BY analysis_type LIMIT 50");
+      if (ar.rows.length) {
+        const types = ar.rows.map((r) => r.analysis_type).join(", ");
+        out.push(`[DB Discovery] Available analysis types in database: ${types}`);
+        ar.rows.forEach((r) => out.push(`[DB Discovery] Found analysis type: ${r.analysis_type}`));
+      } else {
+        out.push("[DB Discovery] The analysis_results table exists but has NO data.");
+      }
+    } catch (e) {
+      out.push(`[DB Discovery] Could not query analysis_results: ${e.message}`);
+      console.error(`${logTag} discovery query error:`, e.message);
+    }
+    try {
+      const ui = await db.query("SELECT DISTINCT indicator_name FROM unified_indicators ORDER BY indicator_name LIMIT 50");
+      if (ui.rows.length) {
+        ui.rows.forEach((r) => out.push(`[DB Discovery] Found indicator: ${r.indicator_name}`));
+      } else {
+        out.push("[DB Discovery] The unified_indicators table exists but has NO data.");
+      }
+    } catch (e) {
+      out.push(`[DB Discovery] Could not query unified_indicators: ${e.message}`);
+      console.error(`${logTag} discovery unified_indicators error:`, e.message);
+    }
+    try {
+      const admin = await db.query("SELECT DISTINCT admin_unit_name FROM analysis_results ORDER BY admin_unit_name LIMIT 20");
+      if (admin.rows.length) {
+        admin.rows.forEach((r) => out.push(`[DB Discovery] Admin unit in DB: ${r.admin_unit_name}`));
+      }
+    } catch (e) {
+      void e;
+    }
+    try {
+      const geo = await db.query("SELECT DISTINCT geographic_name FROM unified_indicators ORDER BY geographic_name LIMIT 20");
+      if (geo.rows.length) {
+        geo.rows.forEach((r) => out.push(`[DB Discovery] Geographic name in DB: ${r.geographic_name}`));
+      }
+    } catch (e) {
+      void e;
+    }
+    return out;
+  }
+
   try {
-    const district = context?.district || null;
-    const department = context?.department || null;
-    const queryTopic = classifyQuery(query) || department;
+    const arResults = await queryAnalysis(analysisTypes, district);
+    results.push(...arResults);
 
-    const ALL_ANALYSIS_TYPES = [
-      "education_summary", "nearest_school_distance", "school_service_coverage",
-      "school_population_buffer", "education_welfare_vulnerability",
-      "education_flood_isolation", "school_capacity_risk",
-      "health_summary", "nearest_health_distance", "health_service_coverage",
-      "health_population_served", "health_2sfca_access",
-    ];
-
-    let analysisTypes = ALL_ANALYSIS_TYPES;
-
-    if (queryTopic === "education") {
-      analysisTypes = ["education_summary", "nearest_school_distance", "school_service_coverage", "school_population_buffer", "education_welfare_vulnerability", "education_flood_isolation", "school_capacity_risk"];
-    } else if (queryTopic === "health") {
-      analysisTypes = ["health_summary", "nearest_health_distance", "health_service_coverage", "health_population_served", "health_2sfca_access"];
-    } else if (queryTopic === "welfare") {
-      analysisTypes = ["education_welfare_vulnerability", "health_welfare_vulnerability"];
-    } else if (queryTopic === "disaster") {
-      analysisTypes = ["education_flood_isolation", "health_flood_isolation"];
+    if (arResults.length === 0 && analysisTypes.length > 0) {
+      const arAll = await queryAnalysis(analysisTypes, null);
+      if (arAll.length > 0) {
+        results.push(`[Info] Found ${arAll.length} result(s) without district filter (none matched "${district}").`);
+        results.push(...arAll.slice(0, 30));
+      }
     }
 
-    const placeholders = analysisTypes.map((_, i) => `$${i + 1}`).join(",");
-    const params = [...analysisTypes];
-    let scopeFilter = "";
-    if (district) {
-      scopeFilter = ` AND (LOWER(admin_unit_name) LIKE LOWER($${params.length + 1}) OR LOWER(admin_unit_name) LIKE '%' || LOWER($${params.length + 1}) || '%')`;
-      params.push(`%${district}%`);
-    }
-    const arQuery = `
-      SELECT analysis_type, admin_unit_type, admin_unit_name, metric_name, metric_value, unit, calculated_at
-      FROM analysis_results
-      WHERE analysis_type IN (${placeholders})${scopeFilter}
-      ORDER BY calculated_at DESC
-      LIMIT 120
-    `;
-    const arResult = await db.query(arQuery, params);
-    for (const row of arResult.rows) {
-      results.push(`[Analysis] ${row.analysis_type} | ${row.admin_unit_type}: ${row.admin_unit_name} — ${row.metric_name}: ${row.metric_value}${row.unit ? " " + row.unit : ""} (as of ${row.calculated_at ? new Date(row.calculated_at).toISOString().split("T")[0] : "unknown"})`);
+    const indResults = await queryIndicators(district);
+    results.push(...indResults);
+
+    if (indResults.length === 0) {
+      const indAll = await queryIndicators(null);
+      if (indAll.length > 0) {
+        results.push(`[Info] Found ${indAll.length} indicator(s) without district filter (none matched "${district}").`);
+        results.push(...indAll.slice(0, 20));
+      }
     }
 
-    const indicatorTypes = ["population_total", "population_density", "school_age_population_total", "child_population_total"];
-    const indicatorPlaceholders = indicatorTypes.map((_, i) => `$${i + 1}`).join(",");
-    const indicatorParams = [...indicatorTypes];
-    let indicatorScopeFilter = "";
-    if (district) {
-      indicatorScopeFilter = ` AND (LOWER(geographic_name) LIKE LOWER($${indicatorParams.length + 1}) OR LOWER(geographic_name) LIKE '%' || LOWER($${indicatorParams.length + 1}) || '%')`;
-      indicatorParams.push(`%${district}%`);
-    }
-    const uiQuery = `
-      SELECT indicator_name, geographic_level, geographic_name, metric_value, unit, source_date
-      FROM unified_indicators
-      WHERE indicator_name IN (${indicatorPlaceholders})${indicatorScopeFilter}
-      ORDER BY source_date DESC
-      LIMIT 60
-    `;
-    const uiResult = await db.query(uiQuery, indicatorParams);
-    for (const row of uiResult.rows) {
-      results.push(`[Indicator] ${row.indicator_name} | ${row.geographic_level}: ${row.geographic_name} — ${row.metric_value}${row.unit ? " " + row.unit : ""} (as of ${row.source_date ? new Date(row.source_date).toISOString().split("T")[0] : "unknown"})`);
+    if (results.length === 0) {
+      const discovery = await discoverAnyData();
+      results.push(...discovery);
     }
   } catch (error) {
-    void error;
+    console.error(`${logTag} unexpected error:`, error);
   }
+
   return results;
 }
 
