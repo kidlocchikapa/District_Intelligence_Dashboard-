@@ -1690,24 +1690,84 @@ function buildFallbackAnswer({ mode, query, retrievedDocuments, analysisData = [
           return `${citation}: ${excerpt}`;
         })
         .join("\n")
-    : "No relevant planning documents were retrieved.";
+    : null;
 
-  const analysisBlock = analysisData.length ? `\n\n## Live Analysis Data\n${analysisData.join("\n")}` : "";
+  const analysisBlock = analysisData.length ? analysisData.join("\n") : null;
 
-  const bullets = buildFallbackRecommendations(retrievedDocuments, query, mode)
-    .split("\n")
-    .filter(Boolean);
+  const dataBullets = [];
+  const grouped = {};
+  for (const line of analysisData) {
+    const typeMatch = line.match(/^\[(\w+)\]\s+(.+?)\s*\|/);
+    if (typeMatch) {
+      const category = typeMatch[1];
+      if (!grouped[category]) grouped[category] = [];
+      grouped[category].push(line);
+    }
+  }
 
-  return [
-    `## ${mode === "report" ? "Report Draft" : "Planning Response"}`,
-    normalizeText(query) ? `Question: ${normalizeText(query)}` : "Question: General planning guidance requested.",
-    "",
-    "## Evidence",
-    evidence + analysisBlock,
-    "",
-    "## Recommended Actions",
-    ...bullets.filter((line) => /^\d+\.\s/.test(line) || /^-\s/.test(line)),
-  ].join("\n");
+  if (analysisData.length > 0) {
+    for (const [category, lines] of Object.entries(grouped)) {
+      dataBullets.push(`**${category} data** — ${lines.length} record(s) found.`);
+    }
+  }
+
+  const hasFloodData = analysisData.some((l) => /flood/i.test(l));
+  const hasEducationData = analysisData.some((l) => /education|school/i.test(l));
+  const hasHealthData = analysisData.some((l) => /health/i.test(l));
+  const hasWelfareData = analysisData.some((l) => /welfare|vulnerability/i.test(l));
+
+  const bullets = [];
+  if (hasFloodData) {
+    bullets.push("Review the flood isolation metrics above to identify TAs with the highest flood risk and prioritise evacuation route planning.");
+    bullets.push("Cross-reference flood-exposed populations with welfare beneficiary lists for targeted disaster preparedness support.");
+  }
+  if (hasEducationData) {
+    bullets.push("Use the school coverage and nearest-school-distance metrics to identify underserved areas and plan new education infrastructure.");
+    bullets.push("Target school feeding and retention programmes in TAs with the lowest education summary scores.");
+  }
+  if (hasHealthData) {
+    bullets.push("Prioritise health facility upgrades and mobile clinic deployment in TAs with the longest travel times or lowest coverage.");
+    bullets.push("Use 2SFCA access scores to allocate resources where health service gaps are widest.");
+  }
+  if (hasWelfareData) {
+    bullets.push("Combine vulnerability scores with education and health metrics to design integrated multi-sector interventions.");
+  }
+  if (!bullets.length) {
+    bullets.push("Review the available district metrics to identify priority areas for intervention.");
+    bullets.push("Compare education, health, and welfare indicators across TAs to guide resource allocation.");
+    bullets.push("Schedule the next ETL pipeline run to refresh data and update these insights.");
+  }
+
+  const sections = [`## ${mode === "report" ? "Report Draft" : "Planning Response"}`];
+  sections.push(normalizeText(query) ? `Question: ${normalizeText(query)}` : "Question: General planning guidance requested.");
+
+  if (analysisBlock) {
+    sections.push("");
+    sections.push("## Data from Database");
+    sections.push(analysisBlock);
+  }
+
+  if (evidence) {
+    sections.push("");
+    sections.push("## Planning Documents");
+    sections.push(evidence);
+  } else if (!analysisBlock) {
+    sections.push("");
+    sections.push("## Evidence");
+    sections.push("No data was found in the database for this query. Try asking about education, health, welfare, or disaster metrics for a specific district.");
+  }
+
+  if (dataBullets.length) {
+    sections.push("");
+    sections.push("## Summary");
+    sections.push(...dataBullets);
+  }
+
+  sections.push("");
+  sections.push("## Recommended Actions");
+  bullets.forEach((b, i) => sections.push(`${i + 1}. ${b}`));
+
+  return sections.join("\n");
 }
 
 async function logAiQuery({
@@ -1798,66 +1858,118 @@ function normalizeSources(retrievedDocuments) {
   }));
 }
 
-async function fetchAnalysisData(context) {
+function classifyQuery(query) {
+  const q = String(query || "").toLowerCase();
+  if (/\b(flood|flooding|disaster|risk|hazard|evacuation)\b/.test(q)) return "disaster";
+  if (/\b(education|school|student|learner|teacher|classroom|enrol|literacy)\b/.test(q)) return "education";
+  if (/\b(health|hospital|clinic|facility|doctor|nurse|malaria|hiv|access|travel.?time)\b/.test(q)) return "health";
+  if (/\b(welfare|beneficiary|social|poverty|vulnerable|support|cash|transfer)\b/.test(q)) return "welfare";
+  if (/\b(population|people|resident|density|demographic|census)\b/.test(q)) return "population";
+  return null;
+}
+
+const OFF_TOPIC_KEYWORDS = [
+  /\b(politics|president|trump|biden|election|vote|democrat|republican)\b/i,
+  /\b(celebrity|actor|actress|movie|film|song|singer|sport|game|team)\b/i,
+  /\b(religion|god|bible|quran|church|prayer)\b/i,
+  /\b(weather|forecast|temperature|rain|sunny|cloudy)\b/i,
+  /\b(cooking|recipe|food|diet|exercise|workout|fitness)\b/i,
+  /\b(stock|market|invest|crypto|bitcoin|money|bank)\b/i,
+  /\b(relationship|dating|marriage|love|friend)\b/i,
+  /\b(pet|dog|cat|animal)\b/i,
+];
+
+function isOffTopic(query) {
+  const q = String(query || "").trim();
+  if (q.length < 3) return false;
+  return OFF_TOPIC_KEYWORDS.some((pattern) => pattern.test(q));
+}
+
+function offTopicResponse() {
+  return [
+    "## I can only answer district-related questions.",
+    "I'm the District Intelligence planning assistant. My knowledge is limited to data stored in this dashboard:",
+    "",
+    "- **Population metrics** — totals, density, age distribution",
+    "- **Education analysis** — school coverage, nearest school distance, enrollment",
+    "- **Health analysis** — facility access, travel times, service coverage",
+    "- **Welfare analysis** — beneficiary distribution, vulnerability",
+    "- **Disaster risk** — flood exposure, isolation risk",
+    "",
+    "I don't have information about politics, celebrities, sports, weather, or general knowledge topics.",
+    "",
+    "**Try asking something like:**",
+    '- "What is the education coverage in Zomba?"',
+    '- "Show me flood risk areas"',
+    '- "Health facility access near me"',
+    '- "Population totals by district"',
+  ].join("\n");
+}
+
+async function fetchAnalysisData(context, query = "") {
   const results = [];
   try {
     const district = context?.district || null;
     const department = context?.department || null;
+    const queryTopic = classifyQuery(query) || department;
 
-    let analysisTypes = [];
-    if (department) {
-      const dept = department.toLowerCase();
-      if (dept === "education") analysisTypes = ["education_summary", "nearest_school_distance", "school_service_coverage", "school_population_buffer", "education_welfare_vulnerability", "education_flood_isolation", "school_capacity_risk"];
-      else if (dept === "health") analysisTypes = ["health_summary", "nearest_health_distance", "health_service_coverage", "health_population_served", "health_2sfca_access"];
-      else if (dept === "welfare") analysisTypes = ["education_welfare_vulnerability", "health_welfare_vulnerability"];
-      else if (dept === "disaster") analysisTypes = ["education_flood_isolation", "health_flood_isolation"];
+    const ALL_ANALYSIS_TYPES = [
+      "education_summary", "nearest_school_distance", "school_service_coverage",
+      "school_population_buffer", "education_welfare_vulnerability",
+      "education_flood_isolation", "school_capacity_risk",
+      "health_summary", "nearest_health_distance", "health_service_coverage",
+      "health_population_served", "health_2sfca_access",
+    ];
+
+    let analysisTypes = ALL_ANALYSIS_TYPES;
+
+    if (queryTopic === "education") {
+      analysisTypes = ["education_summary", "nearest_school_distance", "school_service_coverage", "school_population_buffer", "education_welfare_vulnerability", "education_flood_isolation", "school_capacity_risk"];
+    } else if (queryTopic === "health") {
+      analysisTypes = ["health_summary", "nearest_health_distance", "health_service_coverage", "health_population_served", "health_2sfca_access"];
+    } else if (queryTopic === "welfare") {
+      analysisTypes = ["education_welfare_vulnerability", "health_welfare_vulnerability"];
+    } else if (queryTopic === "disaster") {
+      analysisTypes = ["education_flood_isolation", "health_flood_isolation"];
     }
 
-    if (analysisTypes.length) {
-      const placeholders = analysisTypes.map((_, i) => `$${i + 1}`).join(",");
-      const params = analysisTypes;
-      let scopeFilter = "";
-      if (district) {
-        scopeFilter = ` AND (LOWER(admin_unit_name) LIKE LOWER($${params.length + 1}) OR LOWER(admin_unit_name) LIKE '%' || LOWER($${params.length + 1}) || '%')`;
-        params.push(`%${district}%`);
-      }
-      const arQuery = `
-        SELECT analysis_type, admin_unit_type, admin_unit_name, metric_name, metric_value, unit, calculated_at
-        FROM analysis_results
-        WHERE analysis_type IN (${placeholders})${scopeFilter}
-        ORDER BY calculated_at DESC
-        LIMIT 80
-      `;
-      const arResult = await db.query(arQuery, params);
-      for (const row of arResult.rows) {
-        results.push(`[Analysis] ${row.analysis_type} | ${row.admin_unit_type}: ${row.admin_unit_name} — ${row.metric_name}: ${row.metric_value}${row.unit ? " " + row.unit : ""} (as of ${row.calculated_at ? new Date(row.calculated_at).toISOString().split("T")[0] : "unknown"})`);
-      }
+    const placeholders = analysisTypes.map((_, i) => `$${i + 1}`).join(",");
+    const params = [...analysisTypes];
+    let scopeFilter = "";
+    if (district) {
+      scopeFilter = ` AND (LOWER(admin_unit_name) LIKE LOWER($${params.length + 1}) OR LOWER(admin_unit_name) LIKE '%' || LOWER($${params.length + 1}) || '%')`;
+      params.push(`%${district}%`);
+    }
+    const arQuery = `
+      SELECT analysis_type, admin_unit_type, admin_unit_name, metric_name, metric_value, unit, calculated_at
+      FROM analysis_results
+      WHERE analysis_type IN (${placeholders})${scopeFilter}
+      ORDER BY calculated_at DESC
+      LIMIT 120
+    `;
+    const arResult = await db.query(arQuery, params);
+    for (const row of arResult.rows) {
+      results.push(`[Analysis] ${row.analysis_type} | ${row.admin_unit_type}: ${row.admin_unit_name} — ${row.metric_name}: ${row.metric_value}${row.unit ? " " + row.unit : ""} (as of ${row.calculated_at ? new Date(row.calculated_at).toISOString().split("T")[0] : "unknown"})`);
     }
 
-    let indicatorTypes = [];
-    if (!department || department.toLowerCase() === "education") indicatorTypes.push("school_age_population_total", "child_population_total");
-    if (!department || department.toLowerCase() === "health") indicatorTypes.push("population_total", "population_density");
-    if (!department) indicatorTypes.push("population_total", "population_density");
-
-    if (indicatorTypes.length) {
-      const placeholders = indicatorTypes.map((_, i) => `$${i + 1}`).join(",");
-      const params = indicatorTypes;
-      let scopeFilter = "";
-      if (district) {
-        scopeFilter = ` AND (LOWER(geographic_name) LIKE LOWER($${params.length + 1}) OR LOWER(geographic_name) LIKE '%' || LOWER($${params.length + 1}) || '%')`;
-        params.push(`%${district}%`);
-      }
-      const uiQuery = `
-        SELECT indicator_name, geographic_level, geographic_name, metric_value, unit, source_date
-        FROM unified_indicators
-        WHERE indicator_name IN (${placeholders})${scopeFilter}
-        ORDER BY source_date DESC
-        LIMIT 40
-      `;
-      const uiResult = await db.query(uiQuery, params);
-      for (const row of uiResult.rows) {
-        results.push(`[Indicator] ${row.indicator_name} | ${row.geographic_level}: ${row.geographic_name} — ${row.metric_value}${row.unit ? " " + row.unit : ""} (as of ${row.source_date ? new Date(row.source_date).toISOString().split("T")[0] : "unknown"})`);
-      }
+    const indicatorTypes = ["population_total", "population_density", "school_age_population_total", "child_population_total"];
+    const indicatorPlaceholders = indicatorTypes.map((_, i) => `$${i + 1}`).join(",");
+    const indicatorParams = [...indicatorTypes];
+    let indicatorScopeFilter = "";
+    if (district) {
+      indicatorScopeFilter = ` AND (LOWER(geographic_name) LIKE LOWER($${indicatorParams.length + 1}) OR LOWER(geographic_name) LIKE '%' || LOWER($${indicatorParams.length + 1}) || '%')`;
+      indicatorParams.push(`%${district}%`);
+    }
+    const uiQuery = `
+      SELECT indicator_name, geographic_level, geographic_name, metric_value, unit, source_date
+      FROM unified_indicators
+      WHERE indicator_name IN (${indicatorPlaceholders})${indicatorScopeFilter}
+      ORDER BY source_date DESC
+      LIMIT 60
+    `;
+    const uiResult = await db.query(uiQuery, indicatorParams);
+    for (const row of uiResult.rows) {
+      results.push(`[Indicator] ${row.indicator_name} | ${row.geographic_level}: ${row.geographic_name} — ${row.metric_value}${row.unit ? " " + row.unit : ""} (as of ${row.source_date ? new Date(row.source_date).toISOString().split("T")[0] : "unknown"})`);
     }
   } catch (error) {
     void error;
@@ -1892,6 +2004,28 @@ async function queryRag({
       metadata: {
         retrieval_count: 0,
         sources_count: 0,
+        analysis_count: 0,
+        fallback_used: false,
+        llm_error: null,
+      },
+    };
+  }
+
+  if (isOffTopic(query)) {
+    const answer = offTopicResponse();
+    return {
+      mode,
+      query: normalizeText(query),
+      context: normalizedContext,
+      answer,
+      bullets: [],
+      citations: [],
+      retrieved_documents: [],
+      report_sections: [],
+      metadata: {
+        retrieval_count: 0,
+        sources_count: 0,
+        analysis_count: 0,
         fallback_used: false,
         llm_error: null,
       },
@@ -1911,7 +2045,7 @@ async function queryRag({
     queryVector,
   ).slice(0, Math.max(topK, DEFAULT_TOP_K));
 
-  const analysisData = await fetchAnalysisData(normalizedContext);
+  const analysisData = await fetchAnalysisData(normalizedContext, query);
 
   let answer = "";
   let llmError = null;
