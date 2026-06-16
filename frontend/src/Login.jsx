@@ -78,7 +78,7 @@ export default function Login({ onLogin }) {
         </form>
         
         <p className="login-footer-text">
-          Having issues with signing-up? <strong>contact support</strong>
+          Having issues with signing-in? <strong>contact support</strong>
         </p>
       </div>
     </div>
