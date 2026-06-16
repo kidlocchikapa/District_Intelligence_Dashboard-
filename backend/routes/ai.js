@@ -117,8 +117,6 @@ async function respondWithAiResult(res, payload) {
  *     summary: Ask a natural language planning question
  *     tags:
  *       - AI
- *     security:
- *       - BearerAuth: []
  *     requestBody:
  *       required: true
  *       content:
@@ -129,7 +127,7 @@ async function respondWithAiResult(res, payload) {
  *       200:
  *         description: Retrieved evidence and AI response
  */
-router.post("/query", auth, async (req, res) => {
+router.post("/query", async (req, res) => {
   const { error, value } = validateAiQuery(req.body);
   if (error) {
     return res.status(400).json({ status: "error", message: error });
@@ -161,8 +159,6 @@ router.post("/query", auth, async (req, res) => {
  *     summary: Generate planning recommendations from retrieved documents
  *     tags:
  *       - AI
- *     security:
- *       - BearerAuth: []
  *     requestBody:
  *       required: true
  *       content:
@@ -173,7 +169,7 @@ router.post("/query", auth, async (req, res) => {
  *       200:
  *         description: AI recommendations
  */
-router.post("/recommendations", auth, async (req, res) => {
+router.post("/recommendations", async (req, res) => {
   const { error, value } = validateAiRecommendations(req.body);
   if (error) {
     return res.status(400).json({ status: "error", message: error });
@@ -205,8 +201,6 @@ router.post("/recommendations", auth, async (req, res) => {
  *     summary: Generate metric-specific planning insights
  *     tags:
  *       - AI
- *     security:
- *       - BearerAuth: []
  *     parameters:
  *       - in: path
  *         name: metricId
@@ -217,7 +211,7 @@ router.post("/recommendations", auth, async (req, res) => {
  *       200:
  *         description: Metric insight
  */
-router.post("/insights/:metricId", auth, async (req, res) => {
+router.post("/insights/:metricId", async (req, res) => {
   const payload = {
     ...req.body,
     metricId: req.params.metricId,
@@ -253,13 +247,11 @@ router.post("/insights/:metricId", auth, async (req, res) => {
  *     summary: Generate AI-written report sections
  *     tags:
  *       - AI
- *     security:
- *       - BearerAuth: []
  *     responses:
  *       200:
  *         description: AI report section draft
  */
-router.post("/report", auth, async (req, res) => {
+router.post("/report", async (req, res) => {
   const { error, value } = validateAiReport(req.body);
   if (error) {
     return res.status(400).json({ status: "error", message: error });
@@ -291,8 +283,6 @@ router.post("/report", auth, async (req, res) => {
  *     summary: Upload and index a planning document
  *     tags:
  *       - AI
- *     security:
- *       - BearerAuth: []
  *     requestBody:
  *       required: true
  *       content:
@@ -460,7 +450,7 @@ router.post("/documents", auth, requireGlobalAdmin, async (req, res) => {
  *       200:
  *         description: Planning document details
  */
-router.get("/documents/:documentId", auth, async (req, res) => {
+router.get("/documents/:documentId", async (req, res) => {
   const documentId = Number(req.params.documentId);
   if (!Number.isInteger(documentId) || documentId < 1) {
     return res.status(400).json({

@@ -50,7 +50,7 @@ The current implementation is designed around Zomba and Zomba City, with a struc
 - Social welfare analytics for beneficiary distribution and service-intersection planning
 - Disaster-risk analytics for exposed population, flood-affected schools, health facilities, and risk recommendations
 - Integrated recommendations with metric preview modals for transparent evidence
-- RAG-backed AI planner with cited sources, metric-specific insights, and report drafting
+- Public RAG-backed AI planner with cited sources, metric-specific insights, and report drafting
 - Planning document ingestion for district policies, case notes, and best-practice guidance
 - PDF/report export support for selected analysis areas
 - Swagger/OpenAPI documentation for backend routes
@@ -270,15 +270,15 @@ http://localhost:5000/api-docs.json
 
 The planning assistant adds these authenticated routes:
 
-| Method | Route | Purpose |
-|---|---|---|
-| `POST` | `/api/ai/query` | Ask a natural language planning question with district/TA context |
-| `POST` | `/api/ai/recommendations` | Generate context-aware recommendations from retrieved evidence |
-| `POST` | `/api/ai/insights/:metricId` | Generate metric-specific planning insights |
-| `POST` | `/api/ai/report` | Draft AI-written report sections for export |
-| `POST` | `/api/ai/documents/upload` | Upload and index a planning document |
-| `POST` | `/api/ai/documents` | Create or update a planning document from raw content |
-| `GET` | `/api/ai/documents/:documentId` | Inspect a stored planning document and its indexed chunks |
+| Method | Route | Access | Purpose |
+|---|---|---|---|
+| `POST` | `/api/ai/query` | Public | Ask a natural language planning question with district/TA context |
+| `POST` | `/api/ai/recommendations` | Public | Generate context-aware recommendations from retrieved evidence |
+| `POST` | `/api/ai/insights/:metricId` | Public | Generate metric-specific planning insights |
+| `POST` | `/api/ai/report` | Public | Draft AI-written report sections for export |
+| `GET` | `/api/ai/documents/:documentId` | Public | Inspect a stored planning document and its indexed chunks |
+| `POST` | `/api/ai/documents/upload` | Admin only | Upload and index a planning document |
+| `POST` | `/api/ai/documents` | Admin only | Create or update a planning document from raw content |
 
 ---
 

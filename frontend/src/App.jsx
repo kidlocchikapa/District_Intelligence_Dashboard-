@@ -302,16 +302,14 @@ function App() {
               onClose={() => setIsChangePasswordOpen(false)}
             />
 
-            {isAuthenticated ? (
-              <button
-                type="button"
-                onClick={handleOpenAIPlanner}
-                className="fixed bottom-4 right-4 z-[90] inline-flex items-center gap-2 rounded-full bg-slate-900 px-4 py-3 text-sm font-bold text-white shadow-2xl shadow-slate-900/20 transition hover:bg-slate-800 active:scale-[0.98] lg:bottom-6 lg:right-6"
-              >
-                <Bot size={18} />
-                Ask AI
-              </button>
-            ) : null}
+            <button
+              type="button"
+              onClick={handleOpenAIPlanner}
+              className="fixed bottom-4 right-4 z-[90] inline-flex items-center gap-2 rounded-full bg-slate-900 px-4 py-3 text-sm font-bold text-white shadow-2xl shadow-slate-900/20 transition hover:bg-slate-800 active:scale-[0.98] lg:bottom-6 lg:right-6"
+            >
+              <Bot size={18} />
+              Ask AI
+            </button>
 
             <AIPlanner />
           </div>

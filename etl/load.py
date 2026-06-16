@@ -540,6 +540,7 @@ def load_to_postgis(session, gdf, dataset_type, if_exists='append'):
     except LoadError:
         raise
     except Exception as exc:
+        session.rollback()
         raise LoadError(
             user_message=f'Failed to load {dataset_type} records into the database.',
             step_name='load_to_postgis',
@@ -689,6 +690,7 @@ def run_post_load_spatial_fk_enrichment(session, dataset_type, started_at, compl
         log_step('run_post_load_spatial_fk_enrichment', f'dataset_type={dataset_type}, updated_rows={updated_rows}')
         return {'enabled': True, 'updated_rows': updated_rows}
     except Exception as exc:
+        session.rollback()
         raise LoadError(
             user_message='Post-load spatial enrichment failed while saving updates.',
             step_name='run_post_load_spatial_fk_enrichment',
@@ -710,6 +712,7 @@ def load_unified_indicators(session, indicators_df, source_filename=None):
         working.to_sql('unified_indicators', engine, if_exists='append', index=False, dtype={'metadata': JSONB})
         return len(working)
     except Exception as exc:
+        session.rollback()
         raise LoadError(
             user_message='Could not save unified indicator records to the database.',
             step_name='load_unified_indicators',
@@ -867,6 +870,7 @@ def load_analysis_results(session, analysis_df):
         )
         return len(working)
     except Exception as exc:
+        session.rollback()
         log_step('load_analysis_results', f'error={exc}', level='error')
         if getattr(exc, 'orig', None):
             log_step('load_analysis_results', f'error_orig={exc.orig}', level='error')

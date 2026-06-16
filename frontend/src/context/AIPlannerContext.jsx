@@ -1,6 +1,5 @@
 import { createContext, useCallback, useContext, useMemo, useState } from "react";
 import { useDistrict } from "./DistrictContext";
-import { hasAuthToken } from "../lib/api";
 
 const AIPlannerContext = createContext(null);
 
@@ -22,7 +21,6 @@ export function AIPlannerProvider({ children }) {
   );
   const [plannerState, setPlannerState] = useState({
     isOpen: false,
-    authRequired: false,
     mode: "query",
     query: "",
     title: "",
@@ -44,11 +42,9 @@ export function AIPlannerProvider({ children }) {
       sourceRows = [],
       sourceTitle = "",
     } = {}) => {
-      const needsAuth = !hasAuthToken();
       setPlannerState((current) => ({
         ...current,
         isOpen: true,
-        authRequired: needsAuth,
         mode,
         query,
         title,
@@ -72,7 +68,6 @@ export function AIPlannerProvider({ children }) {
     setPlannerState((current) => ({
       ...current,
       isOpen: false,
-      authRequired: false,
     }));
   }, []);
 
@@ -100,7 +95,6 @@ export function useAIPlanner() {
     return {
       plannerState: {
         isOpen: false,
-        authRequired: false,
         mode: "query",
         query: "",
         title: "",
