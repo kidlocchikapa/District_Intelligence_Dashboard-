@@ -257,7 +257,7 @@ function App() {
                     onClick={() => setIsMobileMenuOpen(false)}
                     title={isCompactSidebar ? item.label : ''}
                     className={({ isActive }) =>
-                      `flex items-center gap-3 rounded transition-all duration-200 ${isCompactSidebar ? 'p-3 justify-center' : 'px-3 py-2.5 text-[15px]'
+                       `flex items-center gap-3 rounded transition-all duration-200 min-w-0 ${isCompactSidebar ? 'p-3 justify-center' : 'px-3 py-2.5 text-[15px]'
                       } font-semibold ${isActive
                         ? 'bg-gray-200/60 text-black shadow-sm'
                         : 'text-gray-700 hover:bg-gray-100 hover:text-black'
@@ -269,7 +269,7 @@ function App() {
                         className={`opacity-70 ${isCompactSidebar ? 'h-6 w-6' : 'h-5 w-5'}`}
                       />
                     ) : null}
-                    {!isCompactSidebar && <span>{item.label}</span>}
+                    {!isCompactSidebar && <span className="truncate whitespace-nowrap">{item.label}</span>}
                   </NavLink>
                 ))}
               </nav>
